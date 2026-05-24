@@ -37,6 +37,12 @@ export function handleEndTransaction(
     return MISSING_RESPONSE[missing[0]];
   }
 
+  // Verified Sabre check (Basic Course p.53): names must match seats sold.
+  const pax = wa.pnr.passengerCount();
+  if (wa.pnr.segments.some((s) => s.seats !== pax)) {
+    return Response.NAMES_NOT_EQUAL;
+  }
+
   const locator = ctx.pnrStore.commit(wa.pnr);
   const committed = wa.pnr;
   const agent = wa.agent;

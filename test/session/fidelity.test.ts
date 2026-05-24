@@ -46,6 +46,27 @@ describe('fidelity — workbook response formats', () => {
     expect(host.process('01Y1', wa)).toMatch(/SS1 .* \/E$/);
   });
 
+  it('rejects end transaction with the verified ticketing string', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKLAX', wa);
+    host.process('01Y1', wa);
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('9305-555-1212-H', wa);
+    host.process('6P', wa); // no ticketing field
+    expect(host.process('ER', wa)).toBe('NEED TICKETING/TIMELIMIT - USE 7 OR 8');
+  });
+
+  it('rejects when name count does not match seats sold (verified string)', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKLAX', wa);
+    host.process('02Y1', wa); // 2 seats sold from line 1
+    host.process('-SMITH/JOHN MR', wa); // only 1 passenger
+    host.process('9305-555-1212-H', wa);
+    host.process('7TAW15JUN/', wa);
+    host.process('6P', wa);
+    expect(host.process('ER', wa)).toBe('NUMBER OF NAMES NOT EQUAL TO RESERVATIONS');
+  });
+
   it('committed PNR redisplay shows the signature line with the locator', () => {
     const display = bookComplete();
     // A0UC.A0UC*4321 <time>/<date> <LOCATOR>

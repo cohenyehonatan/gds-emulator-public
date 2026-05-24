@@ -39,10 +39,15 @@ Making the happy path feel like a real GDS, within the existing architecture.
       (`A0UC.A0UC*4321 1257/24MAY26 YDTWOE`), plus the sign-in response screen
       and the `SO` / `SO*` sign-out strings — all workbook-grounded.
 - [x] Record-locator character set — all-alpha, matches `VZRAFH` / `5UXHHO`.
-- [ ] **`NEED …` end-transaction error wording** — the one open item. The
-      workbook teaches the PRINT rule but never prints the literal rejection
-      strings, so these stay reconstructed (flagged in `constants.ts`). Needs
-      Format Finder or a live screen to verify.
+- [x] **End-transaction error wording** — pinned against the *Sabre Basic
+      Course* (Ed. 1.0, p.53), captured in `references/sabre-eot-error-responses.md`.
+      `NEED PHONE FIELD - USE 9` and `NEED TICKETING/TIMELIMIT - USE 7 OR 8` are
+      verbatim; `NUMBER OF NAMES NOT EQUAL TO RESERVATIONS` is now enforced.
+      The source list has no received-from / no-names / no-itinerary message, so
+      those three stay reconstructed (flagged in `constants.ts`).
+  - [ ] Wire remaining verified strings when their features land: `NO CHANGES
+        MADE TO PNR`, simultaneous-changes (`IR`), `VERIFY ORDER OF ITINERARY
+        SEGMENTS`, infant SSR.
 - [ ] Exact itinerary column widths + next-day arrival-date rendering (the
       workbook mixes 12h/24h and spaced/concatenated carrier+flight across
       sections; current output follows the sold-segment example). Low priority.
