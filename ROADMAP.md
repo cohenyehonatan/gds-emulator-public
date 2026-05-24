@@ -68,7 +68,9 @@ Making the happy path feel like a real GDS, within the existing architecture.
       sequence (build a whole PNR in a line), halting on the first error and
       showing only the final screen state.
 - [x] `¤` change/delete behavior (see "Field change/delete key" below).
-- [ ] `¥` cross-of-Lorraine entries (glyph mapped; feature deferred).
+- [x] `¥` cross-of-Lorraine — used as the availability preferred-airline
+      separator: `1…¥AA`, multi-carrier `1…¥UADLB6`. Other `¥` separator uses
+      (e.g. fare entries) remain out of scope until those features exist.
 
 ## Richer availability & sell
 
@@ -85,7 +87,9 @@ Making the happy path feel like a real GDS, within the existing architecture.
       (45-min min-connect) when no nonstop exists; legs share a `connectionGroup`.
       Sell with `*` (full connection, same class) or explicit pairs `01Y1F2`
       (per-leg class); waitlist multi-leg supported. Seed: JFK-SFO via ORD/DEN.
-- [ ] Availability **scroll** `1*`, **return-date**, **carrier** (`¥BA`),
+- [x] **Carrier** (preferred-airline) qualifier `¥AA` / `¥UADLB6` — filters
+      nonstops and online connections (see "Keyboard & special keys").
+- [ ] Availability **scroll** `1*`, **return-date** (`1R¥15`),
       **connecting-city**, and **direct-only** (`/D`) qualifiers.
 
 ## v2 — Pricing & fares

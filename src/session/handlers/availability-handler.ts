@@ -21,6 +21,7 @@ export function handleAvailability(
   const lines = ctx.inventory.availability(entry.date.raw, dow, entry.origin, entry.destination, {
     afterMinutes,
     bookingClass: entry.bookingClass,
+    carriers: entry.carriers,
   });
 
   const result = {

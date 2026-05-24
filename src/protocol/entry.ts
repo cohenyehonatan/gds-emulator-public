@@ -23,6 +23,8 @@ export interface AvailabilityEntry extends BaseEntry {
   time?: string;
   /** Optional class-of-service qualifier ("-Y"). */
   bookingClass?: string;
+  /** Optional preferred-airline qualifier ("¥AA", "¥UADLBA" → [UA,DL,BA]). */
+  carriers?: string[];
 }
 
 /**

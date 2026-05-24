@@ -44,6 +44,8 @@ export interface AvailabilityOptions {
   afterMinutes?: number;
   /** Keep only flights with this class available (from a "-Y" qualifier). */
   bookingClass?: string;
+  /** Keep only these carriers (from a "¥AA" preferred-airline qualifier). */
+  carriers?: string[];
 }
 
 export class Inventory {
@@ -103,15 +105,17 @@ export class Inventory {
       opts.bookingClass == null || (this.seatsFor(date, f)[opts.bookingClass] ?? 0) > 0;
     const afterOk = (f: ScheduledFlight) =>
       opts.afterMinutes == null || this.depMin(f) >= opts.afterMinutes;
+    const carrierOk = (f: ScheduledFlight) =>
+      opts.carriers == null || opts.carriers.includes(f.carrier);
 
     // Nonstops.
     const nonstops = SCHEDULE.filter((f) => f.origin === origin && f.destination === destination)
-      .filter((f) => hasClass(f) && afterOk(f))
+      .filter((f) => hasClass(f) && afterOk(f) && carrierOk(f))
       .sort((a, b) => this.depMin(a) - this.depMin(b));
 
-    // Connections (filter by first-leg time and class available on every leg).
+    // Connections — online on a preferred carrier (every leg must qualify).
     const connections = this.connectionsFor(origin, destination)
-      .filter((legs) => afterOk(legs[0]) && legs.every(hasClass))
+      .filter((legs) => afterOk(legs[0]) && legs.every((l) => hasClass(l) && carrierOk(l)))
       .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
 
     const lines: AvailabilityLine[] = [];

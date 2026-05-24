@@ -76,6 +76,13 @@ describe('parseEntry — sigil dispatch', () => {
     if (e.kind === 'availability') expect(e.bookingClass).toBe('F');
   });
 
+  it('parses a preferred-airline qualifier (¥), single and multiple', () => {
+    const one = parseEntry('115JUNJFKLAX¥AA');
+    if (one.kind === 'availability') expect(one.carriers).toEqual(['AA']);
+    const many = parseEntry('115JUNJFKLAX¥UADLB6');
+    if (many.kind === 'availability') expect(many.carriers).toEqual(['UA', 'DL', 'B6']);
+  });
+
   it('matches multi-char sigils before single-char (ER, not E)', () => {
     const er = parseEntry('ER');
     expect(er.kind).toBe('end_transaction');

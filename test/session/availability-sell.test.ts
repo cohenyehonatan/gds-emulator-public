@@ -29,6 +29,24 @@ describe('richer availability & sell', () => {
     expect(firstClass).not.toContain('B6'); // B6 has no F cabin
   });
 
+  it('filters availability to a preferred airline (¥), incl. the \' alias', () => {
+    const aa = host.process('115JUNJFKLAX¥AA', wa);
+    expect(aa).toContain('AA');
+    expect(aa).not.toContain('B6');
+    expect(aa).not.toContain('UA');
+    // the ' physical-key alias normalizes to ¥
+    const viaAlias = host.process("115JUNJFKLAX'UA", wa);
+    expect(viaAlias).toContain('UA');
+    expect(viaAlias).not.toContain('AA');
+  });
+
+  it('keeps only online connections of a preferred carrier', () => {
+    const aa = host.process('115JUNJFKSFO¥AA', wa); // AA300/AA350 via ORD; UA dropped
+    expect(aa).toContain('ORDSFO');
+    expect(aa).not.toContain('DEN');
+    expect(wa.lastAvailability!.lines).toHaveLength(2); // one AA connection only
+  });
+
   it('waitlists a sold-out class (LL) without drawing inventory', () => {
     host.process('115JUNJFKLAX', wa);
     const resp = host.process('01V1LL', wa); // class V not in inventory → 0 seats
