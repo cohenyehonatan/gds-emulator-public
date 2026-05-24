@@ -15,7 +15,7 @@ this emulates the **host** (the GDS) driven by an **agent terminal**.
 npm install
 npm run dev          # demo: host + terminal + booking scenario
 npm run start:server # GDS host only (TCP, port 9600)
-npm run start:terminal # interactive green-screen REPL (in-process)
+npm run start:terminal # full-screen green-screen CRT terminal (line-mode fallback off-TTY)
 npm test             # vitest
 ```
 
