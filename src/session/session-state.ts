@@ -23,6 +23,7 @@ export enum SessionEvent {
   SIGN_OFF = 'SIGN_OFF',
   ADD_FIELD = 'ADD_FIELD', // name/phone/ticketing/received-from
   SELL = 'SELL',
+  MODIFY = 'MODIFY', // cancel segment / change status — legal only with a PNR present
   RETRIEVE = 'RETRIEVE',
   END_TX = 'END_TX', // success commits + clears the work area
   IGNORE = 'IGNORE',
@@ -48,6 +49,7 @@ export const TRANSITIONS: Transition[] = [
   // Continue building (self-loops, like the printer's MODE_SET → MODE_SET)
   { from: SessionState.BUILDING, event: SessionEvent.ADD_FIELD, to: SessionState.BUILDING },
   { from: SessionState.BUILDING, event: SessionEvent.SELL, to: SessionState.BUILDING },
+  { from: SessionState.BUILDING, event: SessionEvent.MODIFY, to: SessionState.BUILDING },
 
   // Retrieve an existing PNR
   { from: SessionState.EMPTY, event: SessionEvent.RETRIEVE, to: SessionState.DISPLAYED },
@@ -55,6 +57,7 @@ export const TRANSITIONS: Transition[] = [
   // Modify a retrieved PNR
   { from: SessionState.DISPLAYED, event: SessionEvent.ADD_FIELD, to: SessionState.DISPLAYED },
   { from: SessionState.DISPLAYED, event: SessionEvent.SELL, to: SessionState.DISPLAYED },
+  { from: SessionState.DISPLAYED, event: SessionEvent.MODIFY, to: SessionState.DISPLAYED },
 
   // End transaction → back to empty work area
   { from: SessionState.BUILDING, event: SessionEvent.END_TX, to: SessionState.EMPTY },

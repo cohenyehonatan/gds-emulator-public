@@ -9,18 +9,28 @@
  */
 
 import type { AirSegment } from './segment.js';
-import type { NameElement } from './name-element.js';
+import type { NameItem } from './name-element.js';
 import type { PhoneElement } from './phone-element.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 export class Pnr {
   locator?: string;
-  names: NameElement[] = [];
+  names: NameItem[] = [];
   segments: AirSegment[] = [];
   phones: PhoneElement[] = [];
   ticketing?: string;
   receivedFrom?: string;
   createdAt?: Date;
+
+  /** Total passengers across all name items (used for seat math later). */
+  passengerCount(): number {
+    return this.names.reduce((sum, n) => sum + n.count, 0);
+  }
+
+  /** Renumber segments 1..N after a cancellation. */
+  renumberSegments(): void {
+    this.segments.forEach((s, i) => (s.segmentNumber = i + 1));
+  }
 
   /** True once at least one field has been added (work area is dirty). */
   hasContent(): boolean {

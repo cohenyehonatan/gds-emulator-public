@@ -13,8 +13,6 @@
  *   └ segment number in itinerary
  */
 
-import type { StatusCode } from '../protocol/constants.js';
-
 export interface AirSegment {
   /** 1-based position in the itinerary. */
   segmentNumber: number;
@@ -25,7 +23,7 @@ export interface AirSegment {
   dayOfWeek: string; // single letter, e.g. "S"
   origin: string;
   destination: string;
-  status: (typeof StatusCode)[keyof typeof StatusCode];
+  status: string; // SS sold, HK confirmed, LL waitlist, … (see constants.StatusCode)
   seats: number;
   departTime: string; // e.g. "520P"
   arriveTime: string; // e.g. "800A"

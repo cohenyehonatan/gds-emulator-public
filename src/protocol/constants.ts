@@ -45,6 +45,12 @@ export const StatusCode = {
 } as const;
 
 /**
+ * Status codes an agent may set via `.<seg><CODE>` (workbook: "You are able to
+ * manually enter an agent sine only for the following status codes").
+ */
+export const MANUAL_STATUS_CODES = new Set(['BK', 'BL', 'DS', 'GK', 'GL', 'HK', 'HL', 'YK']);
+
+/**
  * Mandatory PNR fields for End Transaction — the PRINT rule (workbook p.~,
  * "P- Phone  R- Received From  I- Itinerary  N- Name  T- Ticketing").
  */
@@ -72,6 +78,9 @@ export const Response = {
   FORMAT: 'FORMAT', // generic unrecognized/invalid entry
   RECORD_LOCATOR_NOT_FOUND: 'RECORD LOCATOR NOT FOUND', // TODO: confirm
   NO_PNR: 'NO PNR IN AAA', // TODO: confirm — nothing in the work area
+  NO_ITINERARY: 'NO ITINERARY', // TODO: confirm — cancel/status with no segments
+  SEGMENT_NOT_FOUND: 'SEGMENT NUMBER NOT IN ITINERARY', // TODO: confirm
+  INVALID_STATUS: 'INVALID STATUS CODE', // TODO: confirm
   IGNORED: 'IGNORED',
   OK: 'OK',
 } as const;

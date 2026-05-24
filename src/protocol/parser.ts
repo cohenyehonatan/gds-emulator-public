@@ -23,6 +23,8 @@ import { parseEndTransaction } from './commands/end-tx.js';
 import { parseDisplay } from './commands/retrieve.js';
 import { parseIgnore } from './commands/ignore.js';
 import { parseSignIn, parseSignOut } from './commands/signin.js';
+import { parseCancel } from './commands/cancel.js';
+import { parseSegmentStatus } from './commands/segment-status.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -56,6 +58,8 @@ const RULES: DispatchRule[] = [
   { match: firstChar('7'), parse: parseTicketing },
   { match: firstChar('6'), parse: parseReceivedFrom },
   { match: firstChar('*'), parse: parseDisplay },
+  { match: firstChar('X'), parse: parseCancel },
+  { match: firstChar('.'), parse: parseSegmentStatus },
 ];
 
 export function parseEntry(raw: string): ParsedEntry {

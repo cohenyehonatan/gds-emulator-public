@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseEntry, ParseError } from '../../src/protocol/parser.js';
+import { parseNameText } from '../../src/models/name-element.js';
 
 describe('parseEntry — sigil dispatch', () => {
   it('parses availability', () => {
@@ -46,8 +47,52 @@ describe('parseEntry — sigil dispatch', () => {
     expect(parseEntry('*ABCDEF').kind).toBe('display');
   });
 
+  it('parses cancel entries (segment, multiple, range, itinerary, all-air)', () => {
+    const x1 = parseEntry('X1');
+    expect(x1.kind).toBe('cancel');
+    if (x1.kind === 'cancel') {
+      expect(x1.mode).toBe('segment');
+      expect(x1.segments).toEqual([1]);
+    }
+    const multi = parseEntry('X1/3');
+    if (multi.kind === 'cancel') expect(multi.segments).toEqual([1, 3]);
+    const range = parseEntry('X1-3');
+    if (range.kind === 'cancel') expect(range.segments).toEqual([1, 2, 3]);
+    const it = parseEntry('XI');
+    if (it.kind === 'cancel') expect(it.mode).toBe('itinerary');
+    const ia = parseEntry('XIA');
+    if (ia.kind === 'cancel') expect(ia.mode).toBe('all_air');
+  });
+
+  it('parses a change-segment-status entry', () => {
+    const e = parseEntry('.1HK');
+    expect(e.kind).toBe('segment_status');
+    if (e.kind === 'segment_status') {
+      expect(e.segment).toBe(1);
+      expect(e.status).toBe('HK');
+    }
+  });
+
   it('throws ParseError on garbage', () => {
     expect(() => parseEntry('ZZZ')).toThrow(ParseError);
     expect(() => parseEntry('')).toThrow(ParseError);
+  });
+});
+
+describe('multi-passenger name parsing', () => {
+  it('parses count + multiple given names into one item', () => {
+    const item = parseNameText('2MURRAY/FRED MR/HANA MRS');
+    expect(item.count).toBe(2);
+    expect(item.surname).toBe('MURRAY');
+    expect(item.passengers).toEqual([
+      { firstName: 'FRED', title: 'MR' },
+      { firstName: 'HANA', title: 'MRS' },
+    ]);
+  });
+
+  it('defaults a single name to count 1', () => {
+    const item = parseNameText('SMITH/JUNE');
+    expect(item.count).toBe(1);
+    expect(item.passengers).toEqual([{ firstName: 'JUNE' }]);
   });
 });

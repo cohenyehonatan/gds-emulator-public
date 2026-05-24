@@ -5,19 +5,19 @@ Tracks planned work beyond v1. Formats cite
 extracted text where useful). Items move from here into code + tests; check
 them off as they land.
 
-## v1.1 — Core PNR lifecycle depth (in progress)
+## v1.1 — Core PNR lifecycle depth (done)
 
 Making the happy path feel like a real GDS, within the existing architecture.
 
-- [ ] **Multi-passenger names** — `-2MURRAY/FRED MR/HANA MRS` (count + multiple
+- [x] **Multi-passenger names** — `-2MURRAY/FRED MR/HANA MRS` (count + multiple
       given names per surname); multiple name items via separate `-` entries.
       Display: `1.2MURRAY/FRED MR/HANA MRS   2.1SMITH/JUNE`.
-- [ ] **Cancel** — `X1` (segment), `X1/3` (multiple), `X1-3` (range), `XI`
+- [x] **Cancel** — `X1` (segment), `X1/3` (multiple), `X1-3` (range), `XI`
       (entire itinerary), `XIA` (all air). Renumber remaining segments.
-- [ ] **Change segment status** — `.1HK` (allowed codes: BK BL DS GK GL HK HL YK).
-- [ ] **Display sub-sections** — `*N` names, `*I`/`*IA` itinerary, `*P` phones,
+- [x] **Change segment status** — `.1HK` (allowed codes: BK BL DS GK GL HK HL YK).
+- [x] **Display sub-sections** — `*N` names, `*I`/`*IA` itinerary, `*P` phones,
       `*T` ticketing, `*A` all (redisplay current AAA, no state change).
-- [ ] **Similar-name list** — when `*-SMITH` matches >1 PNR, show a numbered
+- [x] **Similar-name list** — when `*-SMITH` matches >1 PNR, show a numbered
       list. (Selecting from the list: deferred below.)
 
 ### Deferred out of v1.1 (still core, but later)

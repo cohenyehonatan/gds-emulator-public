@@ -58,6 +58,19 @@ export interface DisplayEntry extends BaseEntry {
   argument: string;
 }
 
+export interface CancelEntry extends BaseEntry {
+  kind: 'cancel';
+  mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
+  /** Affected segment numbers (empty for whole-itinerary cancels). */
+  segments: number[];
+}
+
+export interface SegmentStatusEntry extends BaseEntry {
+  kind: 'segment_status';
+  segment: number;
+  status: string; // e.g. "HK"
+}
+
 export interface EndTransactionEntry extends BaseEntry {
   kind: 'end_transaction';
   redisplay: boolean; // ER redisplays the PNR; E / ET do not
@@ -90,6 +103,8 @@ export type ParsedEntry =
   | TicketingEntry
   | ReceivedFromEntry
   | DisplayEntry
+  | CancelEntry
+  | SegmentStatusEntry
   | EndTransactionEntry
   | IgnoreEntry
   | SignInEntry

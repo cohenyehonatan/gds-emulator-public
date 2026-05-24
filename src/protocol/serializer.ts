@@ -11,6 +11,7 @@
 import type { AvailabilityResult, AvailabilityLine } from '../models/availability-result.js';
 import type { AirSegment } from '../models/segment.js';
 import { Pnr } from '../models/pnr.js';
+import { formatNameItem } from '../models/name-element.js';
 
 /** Availability display. TODO: confirm header + column widths vs PDF p.~. */
 export function renderAvailability(result: AvailabilityResult): string {
@@ -38,24 +39,53 @@ export function renderSoldSegment(s: AirSegment): string {
   );
 }
 
-/** Full PNR display (after ER / *A). TODO: confirm field headers vs PDF. */
+// ── Section renderers (used by *N / *I / *P / *T and the full display) ──
+
+/** Name line: "1.2MURRAY/FRED MR/HANA MRS   2.1SMITH/JUNE". */
+export function renderNames(pnr: Pnr): string {
+  if (pnr.names.length === 0) return 'NO NAMES';
+  return pnr.names.map((n, i) => `${i + 1}.${formatNameItem(n)}`).join('   ');
+}
+
+/** Itinerary: one sold-segment line per segment. */
+export function renderItinerary(pnr: Pnr): string {
+  if (pnr.segments.length === 0) return 'NO ITINERARY';
+  return pnr.segments.map(renderSoldSegment).join('\n');
+}
+
+/** Phone field, with the "PHONES" header (workbook layout). */
+export function renderPhones(pnr: Pnr): string {
+  if (pnr.phones.length === 0) return 'NO PHONE FIELD';
+  const lines = pnr.phones.map((p, i) => `  ${i + 1}.${p.number}${p.type ? '-' + p.type : ''}`);
+  return ['PHONES', ...lines].join('\n');
+}
+
+/** Ticketing field, with the "TKT/TIME LIMIT" header (workbook layout). */
+export function renderTicketing(pnr: Pnr): string {
+  if (!pnr.ticketing) return 'NO TICKETING FIELD';
+  return ['TKT/TIME LIMIT', `  1.${pnr.ticketing}`].join('\n');
+}
+
+/**
+ * Full PNR display (after ER / *A). Modeled on the workbook "EXAMPLE OF BASIC
+ * PNR"; exact itinerary columns + full signature line are a fidelity-pass item.
+ */
 export function renderPnr(pnr: Pnr): string {
   const out: string[] = [];
-  if (pnr.locator) out.push(pnr.locator);
-
-  pnr.names.forEach((n, i) => {
-    const title = n.title ? ` ${n.title}` : '';
-    out.push(`${i + 1}.1${n.surname}/${n.firstName}${title}`);
-  });
-
+  out.push(renderNames(pnr));
   pnr.segments.forEach((s) => out.push(renderSoldSegment(s)));
-
-  if (pnr.phones.length) {
-    out.push('PHONES');
-    pnr.phones.forEach((p, i) => out.push(` ${i + 1}.${p.number}${p.type ? '-' + p.type : ''}`));
-  }
-  if (pnr.ticketing) out.push(`TKTG-${pnr.ticketing}`);
+  if (pnr.ticketing) out.push(renderTicketing(pnr));
+  if (pnr.phones.length) out.push(renderPhones(pnr));
   if (pnr.receivedFrom) out.push(`RECEIVED FROM - ${pnr.receivedFrom}`);
-
+  if (pnr.locator) out.push(pnr.locator); // signature line (simplified)
   return out.join('\n');
+}
+
+/** Numbered list shown when a name search matches more than one PNR. */
+export function renderSimilarNameList(matches: Pnr[]): string {
+  const lines = matches.map((p, i) => {
+    const name = p.names[0] ? formatNameItem(p.names[0]) : '(no name)';
+    return `${i + 1} ${name}  ${p.locator ?? ''}`.trimEnd();
+  });
+  return lines.join('\n');
 }
