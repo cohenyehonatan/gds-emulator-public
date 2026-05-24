@@ -34,9 +34,11 @@ export interface SellEntry extends BaseEntry {
   kind: 'sell';
   mode: 'availability' | 'direct';
   seats: number;
-  bookingClass: string;
+  bookingClass: string; // first leg's class (convenience for single-leg sells)
   // availability mode:
-  line?: number;
+  line?: number; // first leg's line (convenience)
+  legs?: { bookingClass: string; line: number }[]; // all legs (>=2 for connections)
+  connectionStar?: boolean; // '*' = also sell following connection legs, same class
   waitlist?: boolean;
   // direct mode:
   carrier?: string;

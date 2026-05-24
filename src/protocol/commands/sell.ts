@@ -19,7 +19,8 @@ import { isBookingClass, parseSabreDate, splitCityPair } from '../../utils/valid
 import type { SellEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
 
-const AVAIL_RE = /^0(\d+)([A-Z])(\d+)(LL)?$/; // 0 seats class line [LL]
+// 0 seats (class line)+ [LL] [*]   e.g. 01Y1, 01Y1F2, 01Y2K3LL, 01Y1*, 01Y1LL*
+const AVAIL_RE = /^0(\d+)((?:[A-Z]\d+)+)(LL)?(\*)?$/;
 // 0 carrier flight|OPEN class date citypair status seats [*locator]
 const DIRECT_RE = /^0([A-Z]{2})(\d{1,4}|OPEN)([A-Z])(\d{1,2}[A-Z]{3})([A-Z]{6})([A-Z]{2})(\d{1,2})(?:\*([A-Z0-9]+))?$/;
 
@@ -28,15 +29,22 @@ export function parseSell(raw: string): SellEntry {
 
   const a = AVAIL_RE.exec(raw);
   if (a) {
-    const bookingClass = a[2];
-    if (!isBookingClass(bookingClass)) throw new ParseError(`Sell: bad class "${bookingClass}"`);
+    const legs = [...a[2].matchAll(/([A-Z])(\d+)/g)].map((m) => ({
+      bookingClass: m[1],
+      line: parseInt(m[2], 10),
+    }));
+    for (const leg of legs) {
+      if (!isBookingClass(leg.bookingClass)) throw new ParseError(`Sell: bad class "${leg.bookingClass}"`);
+    }
     return {
       ...base,
       mode: 'availability',
       seats: parseInt(a[1], 10),
-      bookingClass,
-      line: parseInt(a[3], 10),
-      waitlist: a[4] === 'LL',
+      bookingClass: legs[0].bookingClass,
+      line: legs[0].line,
+      legs,
+      waitlist: a[3] === 'LL',
+      connectionStar: a[4] === '*',
     };
   }
 

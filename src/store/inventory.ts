@@ -29,7 +29,15 @@ const SCHEDULE: ScheduledFlight[] = [
   { carrier: 'DL', flightNumber: '422', origin: 'LAX', destination: 'JFK', departTime: '900A', arriveTime: '520P', equipment: '76W', classSeats: { F: 4, J: 6, Y: 9, B: 9, M: 4 } },
   { carrier: 'AA', flightNumber: '118', origin: 'LAX', destination: 'JFK', departTime: '300P', arriveTime: '1130P', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 0 } },
   { carrier: 'BA', flightNumber: '192', origin: 'DFW', destination: 'LHR', departTime: '520P', arriveTime: '800A', equipment: '777', classSeats: { F: 4, J: 9, Y: 9, B: 5, M: 0 } },
+  // Hub legs — JFK-SFO has no nonstop, so it builds connections via ORD and DEN.
+  { carrier: 'AA', flightNumber: '300', origin: 'JFK', destination: 'ORD', departTime: '800A', arriveTime: '1000A', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 9 } },
+  { carrier: 'AA', flightNumber: '350', origin: 'ORD', destination: 'SFO', departTime: '1130A', arriveTime: '145P', equipment: '739', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 4 } },
+  { carrier: 'UA', flightNumber: '500', origin: 'JFK', destination: 'DEN', departTime: '900A', arriveTime: '1115A', equipment: '752', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 2 } },
+  { carrier: 'UA', flightNumber: '550', origin: 'DEN', destination: 'SFO', departTime: '1230P', arriveTime: '200P', equipment: '320', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 9 } },
 ];
+
+const MIN_CONNECT_MINUTES = 45;
+const MAX_CONNECTIONS = 4;
 
 export interface AvailabilityOptions {
   /** Show flights departing at/after this minute-of-day (from a time qualifier). */
@@ -51,9 +59,38 @@ export class Inventory {
     return SCHEDULE.find((f) => f.carrier === carrier && f.flightNumber === flightNumber);
   }
 
+  private seatsFor(date: string, f: ScheduledFlight): Record<string, number> {
+    const k = this.key(date, f.carrier, f.flightNumber);
+    if (!this.remaining.has(k)) this.remaining.set(k, { ...f.classSeats });
+    return { ...this.remaining.get(k)! };
+  }
+
+  private depMin(f: ScheduledFlight): number {
+    return parseClockToMinutes(f.departTime) ?? 0;
+  }
+  private arrMin(f: ScheduledFlight): number {
+    return parseClockToMinutes(f.arriveTime) ?? 0;
+  }
+
+  /** Two-leg connections O→hub→D with a feasible same-day connection time. */
+  private connectionsFor(origin: string, destination: string): ScheduledFlight[][] {
+    const out: ScheduledFlight[][] = [];
+    for (const a of SCHEDULE.filter((f) => f.origin === origin && f.destination !== destination)) {
+      for (const b of SCHEDULE.filter((f) => f.origin === a.destination && f.destination === destination)) {
+        if (b.origin === origin) continue;
+        if (this.depMin(b) >= this.arrMin(a) + MIN_CONNECT_MINUTES) {
+          out.push([a, b]);
+          if (out.length >= MAX_CONNECTIONS) return out;
+        }
+      }
+    }
+    return out;
+  }
+
   /**
-   * Availability lines for a city pair on a date, sorted by departure time.
-   * Honors an optional time qualifier (start at/after) and class qualifier.
+   * Availability lines for a city pair on a date. Nonstops first (sorted by
+   * departure time), then two-leg connections. Honors time/class qualifiers.
+   * Connection legs share a `connectionGroup` so a '*' sell can pull them all.
    */
   availability(
     date: string,
@@ -62,37 +99,41 @@ export class Inventory {
     destination: string,
     opts: AvailabilityOptions = {}
   ): AvailabilityLine[] {
-    let flights = SCHEDULE.filter((f) => f.origin === origin && f.destination === destination);
+    const hasClass = (f: ScheduledFlight) =>
+      opts.bookingClass == null || (this.seatsFor(date, f)[opts.bookingClass] ?? 0) > 0;
+    const afterOk = (f: ScheduledFlight) =>
+      opts.afterMinutes == null || this.depMin(f) >= opts.afterMinutes;
 
-    // Materialize remaining seats and sort by departure time.
-    flights = flights
-      .slice()
-      .sort((a, b) => (parseClockToMinutes(a.departTime) ?? 0) - (parseClockToMinutes(b.departTime) ?? 0));
+    // Nonstops.
+    const nonstops = SCHEDULE.filter((f) => f.origin === origin && f.destination === destination)
+      .filter((f) => hasClass(f) && afterOk(f))
+      .sort((a, b) => this.depMin(a) - this.depMin(b));
 
-    if (opts.afterMinutes != null) {
-      flights = flights.filter((f) => (parseClockToMinutes(f.departTime) ?? 0) >= opts.afterMinutes!);
-    }
+    // Connections (filter by first-leg time and class available on every leg).
+    const connections = this.connectionsFor(origin, destination)
+      .filter((legs) => afterOk(legs[0]) && legs.every(hasClass))
+      .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
 
-    return flights
-      .map((f) => {
-        const k = this.key(date, f.carrier, f.flightNumber);
-        if (!this.remaining.has(k)) this.remaining.set(k, { ...f.classSeats });
-        return { f, seats: { ...this.remaining.get(k)! } };
-      })
-      .filter(({ seats }) => opts.bookingClass == null || (seats[opts.bookingClass] ?? 0) > 0)
-      .map(({ f, seats }, i) => ({
-        line: i + 1,
-        carrier: f.carrier,
-        flightNumber: f.flightNumber,
-        classes: seats,
-        origin: f.origin,
-        destination: f.destination,
-        departTime: f.departTime,
-        arriveTime: f.arriveTime,
-        equipment: f.equipment,
-        date,
-        dayOfWeek,
-      }));
+    const lines: AvailabilityLine[] = [];
+    const toLine = (f: ScheduledFlight, group?: number, legIndex?: number): AvailabilityLine => ({
+      line: lines.length + 1,
+      carrier: f.carrier,
+      flightNumber: f.flightNumber,
+      classes: this.seatsFor(date, f),
+      origin: f.origin,
+      destination: f.destination,
+      departTime: f.departTime,
+      arriveTime: f.arriveTime,
+      equipment: f.equipment,
+      date,
+      dayOfWeek,
+      connectionGroup: group,
+      legIndex,
+    });
+
+    for (const f of nonstops) lines.push(toLine(f));
+    connections.forEach((legs, g) => legs.forEach((f, i) => lines.push(toLine(f, g + 1, i))));
+    return lines;
   }
 
   /** Decrement seats for a sold flight. Returns false if not enough seats. */

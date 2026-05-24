@@ -67,8 +67,10 @@ Making the happy path feel like a real GDS, within the existing architecture.
       times filled from the schedule when known).
 - [x] **Passive** `0VS651Y...GK1*AB123C` (GK/BK + airline locator) and **open**
       segments `0AFOPENJ9JULLOSCDGDS2`.
-- [ ] **Connection sells** `01K1*` (same class) and `01L1K2` (mixed) — need
-      connection itineraries modeled in the inventory first.
+- [x] **Connections** — inventory auto-builds two-leg itineraries via a hub
+      (45-min min-connect) when no nonstop exists; legs share a `connectionGroup`.
+      Sell with `*` (full connection, same class) or explicit pairs `01Y1F2`
+      (per-leg class); waitlist multi-leg supported. Seed: JFK-SFO via ORD/DEN.
 - [ ] Availability **scroll** `1*`, **return-date**, **carrier** (`¥BA`),
       **connecting-city**, and **direct-only** (`/D`) qualifiers.
 

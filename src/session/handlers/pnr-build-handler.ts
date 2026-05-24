@@ -22,48 +22,75 @@ import type { AirSegment } from '../../models/segment.js';
 import { dayOfWeekLetter, type HandlerContext } from './context.js';
 
 export function handleSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
-  const segment =
-    entry.mode === 'direct'
-      ? buildDirectSegment(entry, wa, ctx)
-      : buildAvailabilitySegment(entry, wa, ctx);
-  if (typeof segment === 'string') return segment; // error response
+  if (entry.mode === 'direct') {
+    const seg = buildDirectSegment(entry, wa, ctx);
+    wa.machine.transition(SessionEvent.SELL);
+    wa.pnr.segments.push(seg);
+    return renderSoldSegment(seg);
+  }
 
+  const segs = buildAvailabilitySegments(entry, wa, ctx);
+  if (typeof segs === 'string') return segs; // error response
   wa.machine.transition(SessionEvent.SELL);
-  wa.pnr.segments.push(segment);
-  return renderSoldSegment(segment);
+  segs.forEach((s) => wa.pnr.segments.push(s));
+  return segs.map(renderSoldSegment).join('\n');
 }
 
-/** Sell (or waitlist) from a cached availability line. */
-function buildAvailabilitySegment(
+/** Sell (or waitlist) one or more legs from a cached availability display. */
+function buildAvailabilitySegments(
   entry: SellEntry,
   wa: WorkArea,
   ctx: HandlerContext
-): AirSegment | string {
+): AirSegment[] | string {
   const avail = wa.lastAvailability;
   if (!avail) return 'NO AVAILABILITY DISPLAYED'; // TODO confirm wording
-  const line = avail.lines.find((l) => l.line === entry.line);
-  if (!line) return Response.FORMAT;
+  const legs = entry.legs ?? [{ bookingClass: entry.bookingClass, line: entry.line! }];
 
-  // Waitlist (LL) is allowed even with no seats; it does not draw down inventory.
-  if (!entry.waitlist) {
-    const ok = ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, entry.bookingClass, entry.seats);
-    if (!ok) return 'CLASS NOT AVAILABLE'; // TODO confirm wording
+  // Resolve which (class, line) pairs to sell.
+  let targets: { bookingClass: string; line: number }[];
+  if (entry.connectionStar) {
+    const first = avail.lines.find((l) => l.line === legs[0].line);
+    if (!first) return Response.FORMAT;
+    if (first.connectionGroup == null) return 'NOT A CONNECTION'; // TODO confirm wording
+    targets = avail.lines
+      .filter((l) => l.connectionGroup === first.connectionGroup)
+      .sort((a, b) => (a.legIndex ?? 0) - (b.legIndex ?? 0))
+      .map((l) => ({ bookingClass: legs[0].bookingClass, line: l.line }));
+  } else {
+    targets = legs;
   }
 
-  return {
-    segmentNumber: wa.pnr.segments.length + 1,
-    carrier: line.carrier,
-    flightNumber: line.flightNumber,
-    bookingClass: entry.bookingClass,
-    date: avail.date,
-    dayOfWeek: line.dayOfWeek,
-    origin: line.origin,
-    destination: line.destination,
-    status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
-    seats: entry.seats,
-    departTime: line.departTime,
-    arriveTime: line.arriveTime,
-  };
+  // Validate all legs up front (cached seat counts) so a connection sells atomically.
+  for (const t of targets) {
+    const line = avail.lines.find((l) => l.line === t.line);
+    if (!line) return Response.FORMAT;
+    if (!entry.waitlist && (line.classes[t.bookingClass] ?? 0) < entry.seats) {
+      return 'CLASS NOT AVAILABLE'; // TODO confirm wording
+    }
+  }
+
+  const segs: AirSegment[] = [];
+  for (const t of targets) {
+    const line = avail.lines.find((l) => l.line === t.line)!;
+    if (!entry.waitlist) {
+      ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, t.bookingClass, entry.seats);
+    }
+    segs.push({
+      segmentNumber: wa.pnr.segments.length + segs.length + 1,
+      carrier: line.carrier,
+      flightNumber: line.flightNumber,
+      bookingClass: t.bookingClass,
+      date: avail.date,
+      dayOfWeek: line.dayOfWeek,
+      origin: line.origin,
+      destination: line.destination,
+      status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
+      seats: entry.seats,
+      departTime: line.departTime,
+      arriveTime: line.arriveTime,
+    });
+  }
+  return segs;
 }
 
 /** Long sell / passive / open: trust the typed data; don't draw inventory. */
