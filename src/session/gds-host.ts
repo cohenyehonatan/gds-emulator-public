@@ -17,6 +17,7 @@ import { dispatch, type HandlerContext } from './handlers/index.js';
 import { parseEntry } from '../protocol/parser.js';
 import { ParseError } from '../protocol/errors.js';
 import { Response } from '../protocol/constants.js';
+import { normalizeKeyboard, splitEndItems } from '../protocol/keyboard.js';
 import { Inventory } from '../store/inventory.js';
 import { PnrStore } from '../store/pnr-store.js';
 import { Logger, type LogLevel } from '../logging/logger.js';
@@ -57,8 +58,27 @@ export class GdsHost {
     this.logger.info('GDS host stopped');
   }
 
-  /** Run the full parse → dispatch pipeline for one entry against a work area. */
+  /**
+   * Run an entry against a work area. Applies keyboard normalization, then
+   * splits on the End-Item separator (§) and runs each component entry in
+   * sequence — stopping at the first error, like a real Sabre end-item chain.
+   */
   process(raw: string, wa: WorkArea): string {
+    const entries = splitEndItems(normalizeKeyboard(raw));
+    if (entries.length <= 1) return this.processOne(entries[0] ?? raw, wa);
+
+    // A chain shows only the final screen state (or the error that halts it),
+    // mirroring a real end-item transmission.
+    let last = '';
+    for (const e of entries) {
+      last = this.processOne(e, wa);
+      if (GdsHost.ERROR_RESPONSES.has(last)) break; // chain halts on first error
+    }
+    return last;
+  }
+
+  /** Parse → dispatch a single (already keyboard-normalized) entry. */
+  private processOne(raw: string, wa: WorkArea): string {
     let entry;
     try {
       entry = parseEntry(raw);
@@ -73,6 +93,26 @@ export class GdsHost {
   newWorkArea(): WorkArea {
     return new WorkArea();
   }
+
+  private static readonly ERROR_RESPONSES = new Set<string>([
+    Response.FORMAT,
+    Response.NEED_PHONE,
+    Response.NEED_TICKETING,
+    Response.NEED_RECEIVED_FROM,
+    Response.NEED_ITINERARY,
+    Response.NEED_NAME,
+    Response.NAMES_NOT_EQUAL,
+    Response.NO_PNR,
+    Response.NO_ITINERARY,
+    Response.SEGMENT_NOT_FOUND,
+    Response.INVALID_STATUS,
+    Response.RECORD_LOCATOR_NOT_FOUND,
+    'NO AVAILABILITY DISPLAYED',
+    'CLASS NOT AVAILABLE',
+    'NOT A CONNECTION',
+    'OUT OF SEQUENCE',
+    'NO FLIGHTS',
+  ]);
 
   private onConnection(conn: Connection): void {
     const wa = new WorkArea();

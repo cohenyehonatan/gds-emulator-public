@@ -23,7 +23,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
 ### Deferred out of v1.1 (still core, but later)
 
 - [ ] **Field change/delete key `¤`** — e.g. `91¤<new phone>` change phone 1;
-      delete a field by index. (Fiddliest modify; lowest urgency.)
+      delete a field by index. (The `¤` glyph + its `[` alias are already mapped
+      by `protocol/keyboard.ts`; only the change *behavior* is pending.)
 - [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
 - [ ] **Infants** — `-I/3OBI/MARY/JUNE/BRANDON`; `3INFT/ANDY/MARY/09JAN11-1.1`.
 - [ ] **Passive cancel** — `.(segment selection)XK`.
@@ -55,6 +56,17 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [ ] Exact itinerary column widths + next-day arrival-date rendering (the
       workbook mixes 12h/24h and spaced/concatenated carrier+flight across
       sections; current output follows the sold-segment example). Low priority.
+
+## Keyboard & special keys (done)
+
+- [x] Keyboard mapping (workbook p.3 "Other Identification Code Keys"):
+      physical-key aliases `[`→`¤`, `\`→`§`, `'`→`¥` normalized in
+      `protocol/keyboard.ts`; real glyphs accepted too.
+- [x] **End-item** (`§`) chaining — one transmission runs several entries in
+      sequence (build a whole PNR in a line), halting on the first error and
+      showing only the final screen state.
+- [ ] `¤` change/delete behavior and `¥` cross-of-Lorraine entries (the glyphs
+      are mapped; the features are deferred — see above).
 
 ## Richer availability & sell
 

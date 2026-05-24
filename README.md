@@ -41,6 +41,10 @@ npm test             # vitest
   intact — the analog of the printer refusing to print.
 - **Availability context.** A `1` display is cached on the work area so a
   later `0` sell can resolve a line number.
+- **Keyboard / end-item.** Sabre's special keys are accepted via ASCII aliases
+  (`\`→`§` end-item, `[`→`¤` change, `'`→`¥`), and an entry chained with the
+  end-item runs as one transmission — e.g. build a whole PNR in one line:
+  `-SMITH/JOHN MR\9305-555-1212-H\7TAW15JUN/\6P\ER`.
 
 ## v1 scope & roadmap
 
