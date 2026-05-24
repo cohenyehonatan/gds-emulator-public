@@ -51,10 +51,12 @@ function renderAvailabilityLine(l: AvailabilityLine): string {
  * day-of-week, and the trailing "/E" end-item marker.
  */
 export function renderSoldSegment(s: AirSegment): string {
+  const times = s.departTime || s.arriveTime ? `  ${s.departTime}  ${s.arriveTime}` : '';
+  const loc = s.airlineLocator ? `*${s.airlineLocator}` : '';
   return (
     `${String(s.segmentNumber).padStart(2)} ${s.carrier} ` +
     `${s.flightNumber}${s.bookingClass}  ${s.date} ${s.dayOfWeek} ` +
-    `${s.origin}${s.destination} ${s.status}${s.seats}  ${s.departTime}  ${s.arriveTime} /E`
+    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times} /E`
   );
 }
 

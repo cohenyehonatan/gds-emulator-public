@@ -21,14 +21,32 @@ export interface AvailabilityEntry extends BaseEntry {
   destination: string;
   /** Optional preferred departure time as typed, e.g. "2030". */
   time?: string;
+  /** Optional class-of-service qualifier ("-Y"). */
+  bookingClass?: string;
 }
 
+/**
+ * Sell entry (sigil '0'), two shapes:
+ *  - mode 'availability': 0<seats><class><line>[LL]   (sell/waitlist from a CPA)
+ *  - mode 'direct':       long-sell / passive / open by typed flight data
+ */
 export interface SellEntry extends BaseEntry {
   kind: 'sell';
+  mode: 'availability' | 'direct';
   seats: number;
   bookingClass: string;
-  /** Line number from the last availability display. */
-  line: number;
+  // availability mode:
+  line?: number;
+  waitlist?: boolean;
+  // direct mode:
+  carrier?: string;
+  flightNumber?: string; // absent for open segments
+  open?: boolean;
+  date?: SabreDate;
+  origin?: string;
+  destination?: string;
+  status?: string; // NN long-sell, LL waitlist, GK/BK passive, DS open
+  airlineLocator?: string; // optional, after '*' on a passive sell
 }
 
 export interface NameEntry extends BaseEntry {

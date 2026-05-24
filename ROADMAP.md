@@ -58,9 +58,19 @@ Making the happy path feel like a real GDS, within the existing architecture.
 
 ## Richer availability & sell
 
-- [ ] Availability scroll `1*`, return-date, connections, schedule-only display.
-- [ ] Long sell by flight number — `0BA074Y14FEBLOSLHRNN2`.
-- [ ] Waitlist `…LL`, passive `GK`/`BK`, open segments `0AFOPENJ9JULLOSCDGDS2`.
+- [x] Availability **time qualifier** (`115JUNJFKLAX1200` → start at/after) and
+      **class qualifier** (`…-F` → only flights with that cabin). Seed inventory
+      enriched to 7 flights so both bite.
+- [x] **Waitlist** from availability `01V2LL` (status LL, no inventory draw,
+      → HL at end transaction, per Zenon course p.13).
+- [x] **Long/direct sell** by flight number `0BA074Y14FEBLOSLHRNN2` (status NN;
+      times filled from the schedule when known).
+- [x] **Passive** `0VS651Y...GK1*AB123C` (GK/BK + airline locator) and **open**
+      segments `0AFOPENJ9JULLOSCDGDS2`.
+- [ ] **Connection sells** `01K1*` (same class) and `01L1K2` (mixed) — need
+      connection itineraries modeled in the inventory first.
+- [ ] Availability **scroll** `1*`, **return-date**, **carrier** (`¥BA`),
+      **connecting-city**, and **direct-only** (`/D`) qualifiers.
 
 ## v2 — Pricing & fares
 

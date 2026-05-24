@@ -43,6 +43,11 @@ export function handleEndTransaction(
     return Response.NAMES_NOT_EQUAL;
   }
 
+  // Waitlisted segments confirm to HL at end transaction (Zenon course p.13).
+  wa.pnr.segments.forEach((s) => {
+    if (s.status === 'LL') s.status = 'HL';
+  });
+
   const locator = ctx.pnrStore.commit(wa.pnr);
   const committed = wa.pnr;
   const agent = wa.agent;

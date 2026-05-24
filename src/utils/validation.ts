@@ -43,4 +43,32 @@ export function isBookingClass(c: string): boolean {
   return /^[A-Z]$/.test(c);
 }
 
+/**
+ * Parse a Sabre clock token to minutes-since-midnight.
+ * Accepts 24h ("9", "09", "0900", "1400") and 12h ("9A", "900A", "1230P",
+ * "1100A", "600P"). Returns null if unparseable. (Workbook: "the time may be
+ * written either as 9, 09, 0900 or 9A".)
+ */
+export function parseClockToMinutes(s: string): number | null {
+  const m = /^(\d{1,4})\s*([AP])?$/i.exec(s.trim());
+  if (!m) return null;
+  const digits = m[1];
+  const mer = m[2]?.toUpperCase();
+  let hh: number;
+  let mm: number;
+  if (digits.length <= 2) {
+    hh = parseInt(digits, 10);
+    mm = 0;
+  } else {
+    hh = parseInt(digits.slice(0, digits.length - 2), 10);
+    mm = parseInt(digits.slice(-2), 10);
+  }
+  if (mer) {
+    if (hh === 12) hh = mer === 'A' ? 0 : 12;
+    else if (mer === 'P') hh += 12;
+  }
+  if (hh > 23 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
 export { MONTHS };

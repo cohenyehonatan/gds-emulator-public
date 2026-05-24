@@ -19,20 +19,38 @@ import { renderSoldSegment } from '../../protocol/serializer.js';
 import { StatusCode } from '../../protocol/constants.js';
 import { Response } from '../../protocol/constants.js';
 import type { AirSegment } from '../../models/segment.js';
-import type { HandlerContext } from './context.js';
+import { dayOfWeekLetter, type HandlerContext } from './context.js';
 
 export function handleSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
+  const segment =
+    entry.mode === 'direct'
+      ? buildDirectSegment(entry, wa, ctx)
+      : buildAvailabilitySegment(entry, wa, ctx);
+  if (typeof segment === 'string') return segment; // error response
+
+  wa.machine.transition(SessionEvent.SELL);
+  wa.pnr.segments.push(segment);
+  return renderSoldSegment(segment);
+}
+
+/** Sell (or waitlist) from a cached availability line. */
+function buildAvailabilitySegment(
+  entry: SellEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): AirSegment | string {
   const avail = wa.lastAvailability;
   if (!avail) return 'NO AVAILABILITY DISPLAYED'; // TODO confirm wording
   const line = avail.lines.find((l) => l.line === entry.line);
   if (!line) return Response.FORMAT;
 
-  const ok = ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, entry.bookingClass, entry.seats);
-  if (!ok) return 'CLASS NOT AVAILABLE'; // TODO confirm wording
+  // Waitlist (LL) is allowed even with no seats; it does not draw down inventory.
+  if (!entry.waitlist) {
+    const ok = ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, entry.bookingClass, entry.seats);
+    if (!ok) return 'CLASS NOT AVAILABLE'; // TODO confirm wording
+  }
 
-  wa.machine.transition(SessionEvent.SELL);
-
-  const segment: AirSegment = {
+  return {
     segmentNumber: wa.pnr.segments.length + 1,
     carrier: line.carrier,
     flightNumber: line.flightNumber,
@@ -41,13 +59,33 @@ export function handleSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext):
     dayOfWeek: line.dayOfWeek,
     origin: line.origin,
     destination: line.destination,
-    status: StatusCode.SS,
+    status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
     seats: entry.seats,
     departTime: line.departTime,
     arriveTime: line.arriveTime,
   };
-  wa.pnr.segments.push(segment);
-  return renderSoldSegment(segment);
+}
+
+/** Long sell / passive / open: trust the typed data; don't draw inventory. */
+function buildDirectSegment(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): AirSegment {
+  const sched = !entry.open && entry.flightNumber
+    ? ctx.inventory.scheduleFor(entry.carrier!, entry.flightNumber)
+    : undefined;
+  return {
+    segmentNumber: wa.pnr.segments.length + 1,
+    carrier: entry.carrier!,
+    flightNumber: entry.open ? 'OPEN' : entry.flightNumber!,
+    bookingClass: entry.bookingClass,
+    date: entry.date!.raw,
+    dayOfWeek: dayOfWeekLetter(entry.date!.month, entry.date!.day),
+    origin: entry.origin!,
+    destination: entry.destination!,
+    status: entry.status ?? StatusCode.NN,
+    seats: entry.seats,
+    departTime: sched?.departTime ?? '',
+    arriveTime: sched?.arriveTime ?? '',
+    airlineLocator: entry.airlineLocator,
+  };
 }
 
 export function handleName(entry: NameEntry, wa: WorkArea): string {

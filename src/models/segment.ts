@@ -25,6 +25,7 @@ export interface AirSegment {
   destination: string;
   status: string; // SS sold, HK confirmed, LL waitlist, … (see constants.StatusCode)
   seats: number;
-  departTime: string; // e.g. "520P"
+  departTime: string; // e.g. "520P" (blank for open / unknown-schedule long sells)
   arriveTime: string; // e.g. "800A"
+  airlineLocator?: string; // passive sell: the carrier's own record locator
 }

@@ -23,6 +23,59 @@ describe('parseEntry — sigil dispatch', () => {
     }
   });
 
+  it('parses a waitlist sell (LL) from availability', () => {
+    const e = parseEntry('01V2LL');
+    expect(e.kind).toBe('sell');
+    if (e.kind === 'sell') {
+      expect(e.mode).toBe('availability');
+      expect(e.waitlist).toBe(true);
+      expect(e.seats).toBe(1);
+      expect(e.bookingClass).toBe('V');
+      expect(e.line).toBe(2);
+    }
+  });
+
+  it('parses a long/direct sell by flight number', () => {
+    const e = parseEntry('0BA074Y14FEBLOSLHRNN2');
+    expect(e.kind).toBe('sell');
+    if (e.kind === 'sell') {
+      expect(e.mode).toBe('direct');
+      expect(e.carrier).toBe('BA');
+      expect(e.flightNumber).toBe('074');
+      expect(e.bookingClass).toBe('Y');
+      expect(e.date.raw).toBe('14FEB');
+      expect(e.origin).toBe('LOS');
+      expect(e.destination).toBe('LHR');
+      expect(e.status).toBe('NN');
+      expect(e.seats).toBe(2);
+    }
+  });
+
+  it('parses a passive sell with an airline locator', () => {
+    const e = parseEntry('0VS651Y6OCTLHRLOSGK1*AB123C');
+    expect(e.kind).toBe('sell');
+    if (e.kind === 'sell') {
+      expect(e.status).toBe('GK');
+      expect(e.airlineLocator).toBe('AB123C');
+    }
+  });
+
+  it('parses an open segment', () => {
+    const e = parseEntry('0AFOPENJ9JULLOSCDGDS2');
+    expect(e.kind).toBe('sell');
+    if (e.kind === 'sell') {
+      expect(e.open).toBe(true);
+      expect(e.carrier).toBe('AF');
+      expect(e.status).toBe('DS');
+    }
+  });
+
+  it('parses an availability class qualifier', () => {
+    const e = parseEntry('115JUNJFKLAX-F');
+    expect(e.kind).toBe('availability');
+    if (e.kind === 'availability') expect(e.bookingClass).toBe('F');
+  });
+
   it('matches multi-char sigils before single-char (ER, not E)', () => {
     const er = parseEntry('ER');
     expect(er.kind).toBe('end_transaction');

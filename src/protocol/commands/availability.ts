@@ -18,12 +18,20 @@ export function parseAvailability(raw: string): AvailabilityEntry {
   const dateMatch = parseSabreDate(args);
   if (!dateMatch) throw new ParseError(`Availability: bad date in "${raw}"`);
 
-  let rest = args.slice(dateMatch.length);
+  const rest = args.slice(dateMatch.length);
   const cityPair = rest.slice(0, 6);
   if (!isCityPair(cityPair)) throw new ParseError(`Availability: bad city pair in "${raw}"`);
   const { origin, destination } = splitCityPair(cityPair);
 
-  const time = rest.slice(6).replace(/\D.*$/, '') || undefined; // leading digits only
+  // Tail may carry a departure time and/or a class qualifier ("-Y").
+  let tail = rest.slice(6);
+  let bookingClass: string | undefined;
+  const classMatch = /-([A-Z])$/.exec(tail);
+  if (classMatch) {
+    bookingClass = classMatch[1];
+    tail = tail.slice(0, classMatch.index);
+  }
+  const time = tail.replace(/[^0-9AP].*$/i, '') || undefined; // leading clock token
 
   return {
     kind: 'availability',
@@ -33,5 +41,6 @@ export function parseAvailability(raw: string): AvailabilityEntry {
     origin,
     destination,
     time,
+    bookingClass,
   };
 }
