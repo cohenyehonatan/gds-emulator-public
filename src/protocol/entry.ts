@@ -103,6 +103,8 @@ export interface ModifyEntry extends BaseEntry {
   operation: 'change' | 'delete';
   /** Affected 1-based line(s); empty = "the only one" / single-value field. */
   lines: number[];
+  /** Passenger within a name item (the ".P" of a "1.1" reference). */
+  passenger?: number;
   newData?: string; // present for change
 }
 

@@ -50,17 +50,27 @@ export function parseModify(raw: string): ModifyEntry {
   if (!field) throw new ParseError(`modify: unsupported field "${left[0]}"`);
 
   const spec = left.slice(1);
-  if (spec.includes('.') || spec.includes('*') || newData.startsWith('*')) {
-    throw new ParseError('modify: passenger-level / name-reference changes not supported yet');
+  // Name-reference data (¤*) is still deferred.
+  if (spec.includes('*') || newData.startsWith('*')) {
+    throw new ParseError('modify: name-reference data not supported yet');
   }
 
-  return {
-    kind: 'modify',
+  const base = {
+    kind: 'modify' as const,
     raw,
     timestamp: new Date(),
     field,
-    operation: newData.length > 0 ? 'change' : 'delete',
-    lines: parseLineSpec(spec),
+    operation: newData.length > 0 ? ('change' as const) : ('delete' as const),
     newData: newData.length > 0 ? newData : undefined,
   };
+
+  // Passenger-within-item reference, e.g. -1.1¤  (names only).
+  const sub = /^(\d+)\.(\d+)$/.exec(spec);
+  if (sub) {
+    if (field !== 'name') throw new ParseError('modify: sub-reference only valid for names');
+    return { ...base, lines: [parseInt(sub[1], 10)], passenger: parseInt(sub[2], 10) };
+  }
+  if (spec.includes('.')) throw new ParseError(`modify: bad reference "${spec}"`);
+
+  return { ...base, lines: parseLineSpec(spec) };
 }

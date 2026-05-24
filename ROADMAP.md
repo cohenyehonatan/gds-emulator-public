@@ -25,7 +25,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **Field change/delete key `¤`** — change/delete name, phone, ticketing,
       received-from by line: `-1¤JENSEN/KURT MR`, `91¤214-555-2121-H`, `-¤`,
       `91-3¤`, `91,3¤`, `7¤TAW17FEB/`, `6¤JENS`. Chains with `§`. Passenger-level
-      refs (`-1.1¤`) and name-reference data (`¤*`) still deferred.
+      refs (`-1.1¤` change/delete a passenger within a name item) now supported;
+      name-reference data (`¤*`) still deferred (no SSR associations modeled).
 - [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
 - [ ] **Infants** — `-I/3OBI/MARY/JUNE/BRANDON`; `3INFT/ANDY/MARY/09JAN11-1.1`.
 - [ ] **Passive cancel** — `.(segment selection)XK`.

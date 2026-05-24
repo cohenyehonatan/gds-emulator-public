@@ -12,7 +12,7 @@ import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
 import { Response, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { renderItinerary, renderNames, renderPhones, renderTicketing } from '../../protocol/serializer.js';
-import { parseNameText } from '../../models/name-element.js';
+import { parseNameText, parsePassenger } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
 
 export function handleCancel(entry: CancelEntry, wa: WorkArea): string {
@@ -59,6 +59,8 @@ export function handleModify(entry: ModifyEntry, wa: WorkArea): string {
 }
 
 function modifyName(entry: ModifyEntry, pnr: Pnr): string {
+  if (entry.passenger != null) return modifyPassenger(entry, pnr);
+
   if (entry.operation === 'delete') {
     let targets = entry.lines;
     if (targets.length === 0) {
@@ -73,6 +75,28 @@ function modifyName(entry: ModifyEntry, pnr: Pnr): string {
   const target = entry.lines[0] ?? (pnr.names.length === 1 ? 1 : undefined);
   if (target == null || target < 1 || target > pnr.names.length) return Response.FORMAT;
   pnr.names[target - 1] = parseNameText(entry.newData!);
+  return renderNames(pnr);
+}
+
+/** Change or delete one passenger within a name item (e.g. -1.1¤JANE MISS). */
+function modifyPassenger(entry: ModifyEntry, pnr: Pnr): string {
+  const item = pnr.names[(entry.lines[0] ?? 0) - 1];
+  if (!item) return Response.FORMAT;
+  const p = entry.passenger! - 1;
+  if (p < 0 || p >= item.passengers.length) return Response.FORMAT;
+
+  if (entry.operation === 'delete') {
+    item.passengers.splice(p, 1);
+    if (item.passengers.length === 0) {
+      pnr.names.splice((entry.lines[0] ?? 0) - 1, 1);
+    } else {
+      item.count = item.passengers.length;
+    }
+    return pnr.names.length > 0 ? renderNames(pnr) : 'NO NAMES';
+  }
+
+  // Change just this passenger's first name/title; surname stays.
+  item.passengers[p] = parsePassenger(entry.newData!);
   return renderNames(pnr);
 }
 

@@ -25,7 +25,8 @@ export interface NameItem {
   passengers: Passenger[];
 }
 
-function parsePassenger(token: string): Passenger {
+/** Parse one passenger token, e.g. "FRED MR" or "JANE MISS". */
+export function parsePassenger(token: string): Passenger {
   const parts = token.trim().split(/\s+/).filter(Boolean);
   if (parts.length > 1 && TITLES.has(parts[parts.length - 1])) {
     const title = parts.pop();

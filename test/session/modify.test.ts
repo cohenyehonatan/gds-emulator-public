@@ -80,6 +80,38 @@ describe('field modify (¤ change/delete)', () => {
     expect(wa.pnr.phones[0].number).toBe('305-555-9999');
   });
 
+  it('changes one passenger within a multi-pax name item (-1.2¤)', () => {
+    host.process('-2MURRAY/FRED MR/HANA MRS', wa);
+    host.process('-1.2¤JANE MISS', wa);
+    const item = wa.pnr.names[0];
+    expect(item.surname).toBe('MURRAY'); // surname unchanged
+    expect(item.count).toBe(2);
+    expect(item.passengers[1]).toEqual({ firstName: 'JANE', title: 'MISS' });
+  });
+
+  it('deletes one passenger within an item and decrements the count', () => {
+    host.process('-2MURRAY/FRED MR/HANA MRS', wa);
+    host.process('-1.2¤', wa);
+    expect(wa.pnr.names[0].count).toBe(1);
+    expect(wa.pnr.names[0].passengers).toEqual([{ firstName: 'FRED', title: 'MR' }]);
+  });
+
+  it('removes the item when its last passenger is deleted', () => {
+    host.process('-SMITH/JOHN MR', wa);
+    expect(host.process('-1.1¤', wa)).toBe('NO NAMES');
+    expect(wa.pnr.names).toHaveLength(0);
+  });
+
+  it('rejects an out-of-range passenger reference', () => {
+    host.process('-SMITH/JOHN MR', wa);
+    expect(host.process('-1.5¤', wa)).toBe('FORMAT');
+  });
+
+  it('still defers name-reference data (¤*)', () => {
+    host.process('-SMITH/JOHN MR', wa);
+    expect(host.process('-1¤*X', wa)).toBe('FORMAT'); // ParseError → FORMAT
+  });
+
   it('rejects a modify when the work area is empty', () => {
     expect(host.process('91¤214-555-2121-H', wa)).toBe('NO PNR IN AAA');
   });
