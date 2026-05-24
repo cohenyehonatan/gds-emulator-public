@@ -1,0 +1,30 @@
+/**
+ * Handle a '1' availability entry: query inventory, cache the result on the
+ * work area (so a later '0' sell can resolve a line), and render the display.
+ * Availability display does not change session state.
+ */
+
+import type { AvailabilityEntry } from '../../protocol/entry.js';
+import type { WorkArea } from '../work-area.js';
+import { renderAvailability } from '../../protocol/serializer.js';
+import { dayOfWeekLetter, type HandlerContext } from './context.js';
+
+export function handleAvailability(
+  entry: AvailabilityEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string {
+  const dow = dayOfWeekLetter(entry.date.month, entry.date.day);
+  const lines = ctx.inventory.availability(entry.date.raw, dow, entry.origin, entry.destination);
+
+  const result = {
+    date: entry.date.raw,
+    origin: entry.origin,
+    destination: entry.destination,
+    lines,
+  };
+  wa.lastAvailability = result;
+
+  if (lines.length === 0) return 'NO FLIGHTS'; // TODO: confirm wording vs PDF
+  return renderAvailability(result);
+}
