@@ -43,8 +43,12 @@ Making the happy path feel like a real GDS, within the existing architecture.
       Course* (Ed. 1.0, p.53), captured in `references/sabre-eot-error-responses.md`.
       `NEED PHONE FIELD - USE 9` and `NEED TICKETING/TIMELIMIT - USE 7 OR 8` are
       verbatim; `NUMBER OF NAMES NOT EQUAL TO RESERVATIONS` is now enforced.
-      The source list has no received-from / no-names / no-itinerary message, so
-      those three stay reconstructed (flagged in `constants.ts`).
+      The source list has no received-from / no-names / no-itinerary message.
+      Cross-checked against three Sabre training docs (workbook Ed 2.7, Basic
+      Course Ed 1.0, Zenon Reservation Course Rev 08) — none quote those three;
+      they only state the behavior ("impossible to end"). Confirmed they live
+      only in login-gated Format Finder, so those stay reconstructed-and-flagged
+      in `constants.ts`. Behavior (rejecting on them) is correct.
   - [ ] Wire remaining verified strings when their features land: `NO CHANGES
         MADE TO PNR`, simultaneous-changes (`IR`), `VERIFY ORDER OF ITINERARY
         SEGMENTS`, infant SSR.
