@@ -22,9 +22,10 @@ Making the happy path feel like a real GDS, within the existing architecture.
 
 ### Deferred out of v1.1 (still core, but later)
 
-- [ ] **Field change/delete key `¤`** — e.g. `91¤<new phone>` change phone 1;
-      delete a field by index. (The `¤` glyph + its `[` alias are already mapped
-      by `protocol/keyboard.ts`; only the change *behavior* is pending.)
+- [x] **Field change/delete key `¤`** — change/delete name, phone, ticketing,
+      received-from by line: `-1¤JENSEN/KURT MR`, `91¤214-555-2121-H`, `-¤`,
+      `91-3¤`, `91,3¤`, `7¤TAW17FEB/`, `6¤JENS`. Chains with `§`. Passenger-level
+      refs (`-1.1¤`) and name-reference data (`¤*`) still deferred.
 - [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
 - [ ] **Infants** — `-I/3OBI/MARY/JUNE/BRANDON`; `3INFT/ANDY/MARY/09JAN11-1.1`.
 - [ ] **Passive cancel** — `.(segment selection)XK`.
@@ -65,8 +66,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **End-item** (`§`) chaining — one transmission runs several entries in
       sequence (build a whole PNR in a line), halting on the first error and
       showing only the final screen state.
-- [ ] `¤` change/delete behavior and `¥` cross-of-Lorraine entries (the glyphs
-      are mapped; the features are deferred — see above).
+- [x] `¤` change/delete behavior (see "Field change/delete key" below).
+- [ ] `¥` cross-of-Lorraine entries (glyph mapped; feature deferred).
 
 ## Richer availability & sell
 

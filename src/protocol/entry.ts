@@ -91,6 +91,21 @@ export interface SegmentStatusEntry extends BaseEntry {
   status: string; // e.g. "HK"
 }
 
+/**
+ * Field change / delete using the change key '¤' (workbook "DELETE AND CHANGE
+ * PASSENGER DATA"):
+ *   delete: <sigil><lineSpec>¤            -¤, -1¤, 91-3¤, 91,3¤
+ *   change: <sigil><line>¤<new data>      -1¤JENSEN/KURT MR, 91¤..., 7¤TAW.../, 6¤JENS
+ */
+export interface ModifyEntry extends BaseEntry {
+  kind: 'modify';
+  field: 'name' | 'phone' | 'ticketing' | 'received_from';
+  operation: 'change' | 'delete';
+  /** Affected 1-based line(s); empty = "the only one" / single-value field. */
+  lines: number[];
+  newData?: string; // present for change
+}
+
 export interface EndTransactionEntry extends BaseEntry {
   kind: 'end_transaction';
   redisplay: boolean; // ER redisplays the PNR; E / ET do not
@@ -126,6 +141,7 @@ export type ParsedEntry =
   | DisplayEntry
   | CancelEntry
   | SegmentStatusEntry
+  | ModifyEntry
   | EndTransactionEntry
   | IgnoreEntry
   | SignInEntry

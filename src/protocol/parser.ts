@@ -25,6 +25,7 @@ import { parseIgnore } from './commands/ignore.js';
 import { parseSignIn, parseSignOut } from './commands/signin.js';
 import { parseCancel } from './commands/cancel.js';
 import { parseSegmentStatus } from './commands/segment-status.js';
+import { parseModify, isModifyEntry } from './commands/modify.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -50,6 +51,8 @@ const RULES: DispatchRule[] = [
   { match: equals('E'), parse: parseEndTransaction },
   { match: equals('IG'), parse: parseIgnore },
   { match: equals('I'), parse: parseIgnore },
+  // Field change/delete via '¤' must beat the plain field sigils below.
+  { match: isModifyEntry, parse: parseModify },
   // Single-char sigils.
   { match: firstChar('1'), parse: parseAvailability },
   { match: firstChar('0'), parse: parseSell },
