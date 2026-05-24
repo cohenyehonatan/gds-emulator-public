@@ -25,6 +25,8 @@ export interface GdsHostOptions {
   port: number;
   logLevel?: LogLevel;
   framing?: FramingStrategy;
+  /** Pseudo City Code used in signature lines (default "A0UC"). */
+  pcc?: string;
 }
 
 export class GdsHost {
@@ -35,7 +37,11 @@ export class GdsHost {
 
   constructor(private readonly options: GdsHostOptions) {
     this.logger = new Logger('GDS', options.logLevel ?? 'info');
-    this.context = { inventory: new Inventory(), pnrStore: new PnrStore() };
+    this.context = {
+      inventory: new Inventory(),
+      pnrStore: new PnrStore(),
+      pcc: options.pcc ?? 'A0UC',
+    };
     this.server = new TcpServer(options.port, options.framing);
 
     this.server.on('connection', (conn: Connection) => this.onConnection(conn));

@@ -44,7 +44,7 @@ const firstChar = (c: string) => (raw: string) => raw.startsWith(c);
 const RULES: DispatchRule[] = [
   // Multi-char alphabetic sigils first (longest / most specific).
   { match: startsWith('SI'), parse: parseSignIn },
-  { match: equals('SO'), parse: parseSignOut },
+  { match: startsWith('SO'), parse: parseSignOut },
   { match: equals('ER'), parse: parseEndTransaction },
   { match: equals('ET'), parse: parseEndTransaction },
   { match: equals('E'), parse: parseEndTransaction },

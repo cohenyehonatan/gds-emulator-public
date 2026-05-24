@@ -13,7 +13,7 @@ export const bookRoundtripScenario: Scenario = {
   name: 'Book Round Trip',
   description: 'Sign in, book JFK-LAX and LAX-JFK, complete PNR fields, end transaction.',
   steps: [
-    { entry: 'SI*4321', note: 'Sign in', expectContains: 'OK' },
+    { entry: 'SI*4321', note: 'Sign in', expectContains: 'A0UC' },
     { entry: '115JUNJFKLAX', note: 'Availability outbound', expectContains: 'AA' },
     { entry: '01Y1', note: 'Sell 1 Y on line 1', expectContains: 'SS1' },
     { entry: '120JUNLAXJFK', note: 'Availability return', expectContains: 'DL' },

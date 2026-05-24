@@ -29,20 +29,23 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [ ] **Passive cancel** — `.(segment selection)XK`.
 - [ ] **Cancel & rebook in one entry** — `X1¥0(seats)(class)(line)`, `X1¥00(date)`.
 
-## Fidelity pass
+## Fidelity pass (done, except one item the source can't settle)
 
-Pin the bits currently guessed/simplified against the workbook.
-
-- [ ] `NEED …` / error response wording in `protocol/constants.ts`.
-- [ ] Day-of-week token in `session/handlers/context.ts` — workbook itinerary
-      lines use a **numeric** DOW (`24JUN 1`), older examples use a letter
-      (`23NOV S`). Decide and match.
-- [ ] Itinerary line column layout + arrival-date/`/E` suffix in
-      `protocol/serializer.ts` (ref: `1 IB6840F 24JUN 1 LOSMAD HK3 1510 0645 25 JUN 2 /DCIB*YJXMIB /E`).
-- [ ] Signature line at the foot of a committed PNR
-      (`A0UC.A0UC*ASC 1054/29NOV07 VZRAFH`).
-- [ ] Record-locator character set (workbook example `VZRAFH` is all-alpha — our
-      generator already matches; confirm there are no excluded letters).
+- [x] Day-of-week — single-letter Sabre convention (S M T W Q F J; Q=Thu, J=Sat),
+      matching the workbook sold-segment line. `session/handlers/context.ts`.
+- [x] Sold-segment `/E` end-item marker, 12-hour times, letter DOW.
+      `protocol/serializer.ts`.
+- [x] Signature line at the foot of a committed PNR
+      (`A0UC.A0UC*4321 1257/24MAY26 YDTWOE`), plus the sign-in response screen
+      and the `SO` / `SO*` sign-out strings — all workbook-grounded.
+- [x] Record-locator character set — all-alpha, matches `VZRAFH` / `5UXHHO`.
+- [ ] **`NEED …` end-transaction error wording** — the one open item. The
+      workbook teaches the PRINT rule but never prints the literal rejection
+      strings, so these stay reconstructed (flagged in `constants.ts`). Needs
+      Format Finder or a live screen to verify.
+- [ ] Exact itinerary column widths + next-day arrival-date rendering (the
+      workbook mixes 12h/24h and spaced/concatenated carrier+flight across
+      sections; current output follows the sold-segment example). Low priority.
 
 ## Richer availability & sell
 

@@ -37,12 +37,13 @@ const SECTIONS: Record<string, (pnr: Pnr) => string> = {
 
 export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerContext): string {
   const arg = entry.argument;
+  const sig = { pcc: ctx.pcc, agent: wa.agent };
 
   // Redisplay current work area: '*A' (all), '*N/*I/*P/*T' (sections), or bare '*'.
   const sectionKey = arg === '' ? 'A' : arg;
   if (sectionKey in SECTIONS) {
     if (!wa.pnr.hasContent()) return Response.NO_PNR;
-    return SECTIONS[sectionKey](wa.pnr);
+    return sectionKey === 'A' ? renderPnr(wa.pnr, sig) : SECTIONS[sectionKey](wa.pnr);
   }
 
   // Retrieve by surname: '*-SMITH'
@@ -52,7 +53,7 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
     if (matches.length > 1) return renderSimilarNameList(matches); // list; selection deferred
     wa.pnr = matches[0];
     wa.machine.transition(SessionEvent.RETRIEVE);
-    return renderPnr(wa.pnr);
+    return renderPnr(wa.pnr, sig);
   }
 
   // Retrieve by record locator: '*ABCDEF'
@@ -61,7 +62,7 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
     if (!pnr) return Response.RECORD_LOCATOR_NOT_FOUND;
     wa.pnr = pnr;
     wa.machine.transition(SessionEvent.RETRIEVE);
-    return renderPnr(pnr);
+    return renderPnr(pnr, sig);
   }
 
   return Response.FORMAT;

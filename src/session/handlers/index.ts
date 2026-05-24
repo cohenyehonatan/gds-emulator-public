@@ -8,6 +8,7 @@ import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
 import { InvalidTransitionError } from '../session-machine.js';
 import { Response } from '../../protocol/constants.js';
+import { renderSignInResponse } from '../../protocol/serializer.js';
 import type { HandlerContext } from './context.js';
 import { handleAvailability } from './availability-handler.js';
 import {
@@ -29,12 +30,14 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'sign_in':
         wa.machine.transition(SessionEvent.SIGN_IN);
         wa.agent = entry.argument || undefined;
-        return Response.OK;
+        return renderSignInResponse({ pcc: ctx.pcc, agent: wa.agent });
 
-      case 'sign_out':
+      case 'sign_out': {
         wa.machine.transition(SessionEvent.SIGN_OFF);
+        const msg = entry.allAreas ? 'A.B.C.D.E.F..SIGNED OUT' : `${wa.area} SIGNED OUT`;
         wa.reset();
-        return Response.OK;
+        return msg;
+      }
 
       case 'ignore':
         wa.machine.transition(SessionEvent.IGNORE);

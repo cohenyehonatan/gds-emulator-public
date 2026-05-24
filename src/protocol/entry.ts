@@ -87,6 +87,7 @@ export interface SignInEntry extends BaseEntry {
 
 export interface SignOutEntry extends BaseEntry {
   kind: 'sign_out';
+  allAreas: boolean; // SO* signs out of every work area
 }
 
 /** Catch-all for entries that parse to a known sigil but aren't yet implemented. */

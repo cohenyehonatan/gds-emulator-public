@@ -1,8 +1,10 @@
 /**
- * Record locator (PNR "Sabre Record Locator", e.g. VZRAFH — workbook p.~).
- * Six characters. Real Sabre locators are alphabetic; we keep A-Z and avoid
- * digits to match the look of examples in the course. Uniqueness is enforced
- * by the caller (pnr-store) via the `exists` predicate.
+ * Record locator (PNR "Sabre Record Locator"). Six alphabetic characters,
+ * matching the workbook examples (`VZRAFH`, `5UXHHO`). We keep A-Z; uniqueness
+ * is enforced by the caller (pnr-store) via the `exists` predicate.
+ *
+ * Note: modern Sabre locators can include digits, but the classic all-alpha
+ * form matches every example in the course, so we stay with it.
  */
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';

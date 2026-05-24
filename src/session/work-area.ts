@@ -16,6 +16,8 @@ export class WorkArea {
   pnr = new Pnr();
   lastAvailability?: AvailabilityResult;
   agent?: string;
+  /** Work-area letter (A–F); single area per session in v1. */
+  area = 'A';
 
   state(): SessionState {
     return this.machine.getState();

@@ -39,8 +39,9 @@ export function handleEndTransaction(
 
   const locator = ctx.pnrStore.commit(wa.pnr);
   const committed = wa.pnr;
+  const agent = wa.agent;
   wa.machine.transition(SessionEvent.END_TX);
   wa.reset();
 
-  return entry.redisplay ? renderPnr(committed) : locator;
+  return entry.redisplay ? renderPnr(committed, { pcc: ctx.pcc, agent }) : locator;
 }
