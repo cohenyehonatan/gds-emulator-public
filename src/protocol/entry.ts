@@ -16,9 +16,10 @@ export interface BaseEntry {
 
 export interface AvailabilityEntry extends BaseEntry {
   kind: 'availability';
-  /** display = 1<date><citypair>…; more = 1*; redisplay = 1*R/1*OA. */
-  mode: 'display' | 'more' | 'redisplay';
-  date?: SabreDate; // present for display
+  /** display = 1<date><citypair>…; more = 1*; redisplay = 1*R/1*OA; return = 1R… */
+  mode: 'display' | 'more' | 'redisplay' | 'return';
+  date?: SabreDate; // present for display, optional for return (1R¥<days>)
+  returnDays?: number; // 1R¥15 — add N days to the last availability date
   origin?: string;
   destination?: string;
   /** Optional preferred departure time as typed, e.g. "2030". */

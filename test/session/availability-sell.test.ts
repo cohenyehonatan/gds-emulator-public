@@ -59,6 +59,21 @@ describe('richer availability & sell', () => {
     expect(host.process('1*R', fresh)).toContain('NO AVAILABILITY');
   });
 
+  it('shows return availability (1R<date>) with the reversed city pair', () => {
+    host.process('115JUNJFKLAX', wa);
+    const ret = host.process('1R20JUN', wa);
+    expect(ret).toContain('20JUN  LAX/JFK');
+    expect(ret).toContain('DL'); // DL 422 LAX-JFK
+    // 1R¥7 adds 7 days and reverses again
+    expect(host.process('1R¥7', wa)).toContain('27JUN  JFK/LAX');
+  });
+
+  it('rejects return availability with no prior display', () => {
+    const fresh = host.newWorkArea();
+    host.process('SI*4321', fresh);
+    expect(host.process('1R20JUN', fresh)).toContain('NO AVAILABILITY');
+  });
+
   it('waitlists a sold-out class (LL) without drawing inventory', () => {
     host.process('115JUNJFKLAX', wa);
     const resp = host.process('01V1LL', wa); // class V not in inventory → 0 seats

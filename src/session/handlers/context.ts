@@ -40,6 +40,17 @@ export function dayOfWeekNumber(month: number, day: number): number {
   return js === 0 ? 7 : js;
 }
 
+/** A Sabre date token shifted by N days (year roll-forward like the GDS). */
+export function shiftDate(dateToken: string, days: number): { raw: string; month: number; day: number } | null {
+  const p = parseSabreDate(dateToken);
+  if (!p) return null;
+  const now = new Date();
+  let d = new Date(now.getFullYear(), p.date.month, p.date.day);
+  if (d < now) d = new Date(now.getFullYear() + 1, p.date.month, p.date.day);
+  d.setDate(d.getDate() + days);
+  return { raw: `${d.getDate()}${MONTHS[d.getMonth()]}`, month: d.getMonth(), day: d.getDate() };
+}
+
 /**
  * The day after a Sabre date token — used to render a next-day arrival on an
  * overnight segment (workbook "800A 24NOV M/E"). Returns the new token plus its

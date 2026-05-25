@@ -19,6 +19,16 @@ export function parseAvailability(raw: string): AvailabilityEntry {
   if (u === '1*') return { ...base, mode: 'more' };
   if (u === '1*R' || u === '1*OA') return { ...base, mode: 'redisplay' };
 
+  // Return availability: 1R<date> or 1R¥<days> (reverses the last city pair).
+  if (u.startsWith('1R')) {
+    const after = raw.slice(2);
+    const days = /^¥(\d+)$/.exec(after);
+    if (days) return { ...base, mode: 'return', returnDays: parseInt(days[1], 10) };
+    const d = parseSabreDate(after);
+    if (d && d.length === after.length) return { ...base, mode: 'return', date: d.date };
+    throw new ParseError(`Availability return: bad "${raw}"`);
+  }
+
   const args = raw.slice(1); // drop leading '1'
   const dateMatch = parseSabreDate(args);
   if (!dateMatch) throw new ParseError(`Availability: bad date in "${raw}"`);
