@@ -127,7 +127,7 @@ export interface DisplayEntry extends BaseEntry {
  */
 export interface FlightInfoEntry extends BaseEntry {
   kind: 'flight_info';
-  source: 'flight' | 'availability' | 'itinerary';
+  source: 'flight' | 'availability' | 'itinerary' | 'connect'; // connect = VCT* min-connect
   carrier?: string;
   flightNumber?: string;
   date?: string; // Sabre date token

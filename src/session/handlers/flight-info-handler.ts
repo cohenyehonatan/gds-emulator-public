@@ -8,9 +8,31 @@
 import type { FlightInfoEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { renderFlightInfo, type FlightInfoItem } from '../../protocol/serializer.js';
+import { parseClockToMinutes } from '../../utils/validation.js';
+import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import type { HandlerContext } from './context.js';
 
+/** VCT*: verify minimum connecting time between consecutive connection segments. */
+function verifyConnections(wa: WorkArea): string {
+  const segs = wa.pnr.segments;
+  if (segs.length < 2) return 'NO CONNECTIONS TO VERIFY'; // TODO: confirm wording
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (segs[i].destination !== segs[i + 1].origin) continue; // not a connection point
+    const arr = parseClockToMinutes(segs[i].arriveTime);
+    const dep = parseClockToMinutes(segs[i + 1].departTime);
+    if (arr == null || dep == null) continue;
+    let connect = dep - arr;
+    if (connect < 0) connect += 1440;
+    if (connect < MIN_CONNECT_MINUTES) {
+      return `INVALID CONNECT TIME SEGS ${i + 1} AND ${i + 2} - MINIMUM IS ${MIN_CONNECT_MINUTES} MINUTES`;
+    }
+  }
+  return 'MINIMUM CONNECT TIME EDIT VALID FOR ALL CONNECTIONS';
+}
+
 export function handleFlightInfo(entry: FlightInfoEntry, wa: WorkArea, ctx: HandlerContext): string {
+  if (entry.source === 'connect') return verifyConnections(wa);
+
   if (entry.source === 'flight') {
     const f = ctx.inventory.scheduleFor(entry.carrier!, entry.flightNumber!);
     if (!f) return 'FLIGHT NOT FOUND'; // TODO: confirm wording

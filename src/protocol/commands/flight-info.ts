@@ -31,6 +31,9 @@ export function parseFlightInfo(raw: string): FlightInfoEntry {
   const u = raw.toUpperCase();
   const base = { kind: 'flight_info' as const, raw, timestamp: new Date() };
 
+  const vct = /^VCT\*(.*)$/.exec(u);
+  if (vct) return { ...base, source: 'connect', lines: vct[1] ? parseSpec(vct[1], raw) : undefined };
+
   const va = /^VA\*(.+)$/.exec(u);
   if (va) return { ...base, source: 'availability', lines: parseSpec(va[1], raw) };
 

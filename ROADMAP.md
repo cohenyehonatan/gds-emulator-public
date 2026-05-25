@@ -123,8 +123,9 @@ Making the happy path feel like a real GDS, within the existing architecture.
       (per-leg class); waitlist multi-leg supported. Seed: JFK-SFO via ORD/DEN.
 - [x] **Carrier** (preferred-airline) qualifier `¥AA` / `¥UADLB6` — filters
       nonstops and online connections (see "Keyboard & special keys").
-- [ ] Availability **scroll** `1*`, **return-date** (`1R¥15`),
-      **connecting-city**, and **direct-only** (`/D`) qualifiers.
+- [x] Availability **scroll** `1*` / redisplay `1*R`, **return-date**
+      (`1R25JUN` / `1R¥15`), **connecting-city** (`1…JFKSFOORD`), and
+      **direct-only** (`/D`) qualifiers.
 
 ## Flight information / verify
 
@@ -132,7 +133,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
       (by flight number), `VA*<line(s)>` (from availability), `VI*<seg(s)>` / `VI*`
       (from the itinerary). Read-only display: city pair, 24h dptr/arrv, equipment,
       elapsed (overnight-aware). Meals/miles/smoking columns not modeled.
-- [ ] Verify minimum connecting time (`VCT*`, `VCT*1/2`).
+- [x] Verify minimum connecting time (`VCT*`) — checks consecutive connection
+      segments against the 45-min minimum; verified response strings.
 
 ## v2 — Pricing & fares
 

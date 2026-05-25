@@ -55,4 +55,19 @@ describe('flight info / verify in the work area', () => {
     host.process('115JUNJFKLAX', wa);
     expect(host.process('VA*2', wa)).toContain('AA100'); // line 2 is AA 100
   });
+
+  it('VCT* validates a healthy connection', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKSFO', wa);
+    host.process('01Y1*', wa); // AA300 + AA350, 90-min connect
+    expect(host.process('VCT*', wa)).toBe('MINIMUM CONNECT TIME EDIT VALID FOR ALL CONNECTIONS');
+  });
+
+  it('VCT* flags a too-short connection', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKORD', wa);
+    host.process('01Y1', wa); // AA300 arrives ORD 1000A
+    host.process('0AA360Y15JUNORDSFOSS1', wa); // AA360 departs ORD 1020A (20 min)
+    expect(host.process('VCT*', wa)).toBe('INVALID CONNECT TIME SEGS 1 AND 2 - MINIMUM IS 45 MINUTES');
+  });
 });

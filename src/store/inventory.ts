@@ -34,9 +34,12 @@ const SCHEDULE: ScheduledFlight[] = [
   { carrier: 'AA', flightNumber: '350', origin: 'ORD', destination: 'SFO', departTime: '1130A', arriveTime: '145P', equipment: '739', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 4 } },
   { carrier: 'UA', flightNumber: '500', origin: 'JFK', destination: 'DEN', departTime: '900A', arriveTime: '1115A', equipment: '752', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 2 } },
   { carrier: 'UA', flightNumber: '550', origin: 'DEN', destination: 'SFO', departTime: '1230P', arriveTime: '200P', equipment: '320', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 9 } },
+  // ORD-SFO departing 20 min after AA300 arrives ORD — too tight to auto-build a
+  // connection, but long-sellable into a PNR so VCT* can flag the short connect.
+  { carrier: 'AA', flightNumber: '360', origin: 'ORD', destination: 'SFO', departTime: '1020A', arriveTime: '1245P', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 9 } },
 ];
 
-const MIN_CONNECT_MINUTES = 45;
+export const MIN_CONNECT_MINUTES = 45;
 const MAX_CONNECTIONS = 4;
 
 export interface AvailabilityOptions {
