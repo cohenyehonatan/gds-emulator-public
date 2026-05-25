@@ -61,6 +61,7 @@ export function handleAvailability(
     afterMinutes,
     bookingClass: entry.bookingClass,
     carriers: entry.carriers,
+    directOnly: entry.directOnly,
   });
 
   const result = {

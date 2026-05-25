@@ -74,6 +74,12 @@ describe('richer availability & sell', () => {
     expect(host.process('1R20JUN', fresh)).toContain('NO AVAILABILITY');
   });
 
+  it('direct-only (/D) excludes connections', () => {
+    expect(host.process('115JUNJFKSFO', wa)).toContain('ORDSFO'); // connection shown
+    expect(host.process('115JUNJFKSFO/D', wa)).toContain('NO FLIGHTS'); // connections excluded
+    expect(host.process('115JUNJFKLAX/D', wa)).toContain('AA 100'); // nonstops still shown
+  });
+
   it('waitlists a sold-out class (LL) without drawing inventory', () => {
     host.process('115JUNJFKLAX', wa);
     const resp = host.process('01V1LL', wa); // class V not in inventory → 0 seats

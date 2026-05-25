@@ -28,6 +28,8 @@ export interface AvailabilityEntry extends BaseEntry {
   bookingClass?: string;
   /** Optional preferred-airline qualifier ("¥AA", "¥UADLBA" → [UA,DL,BA]). */
   carriers?: string[];
+  /** Direct-only qualifier ("/D"): nonstops/direct, no connections. */
+  directOnly?: boolean;
 }
 
 /**

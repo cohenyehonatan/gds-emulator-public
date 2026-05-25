@@ -46,6 +46,8 @@ export interface AvailabilityOptions {
   bookingClass?: string;
   /** Keep only these carriers (from a "¥AA" preferred-airline qualifier). */
   carriers?: string[];
+  /** Nonstops/direct only (from a "/D" qualifier) — no connections. */
+  directOnly?: boolean;
 }
 
 export class Inventory {
@@ -114,9 +116,12 @@ export class Inventory {
       .sort((a, b) => this.depMin(a) - this.depMin(b));
 
     // Connections — online on a preferred carrier (every leg must qualify).
-    const connections = this.connectionsFor(origin, destination)
-      .filter((legs) => afterOk(legs[0]) && legs.every((l) => hasClass(l) && carrierOk(l)))
-      .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
+    // Skipped entirely for a direct-only ("/D") request.
+    const connections = opts.directOnly
+      ? []
+      : this.connectionsFor(origin, destination)
+          .filter((legs) => afterOk(legs[0]) && legs.every((l) => hasClass(l) && carrierOk(l)))
+          .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
 
     const lines: AvailabilityLine[] = [];
     const toLine = (f: ScheduledFlight, group?: number, legIndex?: number): AvailabilityLine => ({

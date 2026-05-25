@@ -38,9 +38,15 @@ export function parseAvailability(raw: string): AvailabilityEntry {
   if (!isCityPair(cityPair)) throw new ParseError(`Availability: bad city pair in "${raw}"`);
   const { origin, destination } = splitCityPair(cityPair);
 
-  // Tail may carry a time, a class qualifier ("-Y"), and/or a preferred-airline
-  // qualifier ("¥AA" or "¥UADLBA"). The airline qualifier comes last.
+  // Tail may carry a time, a class qualifier ("-Y"), a preferred-airline
+  // qualifier ("¥AA"), and/or a direct-only qualifier ("/D").
   let tail = rest.slice(6);
+
+  let directOnly = false;
+  if (/\/D$/i.test(tail)) {
+    directOnly = true;
+    tail = tail.slice(0, -2);
+  }
 
   let carriers: string[] | undefined;
   const carrierMatch = /¥([A-Z0-9]{2,})/.exec(tail); // IATA codes are 2 alphanumeric (e.g. B6, U2)
@@ -58,5 +64,5 @@ export function parseAvailability(raw: string): AvailabilityEntry {
 
   const time = tail.replace(/[^0-9AP].*$/i, '') || undefined; // leading clock token
 
-  return { ...base, mode: 'display', date: dateMatch.date, origin, destination, time, bookingClass, carriers };
+  return { ...base, mode: 'display', date: dateMatch.date, origin, destination, time, bookingClass, carriers, directOnly };
 }
