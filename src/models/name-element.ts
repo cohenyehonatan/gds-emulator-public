@@ -17,6 +17,8 @@ const TITLES = new Set(['MR', 'MRS', 'MS', 'MISS', 'MSTR', 'DR', 'PROF', 'SIR', 
 export interface Passenger {
   firstName: string;
   title?: string;
+  /** Name reference number ("*5467") for this passenger; printed, not transmitted. */
+  reference?: string;
 }
 
 export interface NameItem {
@@ -25,6 +27,8 @@ export interface NameItem {
   passengers: Passenger[];
   /** Infant(s) not occupying a seat (the "-I/" name field). */
   infant?: boolean;
+  /** Name reference number ("*5467") for the whole name field. */
+  reference?: string;
 }
 
 /** Parse one passenger token, e.g. "FRED MR" or "JANE MISS". */
@@ -46,6 +50,14 @@ export function parseNameText(text: string): NameItem {
     body = body.slice(2); // drop "I/"
   }
 
+  // Trailing name reference number: "...*5467".
+  let reference: string | undefined;
+  const refMatch = /\*([A-Za-z0-9]+)$/.exec(body);
+  if (refMatch) {
+    reference = refMatch[1];
+    body = body.slice(0, refMatch.index);
+  }
+
   // Optional leading count: "2MURRAY/..." → count 2.
   const countMatch = /^(\d+)/.exec(body);
   const explicitCount = countMatch ? parseInt(countMatch[1], 10) : undefined;
@@ -59,13 +71,19 @@ export function parseNameText(text: string): NameItem {
     passengers,
     count: explicitCount ?? Math.max(1, passengers.length),
     infant,
+    reference,
   };
 }
 
-/** Render a name item: "2MURRAY/FRED MR/HANA MRS" or "I/1ADAMS/MARY". */
+/** Render a name item: "2MURRAY/FRED MR/HANA MRS", "I/1ADAMS/MARY", "1SMITH/LAUREN*5467". */
 export function formatNameItem(item: NameItem): string {
   const given = item.passengers
-    .map((p) => (p.title ? `${p.firstName} ${p.title}` : p.firstName))
+    .map((p) => {
+      const title = p.title ? ` ${p.title}` : '';
+      const ref = p.reference ? `*${p.reference}` : '';
+      return `${p.firstName}${title}${ref}`;
+    })
     .join('/');
-  return `${item.infant ? 'I/' : ''}${item.count}${item.surname}/${given}`;
+  const itemRef = item.reference ? `*${item.reference}` : '';
+  return `${item.infant ? 'I/' : ''}${item.count}${item.surname}/${given}${itemRef}`;
 }

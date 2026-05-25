@@ -59,6 +59,7 @@ export function handleModify(entry: ModifyEntry, wa: WorkArea): string {
 }
 
 function modifyName(entry: ModifyEntry, pnr: Pnr): string {
+  if (entry.reference) return modifyNameReference(entry, pnr);
   if (entry.passenger != null) return modifyPassenger(entry, pnr);
 
   if (entry.operation === 'delete') {
@@ -75,6 +76,22 @@ function modifyName(entry: ModifyEntry, pnr: Pnr): string {
   const target = entry.lines[0] ?? (pnr.names.length === 1 ? 1 : undefined);
   if (target == null || target < 1 || target > pnr.names.length) return Response.FORMAT;
   pnr.names[target - 1] = parseNameText(entry.newData!);
+  return renderNames(pnr);
+}
+
+/** Change or delete a name-reference number (¤*), at item or passenger level. */
+function modifyNameReference(entry: ModifyEntry, pnr: Pnr): string {
+  const item = pnr.names[(entry.lines[0] ?? 0) - 1];
+  if (!item) return Response.FORMAT;
+  const value = entry.operation === 'delete' ? undefined : entry.newData;
+
+  if (entry.passenger != null) {
+    const pax = item.passengers[entry.passenger - 1];
+    if (!pax) return Response.FORMAT;
+    pax.reference = value;
+  } else {
+    item.reference = value;
+  }
   return renderNames(pnr);
 }
 

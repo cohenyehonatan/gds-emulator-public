@@ -44,15 +44,18 @@ function parseLineSpec(spec: string): number[] {
 export function parseModify(raw: string): ModifyEntry {
   const idx = raw.indexOf(CHANGE);
   const left = raw.slice(0, idx);
-  const newData = raw.slice(idx + 1).trim();
+  let newData = raw.slice(idx + 1).trim();
 
   const field = SIGIL_FIELD[left[0]];
   if (!field) throw new ParseError(`modify: unsupported field "${left[0]}"`);
 
-  const spec = left.slice(1);
-  // Name-reference data (¤*) is still deferred.
-  if (spec.includes('*') || newData.startsWith('*')) {
-    throw new ParseError('modify: name-reference data not supported yet');
+  // Name-reference data op: ¤* (names only). Strip the '*'; what's left is the
+  // reference value (empty ⇒ delete the reference).
+  let reference = false;
+  if (newData.startsWith('*')) {
+    if (field !== 'name') throw new ParseError('modify: reference data only valid for names');
+    reference = true;
+    newData = newData.slice(1).trim();
   }
 
   const base = {
@@ -60,11 +63,13 @@ export function parseModify(raw: string): ModifyEntry {
     raw,
     timestamp: new Date(),
     field,
+    reference,
     operation: newData.length > 0 ? ('change' as const) : ('delete' as const),
     newData: newData.length > 0 ? newData : undefined,
   };
 
-  // Passenger-within-item reference, e.g. -1.1¤  (names only).
+  const spec = left.slice(1);
+  // Passenger-within-item reference, e.g. -1.1¤ / -3.2¤* (names only).
   const sub = /^(\d+)\.(\d+)$/.exec(spec);
   if (sub) {
     if (field !== 'name') throw new ParseError('modify: sub-reference only valid for names');

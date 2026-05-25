@@ -25,8 +25,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **Field change/delete key `¤`** — change/delete name, phone, ticketing,
       received-from by line: `-1¤JENSEN/KURT MR`, `91¤214-555-2121-H`, `-¤`,
       `91-3¤`, `91,3¤`, `7¤TAW17FEB/`, `6¤JENS`. Chains with `§`. Passenger-level
-      refs (`-1.1¤` change/delete a passenger within a name item) now supported;
-      name-reference data (`¤*`) still deferred (no SSR associations modeled).
+      refs (`-1.1¤`) and name-reference data (`¤*`) now supported (see SSR/OSI
+      section for the reference number).
 - [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
 - [x] **Infants** — done (see SSR / OSI section): `-I/` name field + `3INFT` SSR.
 - [ ] **Passive cancel** — `.(segment selection)XK`.
@@ -69,8 +69,9 @@ Making the happy path feel like a real GDS, within the existing architecture.
       `-I/3OBI/MARY/JUNE/BRANDON`), shown as `I/1ADAMS/MARY` and excluded from
       the seat count. The infant SSR `3INFT/.../DOB-1.1` parses via the SSR
       foundation.
-- [ ] **Name reference number** — `-SMITH/LAUREN*5467` (printed, not transmitted)
-      and the `¤*` name-reference modify (change/delete it).
+- [x] **Name reference number** — add `-SMITH/LAUREN*5467` (printed, not
+      transmitted), change/delete via `¤*` (`-1¤*AN9999`, `-1¤*`), at item or
+      passenger level (`-1.2¤*ABC`).
 - [ ] Segment-specific SSR (entry format not cleanly pinned in the workbooks)
       and explicit per-SSR carrier.
 

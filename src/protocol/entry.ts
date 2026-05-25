@@ -121,6 +121,8 @@ export interface ModifyEntry extends BaseEntry {
   lines: number[];
   /** Passenger within a name item (the ".P" of a "1.1" reference). */
   passenger?: number;
+  /** True for a name-reference-data op (¤*): newData holds the reference value. */
+  reference?: boolean;
   newData?: string; // present for change
 }
 

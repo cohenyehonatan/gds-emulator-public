@@ -107,9 +107,22 @@ describe('field modify (¤ change/delete)', () => {
     expect(host.process('-1.5¤', wa)).toBe('FORMAT');
   });
 
-  it('still defers name-reference data (¤*)', () => {
-    host.process('-SMITH/JOHN MR', wa);
-    expect(host.process('-1¤*X', wa)).toBe('FORMAT'); // ParseError → FORMAT
+  it('adds, changes, and deletes a name reference number', () => {
+    host.process('-SMITH/LAUREN*5467', wa);
+    expect(wa.pnr.names[0].reference).toBe('5467');
+    expect(host.process('*N', wa)).toContain('1.1SMITH/LAUREN*5467');
+
+    host.process('-1¤*AN9999', wa); // change reference data
+    expect(wa.pnr.names[0].reference).toBe('AN9999');
+
+    host.process('-1¤*', wa); // delete reference data
+    expect(wa.pnr.names[0].reference).toBeUndefined();
+  });
+
+  it('sets a passenger-level name reference (-1.2¤*)', () => {
+    host.process('-2MURRAY/FRED MR/HANA MRS', wa);
+    host.process('-1.2¤*ABC', wa);
+    expect(wa.pnr.names[0].passengers[1].reference).toBe('ABC');
   });
 
   it('rejects a modify when the work area is empty', () => {
