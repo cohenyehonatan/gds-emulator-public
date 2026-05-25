@@ -28,7 +28,7 @@ Making the happy path feel like a real GDS, within the existing architecture.
       refs (`-1.1¤` change/delete a passenger within a name item) now supported;
       name-reference data (`¤*`) still deferred (no SSR associations modeled).
 - [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
-- [ ] **Infants** — `-I/3OBI/MARY/JUNE/BRANDON`; `3INFT/ANDY/MARY/09JAN11-1.1`.
+- [x] **Infants** — done (see SSR / OSI section): `-I/` name field + `3INFT` SSR.
 - [ ] **Passive cancel** — `.(segment selection)XK`.
 - [ ] **Cancel & rebook in one entry** — `X1¥0(seats)(class)(line)`, `X1¥00(date)`.
 
@@ -65,8 +65,10 @@ Making the happy path feel like a real GDS, within the existing architecture.
       modeled on the PNR, with passenger association via a name reference
       (`3VGML-1.1`), carrier default YY (or AA for sigil 4), and display
       (`SSR VGML YY NN -1.1`, `OSI DL HAS BROKEN LEG`). Survives commit/retrieve.
-- [ ] **Infant** — infant name field `-I/ADAMS/MARY` + infant SSR
-      `3INFT/ANDY/MARY/09JAN11-1.1` (knocks out the "infants" item below).
+- [x] **Infant** — infant name field `-I/ADAMS/MARY` (and multiple
+      `-I/3OBI/MARY/JUNE/BRANDON`), shown as `I/1ADAMS/MARY` and excluded from
+      the seat count. The infant SSR `3INFT/.../DOB-1.1` parses via the SSR
+      foundation.
 - [ ] **Name reference number** — `-SMITH/LAUREN*5467` (printed, not transmitted)
       and the `¤*` name-reference modify (change/delete it).
 - [ ] Segment-specific SSR (entry format not cleanly pinned in the workbooks)

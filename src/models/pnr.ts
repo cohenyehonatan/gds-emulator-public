@@ -25,9 +25,9 @@ export class Pnr {
   receivedFrom?: string;
   createdAt?: Date;
 
-  /** Total passengers across all name items (used for seat math later). */
+  /** Seat-occupying passengers (infants don't occupy a seat). */
   passengerCount(): number {
-    return this.names.reduce((sum, n) => sum + n.count, 0);
+    return this.names.filter((n) => !n.infant).reduce((sum, n) => sum + n.count, 0);
   }
 
   /** Renumber segments 1..N after a cancellation. */

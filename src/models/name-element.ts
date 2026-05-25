@@ -23,6 +23,8 @@ export interface NameItem {
   count: number;
   surname: string;
   passengers: Passenger[];
+  /** Infant(s) not occupying a seat (the "-I/" name field). */
+  infant?: boolean;
 }
 
 /** Parse one passenger token, e.g. "FRED MR" or "JANE MISS". */
@@ -35,12 +37,19 @@ export function parsePassenger(token: string): Passenger {
   return { firstName: parts.join(' ') };
 }
 
-/** Parse the text after the '-' sigil into a NameItem. */
+/** Parse the text after the '-' sigil into a NameItem. "I/" marks an infant. */
 export function parseNameText(text: string): NameItem {
+  let infant = false;
+  let body = text;
+  if (/^I\//.test(body)) {
+    infant = true;
+    body = body.slice(2); // drop "I/"
+  }
+
   // Optional leading count: "2MURRAY/..." → count 2.
-  const countMatch = /^(\d+)/.exec(text);
+  const countMatch = /^(\d+)/.exec(body);
   const explicitCount = countMatch ? parseInt(countMatch[1], 10) : undefined;
-  const body = countMatch ? text.slice(countMatch[0].length) : text;
+  body = countMatch ? body.slice(countMatch[0].length) : body;
 
   const [surname, ...givenTokens] = body.split('/');
   const passengers = givenTokens.map(parsePassenger);
@@ -49,13 +58,14 @@ export function parseNameText(text: string): NameItem {
     surname: surname.trim(),
     passengers,
     count: explicitCount ?? Math.max(1, passengers.length),
+    infant,
   };
 }
 
-/** Render a name item for display: "2MURRAY/FRED MR/HANA MRS". */
+/** Render a name item: "2MURRAY/FRED MR/HANA MRS" or "I/1ADAMS/MARY". */
 export function formatNameItem(item: NameItem): string {
   const given = item.passengers
     .map((p) => (p.title ? `${p.firstName} ${p.title}` : p.firstName))
     .join('/');
-  return `${item.count}${item.surname}/${given}`;
+  return `${item.infant ? 'I/' : ''}${item.count}${item.surname}/${given}`;
 }
