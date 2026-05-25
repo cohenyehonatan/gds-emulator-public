@@ -96,7 +96,7 @@ export class Inventory {
    */
   availability(
     date: string,
-    dayOfWeek: string,
+    dow: { letter: string; num: number },
     origin: string,
     destination: string,
     opts: AvailabilityOptions = {}
@@ -130,7 +130,8 @@ export class Inventory {
       arriveTime: f.arriveTime,
       equipment: f.equipment,
       date,
-      dayOfWeek,
+      dayOfWeek: dow.letter,
+      dayOfWeekNum: dow.num,
       connectionGroup: group,
       legIndex,
     });

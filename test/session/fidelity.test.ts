@@ -75,4 +75,27 @@ describe('fidelity — workbook response formats', () => {
     expect(display).toContain('PHONES');
     expect(display).toContain('RECEIVED FROM - P');
   });
+
+  it('uses 12h + letter DOW on the sell echo, 24h + numeric DOW elsewhere', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKLAX', wa);
+
+    // sell echo: 12-hour + letter day-of-week (workbook "EXAMPLE SOLD SEGMENT")
+    const sell = host.process('01Y1', wa); // B6 615 departs 700A
+    expect(sell).toContain('700A');
+    expect(sell).toMatch(/15JUN [A-Z] JFKLAX/); // single-letter DOW
+
+    // stored itinerary display: 24-hour + numeric day-of-week
+    const itin = host.process('*I', wa);
+    expect(itin).toContain('0700');
+    expect(itin).not.toContain('700A');
+    expect(itin).toMatch(/15JUN \d JFKLAX/); // numeric DOW
+  });
+
+  it('shows availability times in 24-hour', () => {
+    host.process('SI*4321', wa);
+    const avail = host.process('115JUNJFKLAX', wa);
+    expect(avail).toContain('0700'); // B6 615 07:00
+    expect(avail).not.toContain('700A');
+  });
 });

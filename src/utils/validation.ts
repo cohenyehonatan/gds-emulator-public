@@ -71,4 +71,11 @@ export function parseClockToMinutes(s: string): number | null {
   return hh * 60 + mm;
 }
 
+/** Format a clock token as 24-hour HHMM, e.g. "700A" → "0700", "520P" → "1720". */
+export function to24h(clock: string): string {
+  const m = parseClockToMinutes(clock);
+  if (m == null) return clock;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}${String(m % 60).padStart(2, '0')}`;
+}
+
 export { MONTHS };

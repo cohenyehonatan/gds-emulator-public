@@ -20,6 +20,7 @@ export interface AvailabilityLine {
   equipment: string;
   date: string; // Sabre date token
   dayOfWeek: string;
+  dayOfWeekNum: number; // 1-7 ISO
   /** Connection grouping: legs of one connection share an id; nonstops omit it. */
   connectionGroup?: number;
   legIndex?: number; // 0-based position within the connection

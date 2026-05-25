@@ -19,7 +19,7 @@ import { renderSoldSegment } from '../../protocol/serializer.js';
 import { StatusCode } from '../../protocol/constants.js';
 import { Response } from '../../protocol/constants.js';
 import type { AirSegment } from '../../models/segment.js';
-import { dayOfWeekLetter, type HandlerContext } from './context.js';
+import { dayOfWeekLetter, dayOfWeekNumber, type HandlerContext } from './context.js';
 
 export function handleSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
   if (entry.mode === 'direct') {
@@ -82,6 +82,7 @@ function buildAvailabilitySegments(
       bookingClass: t.bookingClass,
       date: avail.date,
       dayOfWeek: line.dayOfWeek,
+      dayOfWeekNum: line.dayOfWeekNum,
       origin: line.origin,
       destination: line.destination,
       status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
@@ -105,6 +106,7 @@ function buildDirectSegment(entry: SellEntry, wa: WorkArea, ctx: HandlerContext)
     bookingClass: entry.bookingClass,
     date: entry.date!.raw,
     dayOfWeek: dayOfWeekLetter(entry.date!.month, entry.date!.day),
+    dayOfWeekNum: dayOfWeekNumber(entry.date!.month, entry.date!.day),
     origin: entry.origin!,
     destination: entry.destination!,
     status: entry.status ?? StatusCode.NN,

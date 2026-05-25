@@ -55,9 +55,12 @@ Making the happy path feel like a real GDS, within the existing architecture.
   - [ ] Wire remaining verified strings when their features land: `NO CHANGES
         MADE TO PNR`, simultaneous-changes (`IR`), `VERIFY ORDER OF ITINERARY
         SEGMENTS`, infant SSR.
-- [ ] Exact itinerary column widths + next-day arrival-date rendering (the
-      workbook mixes 12h/24h and spaced/concatenated carrier+flight across
-      sections; current output follows the sold-segment example). Low priority.
+- [x] Time format + day-of-week aligned to the guides: the **sell echo** uses
+      12-hour + letter DOW (workbook "EXAMPLE SOLD SEGMENT"); **availability**
+      and the **stored itinerary display** use 24-hour + numeric DOW (workbook
+      "EXAMPLE OF BASIC PNR" / Zenon).
+- [ ] Next-day arrival-date rendering (`… 25 JUN 2`) and the spaced-vs-
+      concatenated carrier+flight nuance (the guides differ). Low priority.
 
 ## SSR / OSI
 

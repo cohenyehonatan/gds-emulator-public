@@ -2,10 +2,11 @@
  * Green-screen response rendering (host → terminal).
  *
  * Renders availability displays, sold-segment lines, and PNR displays in a
- * Sabre-style fixed layout. Layouts are modeled on the course examples but
- * the exact column positions still need pinning against the PDF / a live
- * screen — marked TODO. This is the GDS analog of pectab's serializeMessage,
- * but one-directional (host responses only).
+ * Sabre-style fixed layout, modeled on the course examples. Note the
+ * deliberate split (matching the guides): the sell echo (renderSoldSegment)
+ * uses 12-hour times + a letter day-of-week, while availability and the stored
+ * itinerary display (renderItinerarySegment) use 24-hour + numeric DOW. This is
+ * the GDS analog of pectab's serializeMessage, but one-directional.
  */
 
 import type { AvailabilityResult, AvailabilityLine } from '../models/availability-result.js';
@@ -14,7 +15,7 @@ import { Pnr } from '../models/pnr.js';
 import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
 import type { FareQuote } from '../models/fare.js';
-import { MONTHS } from '../utils/validation.js';
+import { MONTHS, to24h } from '../utils/validation.js';
 
 /** Signature-line inputs (PCC + agent sign). */
 export interface PnrSignature {
@@ -43,14 +44,14 @@ function renderAvailabilityLine(l: AvailabilityLine): string {
     .join(' ');
   return (
     `${String(l.line).padStart(2)} ${l.carrier} ${l.flightNumber.padEnd(4)} ` +
-    `${classes}  ${l.origin}${l.destination} ${l.departTime} ${l.arriveTime} ${l.equipment}`
+    `${classes}  ${l.origin}${l.destination} ${to24h(l.departTime)} ${to24h(l.arriveTime)} ${l.equipment}`
   );
 }
 
 /**
- * Single sold-segment line, e.g. " 2 BA 192Y  23NOV S DFWLHR SS1  520P  800A /E".
- * Matches the workbook "EXAMPLE SOLD SEGMENT": 12-hour times, single-letter
- * day-of-week, and the trailing "/E" end-item marker.
+ * Single sold-segment line as echoed right after a sell, e.g.
+ * " 2 BA 192Y  23NOV S DFWLHR SS1  520P  800A /E". Matches the workbook
+ * "EXAMPLE SOLD SEGMENT": 12-hour times, single-letter day-of-week, "/E".
  */
 export function renderSoldSegment(s: AirSegment): string {
   const times = s.departTime || s.arriveTime ? `  ${s.departTime}  ${s.arriveTime}` : '';
@@ -58,6 +59,21 @@ export function renderSoldSegment(s: AirSegment): string {
   return (
     `${String(s.segmentNumber).padStart(2)} ${s.carrier} ` +
     `${s.flightNumber}${s.bookingClass}  ${s.date} ${s.dayOfWeek} ` +
+    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times} /E`
+  );
+}
+
+/**
+ * Segment line as shown in the stored PNR / itinerary display (ER, *I, *A),
+ * e.g. " 1 MA 225K 20OCT 3 LCABUD SS1 0410 0615 /E": 24-hour times and a
+ * numeric day-of-week (workbook "EXAMPLE OF BASIC PNR" / Zenon).
+ */
+export function renderItinerarySegment(s: AirSegment): string {
+  const times = s.departTime || s.arriveTime ? `  ${to24h(s.departTime)}  ${to24h(s.arriveTime)}` : '';
+  const loc = s.airlineLocator ? `*${s.airlineLocator}` : '';
+  return (
+    `${String(s.segmentNumber).padStart(2)} ${s.carrier} ` +
+    `${s.flightNumber}${s.bookingClass}  ${s.date} ${s.dayOfWeekNum} ` +
     `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times} /E`
   );
 }
@@ -70,10 +86,10 @@ export function renderNames(pnr: Pnr): string {
   return pnr.names.map((n, i) => `${i + 1}.${formatNameItem(n)}`).join('   ');
 }
 
-/** Itinerary: one sold-segment line per segment. */
+/** Itinerary: one line per segment (24-hour, numeric day-of-week). */
 export function renderItinerary(pnr: Pnr): string {
   if (pnr.segments.length === 0) return 'NO ITINERARY';
-  return pnr.segments.map(renderSoldSegment).join('\n');
+  return pnr.segments.map(renderItinerarySegment).join('\n');
 }
 
 /** Phone field, with the "PHONES" header (workbook layout). */
@@ -114,7 +130,7 @@ export function renderOsis(pnr: Pnr): string {
 export function renderPnr(pnr: Pnr, sig?: PnrSignature): string {
   const out: string[] = [];
   out.push(renderNames(pnr));
-  pnr.segments.forEach((s) => out.push(renderSoldSegment(s)));
+  pnr.segments.forEach((s) => out.push(renderItinerarySegment(s)));
   if (pnr.ticketing) out.push(renderTicketing(pnr));
   if (pnr.phones.length) out.push(renderPhones(pnr));
   if (pnr.osis.length) out.push(renderOsis(pnr));

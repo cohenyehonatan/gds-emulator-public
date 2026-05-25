@@ -8,14 +8,17 @@ import type { AvailabilityEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { renderAvailability } from '../../protocol/serializer.js';
 import { parseClockToMinutes } from '../../utils/validation.js';
-import { dayOfWeekLetter, type HandlerContext } from './context.js';
+import { dayOfWeekLetter, dayOfWeekNumber, type HandlerContext } from './context.js';
 
 export function handleAvailability(
   entry: AvailabilityEntry,
   wa: WorkArea,
   ctx: HandlerContext
 ): string {
-  const dow = dayOfWeekLetter(entry.date.month, entry.date.day);
+  const dow = {
+    letter: dayOfWeekLetter(entry.date.month, entry.date.day),
+    num: dayOfWeekNumber(entry.date.month, entry.date.day),
+  };
   const afterMinutes = entry.time ? parseClockToMinutes(entry.time) ?? undefined : undefined;
 
   const lines = ctx.inventory.availability(entry.date.raw, dow, entry.origin, entry.destination, {

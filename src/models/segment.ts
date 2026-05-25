@@ -20,7 +20,8 @@ export interface AirSegment {
   flightNumber: string; // e.g. "192"
   bookingClass: string; // e.g. "Y"
   date: string; // Sabre date token, e.g. "23NOV"
-  dayOfWeek: string; // single letter, e.g. "S"
+  dayOfWeek: string; // single letter, e.g. "S" (sold-segment response)
+  dayOfWeekNum: number; // 1-7 ISO (stored itinerary display)
   origin: string;
   destination: string;
   status: string; // SS sold, HK confirmed, LL waitlist, … (see constants.StatusCode)

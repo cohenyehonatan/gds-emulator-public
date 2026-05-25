@@ -26,3 +26,15 @@ export function dayOfWeekLetter(month: number, day: number): string {
   if (d < now) d = new Date(now.getFullYear() + 1, month, day); // roll forward like a GDS
   return DOW_LETTERS[d.getDay()];
 }
+
+/**
+ * Numeric day-of-week (ISO: Mon=1 … Sun=7), used in the stored-PNR itinerary
+ * and availability displays (workbook "24JUN 1", Zenon "20OCT 3").
+ */
+export function dayOfWeekNumber(month: number, day: number): number {
+  const now = new Date();
+  let d = new Date(now.getFullYear(), month, day);
+  if (d < now) d = new Date(now.getFullYear() + 1, month, day);
+  const js = d.getDay(); // 0=Sun … 6=Sat
+  return js === 0 ? 7 : js;
+}
