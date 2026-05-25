@@ -32,6 +32,7 @@ import { parseRemark } from './commands/remark.js';
 import { parseTimeLimit } from './commands/time-limit.js';
 import { parseFrequentFlyer } from './commands/frequent-flyer.js';
 import { parseFlightInfo } from './commands/flight-info.js';
+import { parseMove } from './commands/move.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -78,6 +79,7 @@ const RULES: DispatchRule[] = [
   { match: firstChar('*'), parse: parseDisplay },
   { match: firstChar('X'), parse: parseCancel },
   { match: firstChar('.'), parse: parseSegmentStatus },
+  { match: firstChar('/'), parse: parseMove }, // move/insert segments
 ];
 
 export function parseEntry(raw: string): ParsedEntry {

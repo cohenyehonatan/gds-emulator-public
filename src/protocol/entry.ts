@@ -147,6 +147,14 @@ export interface SegmentStatusEntry extends BaseEntry {
   status: string; // e.g. "HK"
 }
 
+/** Move/insert segments: /<after>/<from>[-<to>] — /0/2 moves seg 2 to the front. */
+export interface MoveEntry extends BaseEntry {
+  kind: 'move';
+  after: number; // insert after this segment (0 = front)
+  from: number;
+  to?: number; // range end (inclusive)
+}
+
 /**
  * Field change / delete using the change key '¤' (workbook "DELETE AND CHANGE
  * PASSENGER DATA"):
@@ -218,6 +226,7 @@ export type ParsedEntry =
   | FlightInfoEntry
   | CancelEntry
   | SegmentStatusEntry
+  | MoveEntry
   | ModifyEntry
   | PricingEntry
   | EndTransactionEntry

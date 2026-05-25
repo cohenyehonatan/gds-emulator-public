@@ -6,7 +6,7 @@
  * rejected (NO ITINERARY) rather than starting a new PNR.
  */
 
-import type { CancelEntry, SegmentStatusEntry, ModifyEntry } from '../../protocol/entry.js';
+import type { CancelEntry, SegmentStatusEntry, ModifyEntry, MoveEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
@@ -151,6 +151,37 @@ function modifyPhone(entry: ModifyEntry, pnr: Pnr): string {
   if (target == null || target < 1 || target > pnr.phones.length) return Response.FORMAT;
   pnr.phones[target - 1] = parsePhoneText(entry.newData!);
   return renderPhones(pnr);
+}
+
+/** Move/insert segments: relocate segment(s) to a new itinerary position. */
+export function handleMove(entry: MoveEntry, wa: WorkArea): string {
+  const segs = wa.pnr.segments;
+  if (segs.length === 0) return Response.NO_ITINERARY;
+
+  const from = entry.from;
+  const to = entry.to ?? entry.from;
+  if (from < 1 || to > segs.length || entry.after < 0 || entry.after > segs.length) {
+    return Response.SEGMENT_NOT_FOUND;
+  }
+
+  const moving = segs.slice(from - 1, to);
+  const remaining = segs.filter((_, i) => i < from - 1 || i > to - 1);
+
+  let insertAt: number;
+  if (entry.after === 0) {
+    insertAt = 0;
+  } else {
+    const anchor = segs[entry.after - 1];
+    const ai = remaining.indexOf(anchor); // anchor must not be one of the moved segments
+    if (ai === -1) return Response.SEGMENT_NOT_FOUND;
+    insertAt = ai + 1;
+  }
+
+  wa.machine.transition(SessionEvent.MODIFY);
+  remaining.splice(insertAt, 0, ...moving);
+  wa.pnr.segments = remaining;
+  wa.pnr.renumberSegments();
+  return renderItinerary(wa.pnr);
 }
 
 export function handleSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): string {
