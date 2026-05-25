@@ -9,6 +9,7 @@
  *   WPS…   segment selection (WPS1-3/5)
  *   WPRQ   price as booked and store a PQ record
  *   PQ     store the last pricing response as a PQ record (*PQ displays them)
+ *   WPDF   display the fare-calculation description (WPDF* / WPDF<n>)
  *
  * TODO (ROADMAP): name qualifier ¥N… and ¥-combined qualifiers.
  */
@@ -35,6 +36,11 @@ export function parsePricing(raw: string): PricingEntry {
     case 'PQ': // store the last pricing response as a PQ record
       return { ...base, mode: 'store' };
   }
+
+  // WPDF / WPDF* / WPDF<n> — display the fare-calculation description.
+  if (u === 'WPDF' || u === 'WPDF*') return { ...base, mode: 'farecalc' };
+  const df = /^WPDF(\d+)$/.exec(u);
+  if (df) return { ...base, mode: 'farecalc', fareCalcLine: parseInt(df[1], 10) };
 
   // WPP<type>/<type>… — price specific passenger types.
   if (u.startsWith('WPP')) {

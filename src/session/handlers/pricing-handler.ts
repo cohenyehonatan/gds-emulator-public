@@ -19,11 +19,12 @@ import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { Inventory } from '../../store/inventory.js';
 import { fareFor, round2, BOOKING_CLASSES, classMultiplier } from '../../store/tariff.js';
 import { Response } from '../../protocol/constants.js';
-import { renderFareQuote, renderBargain } from '../../protocol/serializer.js';
+import { renderFareQuote, renderBargain, renderFareCalc } from '../../protocol/serializer.js';
 import { SessionEvent } from '../session-state.js';
 import type { HandlerContext } from './context.js';
 
 interface Leg {
+  carrier: string;
   origin: string;
   destination: string;
   bookingClass: string;
@@ -60,15 +61,37 @@ function legBase(legs: Leg[]): { base: number; fareBasis: string[] } {
   return { base: round2(base), fareBasis };
 }
 
-function passengerFare(adultBase: number, segCount: number, type: string, count: number): PassengerFare {
+/** Fare-construction line for a passenger type: "JFK AA LAX245.00Y14 … 490.00 END". */
+function fareCalcFor(legs: Leg[], type: string): string {
+  const disc = discountFor(type);
+  let total = 0;
+  let line = legs[0].origin;
+  for (const l of legs) {
+    const f = fareFor(l.origin, l.destination, l.bookingClass);
+    const amt = round2(f.base * disc);
+    total += amt;
+    line += ` ${l.carrier} ${l.destination}${amt.toFixed(2)}${f.fareBasis}`;
+  }
+  return `${line} ${round2(total).toFixed(2)} END`;
+}
+
+function passengerFare(legs: Leg[], adultBase: number, type: string, count: number): PassengerFare {
   const base = round2(adultBase * discountFor(type));
   const taxes = [{ code: 'US', amount: round2(base * 0.075) }];
   if (type !== 'INF') {
-    taxes.push({ code: 'XF', amount: round2(4.5 * segCount) });
+    taxes.push({ code: 'XF', amount: round2(4.5 * legs.length) });
     taxes.push({ code: 'AY', amount: 5.6 });
   }
   const taxTotal = round2(taxes.reduce((sum, t) => sum + t.amount, 0));
-  return { passengerType: type, count, base, taxes, taxTotal, total: round2(base + taxTotal) };
+  return {
+    passengerType: type,
+    count,
+    base,
+    taxes,
+    taxTotal,
+    total: round2(base + taxTotal),
+    fareCalc: fareCalcFor(legs, type),
+  };
 }
 
 function buildQuote(legs: Leg[], departureDate: string, validatingCarrier: string, blocks: { type: string; count: number }[]): FareQuote {
@@ -78,11 +101,16 @@ function buildQuote(legs: Leg[], departureDate: string, validatingCarrier: strin
     validatingCarrier,
     currency: 'USD',
     fareBasis,
-    passengers: blocks.map((b) => passengerFare(base, legs.length, b.type, b.count)),
+    passengers: blocks.map((b) => passengerFare(legs, base, b.type, b.count)),
   };
 }
 
-const toLeg = (s: AirSegment): Leg => ({ origin: s.origin, destination: s.destination, bookingClass: s.bookingClass });
+const toLeg = (s: AirSegment): Leg => ({
+  carrier: s.carrier,
+  origin: s.origin,
+  destination: s.destination,
+  bookingClass: s.bookingClass,
+});
 
 export interface PriceOptions {
   passengerTypes?: string[];
@@ -123,7 +151,7 @@ export function bargainFind(pnr: Pnr, inventory: Inventory, ignoreAvailability: 
     if (to !== s.bookingClass) {
       rebooks.push({ segment: i + 1, carrier: s.carrier, flight: s.flightNumber, from: s.bookingClass, to });
     }
-    return { origin: s.origin, destination: s.destination, bookingClass: to };
+    return { carrier: s.carrier, origin: s.origin, destination: s.destination, bookingClass: to };
   });
   const quote = buildQuote(legs, pnr.segments[0].date, pnr.segments[0].carrier, [
     { type: 'ADT', count: Math.max(1, pnr.passengerCount()) },
@@ -154,6 +182,12 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
     // PQ: store the last pricing response.
     if (!wa.lastPricing) return 'NO PRICING TO STORE'; // TODO: confirm wording
     return storeAndRender(wa.pnr, wa.lastPricing);
+  }
+
+  if (entry.mode === 'farecalc') {
+    // WPDF: display the fare-calculation description of the last pricing.
+    if (!wa.lastPricing) return 'NO PRICING TO DISPLAY'; // TODO: confirm wording
+    return renderFareCalc(wa.lastPricing, entry.fareCalcLine);
   }
 
   if (entry.mode === 'bargain') {

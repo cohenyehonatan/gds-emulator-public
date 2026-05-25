@@ -136,8 +136,11 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       passenger type), `WPRQ` prices + stores in one entry, `*PQ` / `*PQ<n>`
       displays them. Records live on the PNR (survive commit/retrieve), up to 99.
       Grounded in `references/Sabre-Fares-and-Pricing-Course-Zenon.pdf`.
-- [ ] Fare-calc display `WPDF`, validating-carrier alternates, OB/baggage fees,
-      name qualifier `¥N…`, manual PQ (`PQM`), PQ delete, ticketing from PQ (v3).
+- [x] **Fare-calculation line** in the quote + `WPDF` / `WPDF*` / `WPDF<n>`
+      display (per-passenger-type construction `JFK AA LAX245.00Y14 … 490.00 END`).
+- [ ] Validating-carrier alternates, OB/baggage fees, `LAST DAY TO PURCHASE`
+      (needs fare rules), name qualifier `¥N…`, manual PQ (`PQM`), PQ delete,
+      ticketing from PQ (v3). Through-fare `X/` construction + NUC/ROE (intl).
 
 ## v3 — Queues & ticketing
 

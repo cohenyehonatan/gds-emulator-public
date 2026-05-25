@@ -109,6 +109,27 @@ describe('WP pricing', () => {
     expect(host.process('*PQ', wa)).toContain('NO PQ RECORDS');
   });
 
+  it('includes a fare-calculation line in the quote and shows it via WPDF', () => {
+    bookRoundTrip();
+    const wp = host.process('WP', wa);
+    expect(wp).toContain('JFK AA LAX245.00Y14 DL JFK245.00Y14 490.00 END');
+    const df = host.process('WPDF', wa);
+    expect(df).toContain('FARE CALCULATION');
+    expect(df).toContain('ADT  JFK AA LAX245.00Y14 DL JFK245.00Y14 490.00 END');
+  });
+
+  it('WPDF<n> selects a passenger-type fare-calc line', () => {
+    bookRoundTrip();
+    host.process('WPPADT/C05', wa);
+    const df = host.process('WPDF2', wa); // C05 line (child, 75%)
+    expect(df).toContain('C05  JFK AA LAX183.75'); // 245 * 0.75
+  });
+
+  it('rejects WPDF with nothing priced', () => {
+    bookRoundTrip();
+    expect(host.process('WPDF', wa)).toContain('NO PRICING TO DISPLAY');
+  });
+
   it('redisplays the last quote with WP*', () => {
     bookRoundTrip();
     const first = host.process('WP', wa);

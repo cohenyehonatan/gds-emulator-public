@@ -17,6 +17,7 @@ export interface PassengerFare {
   taxes: TaxItem[];
   taxTotal: number;
   total: number; // base + taxTotal, per passenger
+  fareCalc: string; // fare-construction line (WPDF), e.g. "JFK AA LAX245.00Y14 … 490.00 END"
 }
 
 export interface FareQuote {

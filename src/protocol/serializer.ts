@@ -191,8 +191,19 @@ export function renderFareQuote(fq: FareQuote): string {
   out.push(`      ${money(grandBase)}     ${money(grandTax)}          ${money(grandTotal)}TTL`);
   const ptc = fq.passengers.map((p) => `${p.passengerType}-${String(p.count).padStart(2, '0')}`).join(' ');
   out.push(`${ptc} ${fq.fareBasis.join(' ')}`);
+  if (fq.passengers[0]) out.push(fq.passengers[0].fareCalc); // fare-construction line
   out.push(`VALIDATING CARRIER - ${fq.validatingCarrier}`);
   return out.join('\n');
+}
+
+/** Fare-calculation description (WPDF / WPDF<n>). */
+export function renderFareCalc(fq: FareQuote, line?: number): string {
+  if (line != null) {
+    const p = fq.passengers[line - 1];
+    if (!p) return 'FARE CALC LINE NOT FOUND'; // TODO: confirm wording
+    return `FARE CALCULATION\n${p.passengerType}  ${p.fareCalc}`;
+  }
+  return ['FARE CALCULATION', ...fq.passengers.map((p) => `${p.passengerType}  ${p.fareCalc}`)].join('\n');
 }
 
 /** Stored PQ records display (*PQ / *PQ<n>). */
