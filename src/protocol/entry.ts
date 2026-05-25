@@ -30,6 +30,8 @@ export interface AvailabilityEntry extends BaseEntry {
   carriers?: string[];
   /** Direct-only qualifier ("/D"): nonstops/direct, no connections. */
   directOnly?: boolean;
+  /** Connecting-city qualifier (trailing 3-letter hub): connections via it only. */
+  connectingCity?: string;
 }
 
 /**

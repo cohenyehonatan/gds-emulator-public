@@ -74,6 +74,16 @@ describe('richer availability & sell', () => {
     expect(host.process('1R20JUN', fresh)).toContain('NO AVAILABILITY');
   });
 
+  it('connecting-city qualifier shows only connections via that hub', () => {
+    const ord = host.process('115JUNJFKSFOORD', wa); // via ORD only
+    expect(ord).toContain('JFKORD');
+    expect(ord).toContain('ORDSFO');
+    expect(ord).not.toContain('DEN');
+    const den = host.process('115JUNJFKSFODEN', wa); // via DEN only
+    expect(den).toContain('JFKDEN');
+    expect(den).not.toContain('ORD');
+  });
+
   it('direct-only (/D) excludes connections', () => {
     expect(host.process('115JUNJFKSFO', wa)).toContain('ORDSFO'); // connection shown
     expect(host.process('115JUNJFKSFO/D', wa)).toContain('NO FLIGHTS'); // connections excluded

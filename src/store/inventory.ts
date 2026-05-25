@@ -48,6 +48,8 @@ export interface AvailabilityOptions {
   carriers?: string[];
   /** Nonstops/direct only (from a "/D" qualifier) — no connections. */
   directOnly?: boolean;
+  /** Only connections via this hub (from a connecting-city qualifier). */
+  connectingCity?: string;
 }
 
 export class Inventory {
@@ -110,17 +112,22 @@ export class Inventory {
     const carrierOk = (f: ScheduledFlight) =>
       opts.carriers == null || opts.carriers.includes(f.carrier);
 
-    // Nonstops.
-    const nonstops = SCHEDULE.filter((f) => f.origin === origin && f.destination === destination)
-      .filter((f) => hasClass(f) && afterOk(f) && carrierOk(f))
-      .sort((a, b) => this.depMin(a) - this.depMin(b));
+    // Nonstops. A connecting-city request suppresses them (connections only).
+    const nonstops =
+      opts.connectingCity != null
+        ? []
+        : SCHEDULE.filter((f) => f.origin === origin && f.destination === destination)
+            .filter((f) => hasClass(f) && afterOk(f) && carrierOk(f))
+            .sort((a, b) => this.depMin(a) - this.depMin(b));
 
     // Connections — online on a preferred carrier (every leg must qualify).
-    // Skipped entirely for a direct-only ("/D") request.
+    // Skipped entirely for a direct-only ("/D") request; filtered to a hub when
+    // a connecting city is specified.
     const connections = opts.directOnly
       ? []
       : this.connectionsFor(origin, destination)
           .filter((legs) => afterOk(legs[0]) && legs.every((l) => hasClass(l) && carrierOk(l)))
+          .filter((legs) => opts.connectingCity == null || legs[0].destination === opts.connectingCity)
           .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
 
     const lines: AvailabilityLine[] = [];

@@ -62,7 +62,15 @@ export function parseAvailability(raw: string): AvailabilityEntry {
     tail = tail.slice(0, classMatch.index);
   }
 
+  // A trailing 3-letter code is a connecting-city qualifier (1<date><cp><time><city>).
+  let connectingCity: string | undefined;
+  const ccMatch = /([A-Z]{3})$/.exec(tail);
+  if (ccMatch) {
+    connectingCity = ccMatch[1];
+    tail = tail.slice(0, ccMatch.index);
+  }
+
   const time = tail.replace(/[^0-9AP].*$/i, '') || undefined; // leading clock token
 
-  return { ...base, mode: 'display', date: dateMatch.date, origin, destination, time, bookingClass, carriers, directOnly };
+  return { ...base, mode: 'display', date: dateMatch.date, origin, destination, time, bookingClass, carriers, directOnly, connectingCity };
 }

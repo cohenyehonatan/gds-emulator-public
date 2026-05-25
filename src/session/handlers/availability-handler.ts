@@ -62,6 +62,7 @@ export function handleAvailability(
     bookingClass: entry.bookingClass,
     carriers: entry.carriers,
     directOnly: entry.directOnly,
+    connectingCity: entry.connectingCity,
   });
 
   const result = {
