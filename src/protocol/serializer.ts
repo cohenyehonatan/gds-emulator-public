@@ -14,6 +14,7 @@ import type { AirSegment } from '../models/segment.js';
 import { Pnr } from '../models/pnr.js';
 import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
+import { formatRemark } from '../models/remark.js';
 import type { FareQuote } from '../models/fare.js';
 import { MONTHS, to24h } from '../utils/validation.js';
 import { HOME_CITY } from './constants.js';
@@ -128,6 +129,13 @@ export function renderOsis(pnr: Pnr): string {
   return pnr.osis.map((o) => `OSI ${o.carrier} ${o.text}`).join('\n');
 }
 
+/** Remarks field, with the "REMARKS" header (*P5). */
+export function renderRemarks(pnr: Pnr): string {
+  if (pnr.remarks.length === 0) return 'NO REMARKS';
+  const lines = pnr.remarks.map((r, i) => `  ${i + 1}.${formatRemark(r)}`);
+  return ['REMARKS', ...lines].join('\n');
+}
+
 /**
  * Full PNR display (after ER / *A). Modeled on the workbook "EXAMPLE OF BASIC
  * PNR"; exact itinerary columns + full signature line are a fidelity-pass item.
@@ -138,6 +146,7 @@ export function renderPnr(pnr: Pnr, sig?: PnrSignature): string {
   pnr.segments.forEach((s) => out.push(renderItinerarySegment(s)));
   if (pnr.ticketing) out.push(renderTicketing(pnr));
   if (pnr.phones.length) out.push(renderPhones(pnr));
+  if (pnr.remarks.length) out.push(renderRemarks(pnr));
   if (pnr.osis.length) out.push(renderOsis(pnr));
   if (pnr.ssrs.length) out.push(renderSsrs(pnr));
   if (pnr.receivedFrom) out.push(`RECEIVED FROM - ${pnr.receivedFrom}`);

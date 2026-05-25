@@ -88,6 +88,12 @@ export interface OsiEntry extends BaseEntry {
   text: string;
 }
 
+export interface RemarkEntry extends BaseEntry {
+  kind: 'remark';
+  remarkType: 'general' | 'fop' | 'historical';
+  text: string;
+}
+
 export interface DisplayEntry extends BaseEntry {
   kind: 'display';
   /** Everything after '*': a locator, "-NAME", or a section code (A/I/N/P/T). */
@@ -115,7 +121,7 @@ export interface SegmentStatusEntry extends BaseEntry {
  */
 export interface ModifyEntry extends BaseEntry {
   kind: 'modify';
-  field: 'name' | 'phone' | 'ticketing' | 'received_from';
+  field: 'name' | 'phone' | 'ticketing' | 'received_from' | 'remarks';
   operation: 'change' | 'delete';
   /** Affected 1-based line(s); empty = "the only one" / single-value field. */
   lines: number[];
@@ -172,6 +178,7 @@ export type ParsedEntry =
   | DisplayEntry
   | SsrEntry
   | OsiEntry
+  | RemarkEntry
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry

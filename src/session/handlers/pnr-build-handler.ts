@@ -10,12 +10,13 @@ import type {
   PhoneEntry,
   TicketingEntry,
   ReceivedFromEntry,
+  RemarkEntry,
 } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
 import { parseNameText } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
-import { renderSoldSegment } from '../../protocol/serializer.js';
+import { renderSoldSegment, renderRemarks } from '../../protocol/serializer.js';
 import { StatusCode } from '../../protocol/constants.js';
 import { Response } from '../../protocol/constants.js';
 import type { AirSegment } from '../../models/segment.js';
@@ -157,4 +158,10 @@ export function handleReceivedFrom(entry: ReceivedFromEntry, wa: WorkArea): stri
   wa.machine.transition(SessionEvent.ADD_FIELD);
   wa.pnr.receivedFrom = entry.text;
   return Response.OK;
+}
+
+export function handleRemark(entry: RemarkEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text });
+  return renderRemarks(wa.pnr);
 }

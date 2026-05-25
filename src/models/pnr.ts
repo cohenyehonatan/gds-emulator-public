@@ -12,6 +12,7 @@ import type { AirSegment } from './segment.js';
 import type { NameItem } from './name-element.js';
 import type { PhoneElement } from './phone-element.js';
 import type { SpecialServiceRequest, OtherServiceInfo } from './service.js';
+import type { RemarkElement } from './remark.js';
 import type { FareQuote } from './fare.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
@@ -22,6 +23,7 @@ export class Pnr {
   phones: PhoneElement[] = [];
   ssrs: SpecialServiceRequest[] = [];
   osis: OtherServiceInfo[] = [];
+  remarks: RemarkElement[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   ticketing?: string;
   receivedFrom?: string;
@@ -45,6 +47,7 @@ export class Pnr {
       this.phones.length > 0 ||
       this.ssrs.length > 0 ||
       this.osis.length > 0 ||
+      this.remarks.length > 0 ||
       this.ticketing !== undefined ||
       this.receivedFrom !== undefined
     );

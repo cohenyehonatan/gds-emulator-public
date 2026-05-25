@@ -22,6 +22,7 @@ import {
   renderTicketing,
   renderSimilarNameList,
   renderPriceQuotes,
+  renderRemarks,
 } from '../../protocol/serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { HandlerContext } from './context.js';
@@ -43,6 +44,9 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
   // Stored price quotes: *PQ (all) or *PQ<n> (one).
   if (arg === 'PQ') return renderPriceQuotes(wa.pnr);
   if (/^PQ\d+$/.test(arg)) return renderPriceQuotes(wa.pnr, parseInt(arg.slice(2), 10));
+
+  // Remarks field: *P5.
+  if (arg === 'P5') return wa.pnr.hasContent() ? renderRemarks(wa.pnr) : Response.NO_PNR;
 
   // Redisplay current work area: '*A' (all), '*N/*I/*P/*T' (sections), or bare '*'.
   const sectionKey = arg === '' ? 'A' : arg;

@@ -11,9 +11,10 @@ import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
 import { Response, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
-import { renderItinerary, renderNames, renderPhones, renderTicketing } from '../../protocol/serializer.js';
+import { renderItinerary, renderNames, renderPhones, renderTicketing, renderRemarks } from '../../protocol/serializer.js';
 import { parseNameText, parsePassenger } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
+import { parseRemarkText } from '../../models/remark.js';
 
 export function handleCancel(entry: CancelEntry, wa: WorkArea): string {
   if (wa.pnr.segments.length === 0) return Response.NO_ITINERARY;
@@ -49,6 +50,8 @@ export function handleModify(entry: ModifyEntry, wa: WorkArea): string {
       return modifyName(entry, pnr);
     case 'phone':
       return modifyPhone(entry, pnr);
+    case 'remarks':
+      return modifyRemarks(entry, pnr);
     case 'ticketing':
       pnr.ticketing = entry.operation === 'delete' ? undefined : entry.newData;
       return pnr.ticketing ? renderTicketing(pnr) : Response.OK;
@@ -115,6 +118,21 @@ function modifyPassenger(entry: ModifyEntry, pnr: Pnr): string {
   // Change just this passenger's first name/title; surname stays.
   item.passengers[p] = parsePassenger(entry.newData!);
   return renderNames(pnr);
+}
+
+function modifyRemarks(entry: ModifyEntry, pnr: Pnr): string {
+  if (entry.operation === 'delete') {
+    if (entry.lines.length === 0 || entry.lines.some((l) => l < 1 || l > pnr.remarks.length)) {
+      return Response.FORMAT;
+    }
+    const remove = new Set(entry.lines);
+    pnr.remarks = pnr.remarks.filter((_, i) => !remove.has(i + 1));
+    return pnr.remarks.length > 0 ? renderRemarks(pnr) : 'NO REMARKS';
+  }
+  const target = entry.lines[0];
+  if (target == null || target < 1 || target > pnr.remarks.length) return Response.FORMAT;
+  pnr.remarks[target - 1] = parseRemarkText(entry.newData!);
+  return renderRemarks(pnr);
 }
 
 function modifyPhone(entry: ModifyEntry, pnr: Pnr): string {

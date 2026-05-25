@@ -82,6 +82,14 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [ ] Segment-specific SSR (entry format not cleanly pinned in the workbooks)
       and explicit per-SSR carrier.
 
+## PNR optional fields
+
+- [x] **Remarks (`5`)** — general `5<text>`, form-of-payment `5-CASH`,
+      historical `5H-…`; shown under `REMARKS` (`*P5`); change/delete by line
+      via `¤` (`51¤NEW`, `52-3¤`). Survives commit/retrieve.
+- [ ] **Time Limit / option (`8`)** — `86P/17JUN` (auto-cancel if unticketed).
+- [ ] **Frequent Flyer (`FF`)** — `FFCY123456-1.2`, change/delete `FF1¤`.
+
 ## Keyboard & special keys (done)
 
 - [x] Keyboard mapping (workbook p.3 "Other Identification Code Keys"):

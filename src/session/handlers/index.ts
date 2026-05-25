@@ -17,6 +17,7 @@ import {
   handlePhone,
   handleTicketing,
   handleReceivedFrom,
+  handleRemark,
 } from './pnr-build-handler.js';
 import { handleEndTransaction } from './end-tx-handler.js';
 import { handleRetrieve } from './retrieve-handler.js';
@@ -58,6 +59,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleTicketing(entry, wa);
       case 'received_from':
         return handleReceivedFrom(entry, wa);
+      case 'remark':
+        return handleRemark(entry, wa);
       case 'ssr':
         return handleSsr(entry, wa);
       case 'osi':

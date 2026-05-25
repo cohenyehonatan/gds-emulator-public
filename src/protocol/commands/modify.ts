@@ -21,6 +21,7 @@ const SIGIL_FIELD: Record<string, ModifyEntry['field']> = {
   '9': 'phone',
   '7': 'ticketing',
   '6': 'received_from',
+  '5': 'remarks',
 };
 
 /** Does this entry look like a '¤' modify on a supported field? */
