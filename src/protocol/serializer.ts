@@ -12,6 +12,7 @@ import type { AvailabilityResult, AvailabilityLine } from '../models/availabilit
 import type { AirSegment } from '../models/segment.js';
 import { Pnr } from '../models/pnr.js';
 import { formatNameItem } from '../models/name-element.js';
+import { formatNameRef } from '../models/service.js';
 import { MONTHS } from '../utils/validation.js';
 
 /** Signature-line inputs (PCC + agent sign). */
@@ -87,6 +88,24 @@ export function renderTicketing(pnr: Pnr): string {
   return ['TKT/TIME LIMIT', `  1.${pnr.ticketing}`].join('\n');
 }
 
+/** SSR lines: "SSR VGML YY NN -1.1 <text>". */
+export function renderSsrs(pnr: Pnr): string {
+  if (pnr.ssrs.length === 0) return 'NO SSR';
+  return pnr.ssrs
+    .map((s) => {
+      const ref = s.nameRef ? ` ${formatNameRef(s.nameRef)}` : '';
+      const txt = s.text ? ` ${s.text}` : '';
+      return `SSR ${s.code} ${s.carrier} ${s.status}${ref}${txt}`;
+    })
+    .join('\n');
+}
+
+/** OSI lines: "OSI DL HAS BROKEN LEG". */
+export function renderOsis(pnr: Pnr): string {
+  if (pnr.osis.length === 0) return 'NO OSI';
+  return pnr.osis.map((o) => `OSI ${o.carrier} ${o.text}`).join('\n');
+}
+
 /**
  * Full PNR display (after ER / *A). Modeled on the workbook "EXAMPLE OF BASIC
  * PNR"; exact itinerary columns + full signature line are a fidelity-pass item.
@@ -97,6 +116,8 @@ export function renderPnr(pnr: Pnr, sig?: PnrSignature): string {
   pnr.segments.forEach((s) => out.push(renderSoldSegment(s)));
   if (pnr.ticketing) out.push(renderTicketing(pnr));
   if (pnr.phones.length) out.push(renderPhones(pnr));
+  if (pnr.osis.length) out.push(renderOsis(pnr));
+  if (pnr.ssrs.length) out.push(renderSsrs(pnr));
   if (pnr.receivedFrom) out.push(`RECEIVED FROM - ${pnr.receivedFrom}`);
   if (pnr.locator) out.push(sig ? renderSignature(sig, pnr) : pnr.locator);
   return out.join('\n');

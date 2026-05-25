@@ -59,6 +59,19 @@ Making the happy path feel like a real GDS, within the existing architecture.
       workbook mixes 12h/24h and spaced/concatenated carrier+flight across
       sections; current output follows the sold-segment example). Low priority.
 
+## SSR / OSI
+
+- [x] **Foundation** — SSR (`3<CODE>` / `4<CODE>`) and OSI (`3OSI` / `4OSI`)
+      modeled on the PNR, with passenger association via a name reference
+      (`3VGML-1.1`), carrier default YY (or AA for sigil 4), and display
+      (`SSR VGML YY NN -1.1`, `OSI DL HAS BROKEN LEG`). Survives commit/retrieve.
+- [ ] **Infant** — infant name field `-I/ADAMS/MARY` + infant SSR
+      `3INFT/ANDY/MARY/09JAN11-1.1` (knocks out the "infants" item below).
+- [ ] **Name reference number** — `-SMITH/LAUREN*5467` (printed, not transmitted)
+      and the `¤*` name-reference modify (change/delete it).
+- [ ] Segment-specific SSR (entry format not cleanly pinned in the workbooks)
+      and explicit per-SSR carrier.
+
 ## Keyboard & special keys (done)
 
 - [x] Keyboard mapping (workbook p.3 "Other Identification Code Keys"):

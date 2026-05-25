@@ -26,6 +26,7 @@ import { parseSignIn, parseSignOut } from './commands/signin.js';
 import { parseCancel } from './commands/cancel.js';
 import { parseSegmentStatus } from './commands/segment-status.js';
 import { parseModify, isModifyEntry } from './commands/modify.js';
+import { parseService } from './commands/service.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -60,6 +61,8 @@ const RULES: DispatchRule[] = [
   { match: firstChar('9'), parse: parsePhone },
   { match: firstChar('7'), parse: parseTicketing },
   { match: firstChar('6'), parse: parseReceivedFrom },
+  { match: firstChar('3'), parse: parseService }, // SSR / OSI (other airlines)
+  { match: firstChar('4'), parse: parseService }, // SSR / OSI (American)
   { match: firstChar('*'), parse: parseDisplay },
   { match: firstChar('X'), parse: parseCancel },
   { match: firstChar('.'), parse: parseSegmentStatus },

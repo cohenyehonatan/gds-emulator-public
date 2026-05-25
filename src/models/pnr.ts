@@ -11,6 +11,7 @@
 import type { AirSegment } from './segment.js';
 import type { NameItem } from './name-element.js';
 import type { PhoneElement } from './phone-element.js';
+import type { SpecialServiceRequest, OtherServiceInfo } from './service.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 export class Pnr {
@@ -18,6 +19,8 @@ export class Pnr {
   names: NameItem[] = [];
   segments: AirSegment[] = [];
   phones: PhoneElement[] = [];
+  ssrs: SpecialServiceRequest[] = [];
+  osis: OtherServiceInfo[] = [];
   ticketing?: string;
   receivedFrom?: string;
   createdAt?: Date;
@@ -38,6 +41,8 @@ export class Pnr {
       this.names.length > 0 ||
       this.segments.length > 0 ||
       this.phones.length > 0 ||
+      this.ssrs.length > 0 ||
+      this.osis.length > 0 ||
       this.ticketing !== undefined ||
       this.receivedFrom !== undefined
     );

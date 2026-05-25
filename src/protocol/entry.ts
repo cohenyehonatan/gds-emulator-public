@@ -74,6 +74,20 @@ export interface ReceivedFromEntry extends BaseEntry {
   text: string; // e.g. "NIGEL"
 }
 
+export interface SsrEntry extends BaseEntry {
+  kind: 'ssr';
+  code: string;
+  carrier: string;
+  text?: string;
+  nameRef?: { item: number; passenger?: number };
+}
+
+export interface OsiEntry extends BaseEntry {
+  kind: 'osi';
+  carrier: string;
+  text: string;
+}
+
 export interface DisplayEntry extends BaseEntry {
   kind: 'display';
   /** Everything after '*': a locator, "-NAME", or a section code (A/I/N/P/T). */
@@ -143,6 +157,8 @@ export type ParsedEntry =
   | TicketingEntry
   | ReceivedFromEntry
   | DisplayEntry
+  | SsrEntry
+  | OsiEntry
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry

@@ -21,6 +21,7 @@ import {
 import { handleEndTransaction } from './end-tx-handler.js';
 import { handleRetrieve } from './retrieve-handler.js';
 import { handleCancel, handleSegmentStatus, handleModify } from './modify-handler.js';
+import { handleSsr, handleOsi } from './service-handler.js';
 
 export type { HandlerContext };
 
@@ -56,6 +57,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleTicketing(entry, wa);
       case 'received_from':
         return handleReceivedFrom(entry, wa);
+      case 'ssr':
+        return handleSsr(entry, wa);
+      case 'osi':
+        return handleOsi(entry, wa);
       case 'display':
         return handleRetrieve(entry, wa, ctx);
       case 'cancel':
