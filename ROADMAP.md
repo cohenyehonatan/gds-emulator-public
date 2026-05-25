@@ -90,7 +90,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **Time Limit / option (`8`)** — `86P/17JUN` stored as an option field,
       shown `OPTION - 6P/17JUN`, overwrite on re-entry. (Thinly documented;
       auto-cancel not simulated — no wall clock.)
-- [ ] **Frequent Flyer (`FF`)** — `FFCY123456-1.2`, change/delete `FF1¤`.
+- [x] **Frequent Flyer (`FF`)** — add `FFBA2345678-1.1`, change `FF1¤…`,
+      delete `FF1¤`; passenger-associated; shown under `FREQUENT FLYER` (`*FF`).
 
 ## Keyboard & special keys (done)
 

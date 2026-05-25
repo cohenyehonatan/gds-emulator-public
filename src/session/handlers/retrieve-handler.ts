@@ -23,6 +23,7 @@ import {
   renderSimilarNameList,
   renderPriceQuotes,
   renderRemarks,
+  renderFrequentFlyers,
 } from '../../protocol/serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { HandlerContext } from './context.js';
@@ -47,6 +48,8 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
 
   // Remarks field: *P5.
   if (arg === 'P5') return wa.pnr.hasContent() ? renderRemarks(wa.pnr) : Response.NO_PNR;
+  // Frequent flyer: *FF.
+  if (arg === 'FF') return wa.pnr.hasContent() ? renderFrequentFlyers(wa.pnr) : Response.NO_PNR;
 
   // Redisplay current work area: '*A' (all), '*N/*I/*P/*T' (sections), or bare '*'.
   const sectionKey = arg === '' ? 'A' : arg;

@@ -30,6 +30,7 @@ import { parseService } from './commands/service.js';
 import { parsePricing } from './commands/pricing.js';
 import { parseRemark } from './commands/remark.js';
 import { parseTimeLimit } from './commands/time-limit.js';
+import { parseFrequentFlyer } from './commands/frequent-flyer.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -52,6 +53,7 @@ const RULES: DispatchRule[] = [
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },
   { match: equals('PQ'), parse: parsePricing },
+  { match: startsWith('FF'), parse: parseFrequentFlyer },
   { match: equals('ER'), parse: parseEndTransaction },
   { match: equals('ET'), parse: parseEndTransaction },
   { match: equals('E'), parse: parseEndTransaction },

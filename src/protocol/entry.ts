@@ -99,6 +99,15 @@ export interface TimeLimitEntry extends BaseEntry {
   text: string; // e.g. "6P/17JUN"
 }
 
+export interface FrequentFlyerEntry extends BaseEntry {
+  kind: 'frequent_flyer';
+  operation: 'add' | 'change' | 'delete';
+  line?: number; // for change/delete (FF1¤…)
+  carrier?: string;
+  number?: string;
+  nameRef?: { item: number; passenger?: number };
+}
+
 export interface DisplayEntry extends BaseEntry {
   kind: 'display';
   /** Everything after '*': a locator, "-NAME", or a section code (A/I/N/P/T). */
@@ -185,6 +194,7 @@ export type ParsedEntry =
   | OsiEntry
   | RemarkEntry
   | TimeLimitEntry
+  | FrequentFlyerEntry
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry

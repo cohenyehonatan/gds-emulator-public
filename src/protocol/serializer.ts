@@ -129,6 +129,15 @@ export function renderOsis(pnr: Pnr): string {
   return pnr.osis.map((o) => `OSI ${o.carrier} ${o.text}`).join('\n');
 }
 
+/** Frequent-flyer field (*FF). */
+export function renderFrequentFlyers(pnr: Pnr): string {
+  if (pnr.frequentFlyers.length === 0) return 'NO FREQUENT FLYER';
+  const lines = pnr.frequentFlyers.map(
+    (f, i) => `  ${i + 1}.${f.carrier} ${f.number}${f.nameRef ? ' ' + formatNameRef(f.nameRef) : ''}`
+  );
+  return ['FREQUENT FLYER', ...lines].join('\n');
+}
+
 /** Remarks field, with the "REMARKS" header (*P5). */
 export function renderRemarks(pnr: Pnr): string {
   if (pnr.remarks.length === 0) return 'NO REMARKS';
@@ -148,6 +157,7 @@ export function renderPnr(pnr: Pnr, sig?: PnrSignature): string {
   if (pnr.optionField) out.push(`OPTION - ${pnr.optionField}`);
   if (pnr.phones.length) out.push(renderPhones(pnr));
   if (pnr.remarks.length) out.push(renderRemarks(pnr));
+  if (pnr.frequentFlyers.length) out.push(renderFrequentFlyers(pnr));
   if (pnr.osis.length) out.push(renderOsis(pnr));
   if (pnr.ssrs.length) out.push(renderSsrs(pnr));
   if (pnr.receivedFrom) out.push(`RECEIVED FROM - ${pnr.receivedFrom}`);

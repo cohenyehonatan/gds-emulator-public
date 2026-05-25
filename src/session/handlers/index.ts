@@ -24,6 +24,7 @@ import { handleEndTransaction } from './end-tx-handler.js';
 import { handleRetrieve } from './retrieve-handler.js';
 import { handleCancel, handleSegmentStatus, handleModify } from './modify-handler.js';
 import { handleSsr, handleOsi } from './service-handler.js';
+import { handleFrequentFlyer } from './frequent-flyer-handler.js';
 import { handlePricing } from './pricing-handler.js';
 
 export type { HandlerContext };
@@ -64,6 +65,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleRemark(entry, wa);
       case 'time_limit':
         return handleTimeLimit(entry, wa);
+      case 'frequent_flyer':
+        return handleFrequentFlyer(entry, wa);
       case 'ssr':
         return handleSsr(entry, wa);
       case 'osi':
