@@ -126,6 +126,14 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [ ] Availability **scroll** `1*`, **return-date** (`1R¥15`),
       **connecting-city**, and **direct-only** (`/D`) qualifiers.
 
+## Flight information / verify
+
+- [x] **FLIFO / verify** — `2<carrier><flight>/<date>` and `V*<carrier><flight>/<date>`
+      (by flight number), `VA*<line(s)>` (from availability), `VI*<seg(s)>` / `VI*`
+      (from the itinerary). Read-only display: city pair, 24h dptr/arrv, equipment,
+      elapsed (overnight-aware). Meals/miles/smoking columns not modeled.
+- [ ] Verify minimum connecting time (`VCT*`, `VCT*1/2`).
+
 ## v2 — Pricing & fares
 
 Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.

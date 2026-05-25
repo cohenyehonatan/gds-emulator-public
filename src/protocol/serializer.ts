@@ -16,7 +16,7 @@ import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
 import { formatRemark } from '../models/remark.js';
 import type { FareQuote } from '../models/fare.js';
-import { MONTHS, to24h } from '../utils/validation.js';
+import { MONTHS, to24h, parseClockToMinutes } from '../utils/validation.js';
 import { HOME_CITY } from './constants.js';
 
 /** Signature-line inputs (PCC + agent sign). */
@@ -48,6 +48,39 @@ function renderAvailabilityLine(l: AvailabilityLine): string {
     `${String(l.line).padStart(2)} ${l.carrier} ${l.flightNumber.padEnd(4)} ` +
     `${classes}  ${l.origin}${l.destination} ${to24h(l.departTime)} ${to24h(l.arriveTime)} ${l.equipment}`
   );
+}
+
+/** Flight-information display (FLIFO / verify). One line per flight. */
+export interface FlightInfoItem {
+  carrier: string;
+  flightNumber: string;
+  date?: string;
+  origin: string;
+  destination: string;
+  departTime: string;
+  arriveTime: string;
+  equipment: string;
+}
+
+function elapsed(dep: string, arr: string): string {
+  const d = parseClockToMinutes(dep);
+  const a = parseClockToMinutes(arr);
+  if (d == null || a == null) return '';
+  let m = a - d;
+  if (m < 0) m += 1440; // overnight
+  return `${Math.floor(m / 60)}.${String(m % 60).padStart(2, '0')}`;
+}
+
+export function renderFlightInfo(items: FlightInfoItem[]): string {
+  if (items.length === 0) return 'NO FLIGHT INFO'; // TODO: confirm wording
+  const out = ['         DPTR ARVL EQP  ELPD']; // meals/miles/smoking not modeled
+  for (const f of items) {
+    out.push(
+      `${f.carrier}${f.flightNumber} ${f.date ?? ''} ${f.origin}${f.destination} ` +
+        `${to24h(f.departTime)} ${to24h(f.arriveTime)} ${f.equipment} ${elapsed(f.departTime, f.arriveTime)}`
+    );
+  }
+  return out.join('\n');
 }
 
 /**

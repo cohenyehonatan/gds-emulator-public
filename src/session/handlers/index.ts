@@ -25,6 +25,7 @@ import { handleRetrieve } from './retrieve-handler.js';
 import { handleCancel, handleSegmentStatus, handleModify } from './modify-handler.js';
 import { handleSsr, handleOsi } from './service-handler.js';
 import { handleFrequentFlyer } from './frequent-flyer-handler.js';
+import { handleFlightInfo } from './flight-info-handler.js';
 import { handlePricing } from './pricing-handler.js';
 
 export type { HandlerContext };
@@ -67,6 +68,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleTimeLimit(entry, wa);
       case 'frequent_flyer':
         return handleFrequentFlyer(entry, wa);
+      case 'flight_info':
+        return handleFlightInfo(entry, wa, ctx);
       case 'ssr':
         return handleSsr(entry, wa);
       case 'osi':

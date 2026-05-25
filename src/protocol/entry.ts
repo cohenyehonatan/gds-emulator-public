@@ -114,6 +114,19 @@ export interface DisplayEntry extends BaseEntry {
   argument: string;
 }
 
+/**
+ * Flight information (FLIFO / verify): by flight number (2 / V*), from an
+ * availability line (VA*), or from an itinerary segment (VI*).
+ */
+export interface FlightInfoEntry extends BaseEntry {
+  kind: 'flight_info';
+  source: 'flight' | 'availability' | 'itinerary';
+  carrier?: string;
+  flightNumber?: string;
+  date?: string; // Sabre date token
+  lines?: number[]; // availability lines or itinerary segments (empty = all, itinerary)
+}
+
 export interface CancelEntry extends BaseEntry {
   kind: 'cancel';
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
@@ -195,6 +208,7 @@ export type ParsedEntry =
   | RemarkEntry
   | TimeLimitEntry
   | FrequentFlyerEntry
+  | FlightInfoEntry
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry

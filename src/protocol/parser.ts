@@ -31,6 +31,7 @@ import { parsePricing } from './commands/pricing.js';
 import { parseRemark } from './commands/remark.js';
 import { parseTimeLimit } from './commands/time-limit.js';
 import { parseFrequentFlyer } from './commands/frequent-flyer.js';
+import { parseFlightInfo } from './commands/flight-info.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -54,6 +55,7 @@ const RULES: DispatchRule[] = [
   { match: startsWith('WP'), parse: parsePricing },
   { match: equals('PQ'), parse: parsePricing },
   { match: startsWith('FF'), parse: parseFrequentFlyer },
+  { match: startsWith('V'), parse: parseFlightInfo }, // V* / VA* / VI* flight info
   { match: equals('ER'), parse: parseEndTransaction },
   { match: equals('ET'), parse: parseEndTransaction },
   { match: equals('E'), parse: parseEndTransaction },
@@ -63,6 +65,7 @@ const RULES: DispatchRule[] = [
   { match: isModifyEntry, parse: parseModify },
   // Single-char sigils.
   { match: firstChar('1'), parse: parseAvailability },
+  { match: firstChar('2'), parse: parseFlightInfo }, // FLIFO
   { match: firstChar('0'), parse: parseSell },
   { match: firstChar('-'), parse: parseName },
   { match: firstChar('9'), parse: parsePhone },
