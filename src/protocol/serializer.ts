@@ -148,16 +148,28 @@ export function renderSignInResponse(sig: PnrSignature): string {
  */
 export function renderFareQuote(fq: FareQuote): string {
   const money = (n: number) => n.toFixed(2);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   const out: string[] = [];
   out.push(`${fq.departureDate} DEPARTURE DATE`);
   out.push('      BASE FARE     TAXES          TOTAL');
-  out.push(
-    `${String(fq.passengerCount).padStart(2)}-  ${fq.currency}${money(fq.base)}` +
-      `     ${money(fq.taxTotal)}XT     ${fq.currency}${money(fq.total)}${fq.passengerType}`
-  );
-  out.push('   XT ' + fq.taxes.map((t) => `${money(t.amount)}${t.code}`).join(' '));
-  out.push(`      ${money(fq.base)}     ${money(fq.taxTotal)}          ${money(fq.total)}TTL`);
-  out.push(`${fq.passengerType}-${String(fq.passengerCount).padStart(2, '0')} ${fq.fareBasis.join(' ')}`);
+
+  let grandBase = 0;
+  let grandTax = 0;
+  let grandTotal = 0;
+  for (const p of fq.passengers) {
+    grandBase = r2(grandBase + p.base * p.count);
+    grandTax = r2(grandTax + p.taxTotal * p.count);
+    grandTotal = r2(grandTotal + p.total * p.count);
+    out.push(
+      `${String(p.count).padStart(2)}-  ${fq.currency}${money(p.base)}` +
+        `     ${money(p.taxTotal)}XT     ${fq.currency}${money(p.total)}${p.passengerType}`
+    );
+    out.push('   XT ' + p.taxes.map((t) => `${money(t.amount)}${t.code}`).join(' '));
+  }
+
+  out.push(`      ${money(grandBase)}     ${money(grandTax)}          ${money(grandTotal)}TTL`);
+  const ptc = fq.passengers.map((p) => `${p.passengerType}-${String(p.count).padStart(2, '0')}`).join(' ');
+  out.push(`${ptc} ${fq.fareBasis.join(' ')}`);
   out.push(`VALIDATING CARRIER - ${fq.validatingCarrier}`);
   return out.join('\n');
 }

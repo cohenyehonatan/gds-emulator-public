@@ -136,6 +136,8 @@ export interface PricingEntry extends BaseEntry {
   mode: 'price' | 'redisplay' | 'bargain'; // WP / WP* / WPNC family
   rebook?: boolean; // WPNCB rebooks the lowest class
   ignoreAvailability?: boolean; // WPNCS ignores availability
+  passengerTypes?: string[]; // WPP ADT/C05/INF
+  segments?: number[]; // WPS segment selection
 }
 
 export interface IgnoreEntry extends BaseEntry {

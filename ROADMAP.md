@@ -120,8 +120,11 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 - [x] **Bargain finder** — `WPNC` (advise the lowest available class), `WPNCS`
       (ignore availability), `WPNCB` (rebook the lowest class: updates the PNR
       classes + inventory). Searches the tariff's classes per segment.
-- [ ] **Passenger types & qualifiers** — `WPPADT/C05/INF`, segment `WPS1-3/5`,
-      name `¥N1.1`, all separated by the cross of Lorraine `¥`.
+- [x] **Passenger types** `WPPADT/C05/INF` — a fare block per type (ADT full,
+      child `C…` 75%, infant `INF` 10% + XF/AY exempt); grand TTL across types.
+- [x] **Segment selection** `WPS1-3/5` — price only the chosen segments.
+- [ ] Name selection `¥N1.1` and `¥`-separated qualifier combinations
+      (`WPPC03¥S2/4¥N1.2`); other WP qualifiers (WPI/WPAC/WPM/WPT*/WPA/WPB).
 - [ ] **Stored fares (PQ records)** — store a quote and guarantee it.
 - [ ] Fare-calc display `WPDF`, validating-carrier alternates, OB/baggage fees.
 

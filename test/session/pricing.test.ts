@@ -40,17 +40,40 @@ describe('WP pricing', () => {
     expect(resp).toContain('ADT');
     expect(resp).toContain('VALIDATING CARRIER - AA');
 
-    const fq = wa.lastPricing!;
-    expect(fq.base).toBe(490);
-    expect(fq.total).toBe(fq.base + fq.taxTotal);
-    expect(fq.fareBasis).toEqual(['Y14', 'Y14']);
+    const adt = wa.lastPricing!.passengers[0];
+    expect(adt.base).toBe(490);
+    expect(adt.total).toBe(adt.base + adt.taxTotal);
+    expect(wa.lastPricing!.fareBasis).toEqual(['Y14', 'Y14']);
   });
 
   it('counts seat-occupying passengers (ignores infants)', () => {
     bookRoundTrip();
     host.process('-SMITH/JOHN MR', wa);
     host.process('-I/SMITH/BABY', wa);
-    expect(priceItinerary(wa.pnr)!.passengerCount).toBe(1);
+    expect(priceItinerary(wa.pnr)!.passengers[0].count).toBe(1);
+  });
+
+  it('prices multiple passenger types with WPP (child + infant discounts)', () => {
+    bookRoundTrip();
+    const resp = host.process('WPPADT/C05/INF', wa);
+    const types = wa.lastPricing!.passengers;
+    expect(types.map((p) => p.passengerType)).toEqual(['ADT', 'C05', 'INF']);
+    expect(types[1].base).toBe(367.5); // child = 75% of 490
+    expect(types[2].base).toBe(49); // infant = 10% of 490
+    expect(resp).toContain('C05');
+    expect(resp).toContain('INF');
+  });
+
+  it('prices a subset of segments with WPS', () => {
+    bookRoundTrip(); // two segments
+    host.process('WPS1', wa); // first segment only
+    expect(wa.lastPricing!.fareBasis).toEqual(['Y14']);
+    expect(wa.lastPricing!.passengers[0].base).toBe(245);
+  });
+
+  it('rejects WPS for a non-existent segment', () => {
+    bookRoundTrip();
+    expect(host.process('WPS9', wa)).toContain('SEGMENT');
   });
 
   it('redisplays the last quote with WP*', () => {
@@ -66,7 +89,7 @@ describe('WP pricing', () => {
 
   it('rejects an unsupported pricing format (until later commits)', () => {
     bookRoundTrip();
-    expect(host.process('WPS3', wa)).toBe('FORMAT');
+    expect(host.process('WPTN', wa)).toBe('FORMAT'); // tax-exempt qualifier not implemented
   });
 });
 
@@ -87,7 +110,7 @@ describe('bargain finder (WPNC family)', () => {
     expect(resp).toContain('REBOOK');
     expect(resp).toContain('Y TO M'); // M is the cheapest available class on AA100
     expect(wa.pnr.segments[0].bookingClass).toBe('Y'); // PNR untouched
-    expect(wa.lastPricing!.base).toBeLessThan(245); // cheaper than the Y fare
+    expect(wa.lastPricing!.passengers[0].base).toBeLessThan(245); // cheaper than the Y fare
   });
 
   it('WPNCS ignores availability and finds the globally cheapest class', () => {

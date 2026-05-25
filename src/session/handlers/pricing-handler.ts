@@ -2,21 +2,23 @@
  * Pricing handler + fare engine (WP family).
  *
  * The engine prices a set of legs against the tariff and a simple tax model
- * (US 7.5%, XF 4.50/segment, AY 5.60). Bargain finder (WPNC/WPNCS/WPNCB)
- * searches cheaper booking classes per segment — constrained by availability
- * unless WPNCS — and either advises the rebook or applies it (WPNCB).
+ * (US 7.5% of base, XF 4.50/segment, AY 5.60), producing one block per
+ * passenger type. Discounts: ADT full, child (C…) 75%, infant (INF) 10% and
+ * exempt from the per-seat XF/AY fees.
  *
- * Pricing is a query (no state change) except WPNCB, which rebooks classes and
- * so uses the MODIFY event.
+ * Modes: WP price-as-booked, WP* redisplay, WPP passenger-type, WPS segment
+ * selection, and bargain finder (WPNC/WPNCS/WPNCB). Pricing is a query (no
+ * state change) except WPNCB, which rebooks classes via the MODIFY event.
  */
 
 import type { PricingEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { AirSegment } from '../../models/segment.js';
-import type { FareQuote } from '../../models/fare.js';
+import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { Inventory } from '../../store/inventory.js';
 import { fareFor, round2, BOOKING_CLASSES, classMultiplier } from '../../store/tariff.js';
+import { Response } from '../../protocol/constants.js';
 import { renderFareQuote, renderBargain } from '../../protocol/serializer.js';
 import { SessionEvent } from '../session-state.js';
 import type { HandlerContext } from './context.js';
@@ -40,8 +42,14 @@ export interface BargainResult {
   rebooks: Rebook[];
 }
 
-/** Price a list of legs into a FareQuote. */
-function quoteLegs(legs: Leg[], departureDate: string, validatingCarrier: string, paxCount: number): FareQuote {
+/** Passenger-type fare discount relative to the adult fare. */
+function discountFor(type: string): number {
+  if (type === 'INF') return 0.1; // infant not occupying a seat
+  if (/^C/.test(type)) return 0.75; // child (C, CNN, C05, …)
+  return 1.0; // ADT and everything else
+}
+
+function legBase(legs: Leg[]): { base: number; fareBasis: string[] } {
   let base = 0;
   const fareBasis: string[] = [];
   for (const l of legs) {
@@ -49,31 +57,45 @@ function quoteLegs(legs: Leg[], departureDate: string, validatingCarrier: string
     base += f.base;
     fareBasis.push(f.fareBasis);
   }
-  base = round2(base);
-  const taxes = [
-    { code: 'US', amount: round2(base * 0.075) },
-    { code: 'XF', amount: round2(4.5 * legs.length) },
-    { code: 'AY', amount: 5.6 },
-  ];
+  return { base: round2(base), fareBasis };
+}
+
+function passengerFare(adultBase: number, segCount: number, type: string, count: number): PassengerFare {
+  const base = round2(adultBase * discountFor(type));
+  const taxes = [{ code: 'US', amount: round2(base * 0.075) }];
+  if (type !== 'INF') {
+    taxes.push({ code: 'XF', amount: round2(4.5 * segCount) });
+    taxes.push({ code: 'AY', amount: 5.6 });
+  }
   const taxTotal = round2(taxes.reduce((sum, t) => sum + t.amount, 0));
+  return { passengerType: type, count, base, taxes, taxTotal, total: round2(base + taxTotal) };
+}
+
+function buildQuote(legs: Leg[], departureDate: string, validatingCarrier: string, blocks: { type: string; count: number }[]): FareQuote {
+  const { base, fareBasis } = legBase(legs);
   return {
     departureDate,
     validatingCarrier,
     currency: 'USD',
-    passengerType: 'ADT',
-    passengerCount: paxCount,
-    base,
-    taxes,
-    taxTotal,
-    total: round2(base + taxTotal),
     fareBasis,
+    passengers: blocks.map((b) => passengerFare(base, legs.length, b.type, b.count)),
   };
 }
 
-export function priceItinerary(pnr: Pnr): FareQuote | null {
-  if (pnr.segments.length === 0) return null;
-  const legs = pnr.segments.map((s) => ({ origin: s.origin, destination: s.destination, bookingClass: s.bookingClass }));
-  return quoteLegs(legs, pnr.segments[0].date, pnr.segments[0].carrier, Math.max(1, pnr.passengerCount()));
+const toLeg = (s: AirSegment): Leg => ({ origin: s.origin, destination: s.destination, bookingClass: s.bookingClass });
+
+export interface PriceOptions {
+  passengerTypes?: string[];
+  segments?: AirSegment[]; // subset to price (defaults to all)
+}
+
+export function priceItinerary(pnr: Pnr, opts: PriceOptions = {}): FareQuote | null {
+  const segs = opts.segments ?? pnr.segments;
+  if (segs.length === 0) return null;
+  const blocks = opts.passengerTypes?.length
+    ? opts.passengerTypes.map((type) => ({ type, count: 1 }))
+    : [{ type: 'ADT', count: Math.max(1, pnr.passengerCount()) }];
+  return buildQuote(segs.map(toLeg), segs[0].date, segs[0].carrier, blocks);
 }
 
 /** Cheapest class for a segment, cheaper than the current one (availability-aware). */
@@ -103,7 +125,9 @@ export function bargainFind(pnr: Pnr, inventory: Inventory, ignoreAvailability: 
     }
     return { origin: s.origin, destination: s.destination, bookingClass: to };
   });
-  const quote = quoteLegs(legs, pnr.segments[0].date, pnr.segments[0].carrier, Math.max(1, pnr.passengerCount()));
+  const quote = buildQuote(legs, pnr.segments[0].date, pnr.segments[0].carrier, [
+    { type: 'ADT', count: Math.max(1, pnr.passengerCount()) },
+  ]);
   return { quote, rebooks };
 }
 
@@ -129,7 +153,13 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
     return renderBargain(result.quote, result.rebooks, entry.rebook ?? false);
   }
 
-  const fq = priceItinerary(wa.pnr);
+  // mode 'price', optionally with passenger types and/or a segment selection.
+  let segments: AirSegment[] | undefined;
+  if (entry.segments) {
+    if (entry.segments.some((n) => n < 1 || n > wa.pnr.segments.length)) return Response.SEGMENT_NOT_FOUND;
+    segments = entry.segments.map((n) => wa.pnr.segments[n - 1]);
+  }
+  const fq = priceItinerary(wa.pnr, { passengerTypes: entry.passengerTypes, segments });
   if (!fq) return 'UNABLE TO PRICE - NO ITINERARY'; // TODO: confirm wording
   wa.lastPricing = fq;
   return renderFareQuote(fq);
