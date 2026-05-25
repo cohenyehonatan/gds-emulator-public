@@ -76,6 +76,39 @@ describe('WP pricing', () => {
     expect(host.process('WPS9', wa)).toContain('SEGMENT');
   });
 
+  it('stores the last quote as a PQ record (PQ) and displays it (*PQ)', () => {
+    bookRoundTrip();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    const stored = host.process('PQ', wa);
+    expect(stored).toContain('PRICE QUOTE RECORD RETAINED');
+    expect(stored).toContain('PQ 1');
+    expect(wa.pnr.priceQuotes).toHaveLength(1);
+    expect(host.process('*PQ', wa)).toContain('PQ 1');
+    expect(host.process('*PQ1', wa)).toContain('VALIDATING CARRIER');
+  });
+
+  it('prices and stores in one entry with WPRQ', () => {
+    bookRoundTrip();
+    const resp = host.process('WPRQ', wa);
+    expect(resp).toContain('PRICE QUOTE RECORD RETAINED');
+    expect(wa.pnr.priceQuotes).toHaveLength(1);
+  });
+
+  it('creates one PQ record per passenger type', () => {
+    bookRoundTrip();
+    host.process('WPPADT/C05/INF', wa);
+    host.process('PQ', wa);
+    expect(wa.pnr.priceQuotes).toHaveLength(3); // ADT, C05, INF
+    expect(host.process('*PQ2', wa)).toContain('C05');
+  });
+
+  it('rejects PQ with nothing priced, and *PQ with no records', () => {
+    bookRoundTrip();
+    expect(host.process('PQ', wa)).toContain('NO PRICING TO STORE');
+    expect(host.process('*PQ', wa)).toContain('NO PQ RECORDS');
+  });
+
   it('redisplays the last quote with WP*', () => {
     bookRoundTrip();
     const first = host.process('WP', wa);

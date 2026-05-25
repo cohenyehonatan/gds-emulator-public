@@ -21,6 +21,7 @@ import {
   renderPhones,
   renderTicketing,
   renderSimilarNameList,
+  renderPriceQuotes,
 } from '../../protocol/serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { HandlerContext } from './context.js';
@@ -38,6 +39,10 @@ const SECTIONS: Record<string, (pnr: Pnr) => string> = {
 export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerContext): string {
   const arg = entry.argument;
   const sig = { pcc: ctx.pcc, agent: wa.agent };
+
+  // Stored price quotes: *PQ (all) or *PQ<n> (one).
+  if (arg === 'PQ') return renderPriceQuotes(wa.pnr);
+  if (/^PQ\d+$/.test(arg)) return renderPriceQuotes(wa.pnr, parseInt(arg.slice(2), 10));
 
   // Redisplay current work area: '*A' (all), '*N/*I/*P/*T' (sections), or bare '*'.
   const sectionKey = arg === '' ? 'A' : arg;

@@ -174,6 +174,17 @@ export function renderFareQuote(fq: FareQuote): string {
   return out.join('\n');
 }
 
+/** Stored PQ records display (*PQ / *PQ<n>). */
+export function renderPriceQuotes(pnr: Pnr, n?: number): string {
+  if (pnr.priceQuotes.length === 0) return 'NO PQ RECORDS'; // TODO: confirm wording
+  if (n != null) {
+    const q = pnr.priceQuotes[n - 1];
+    if (!q) return 'PQ RECORD NOT FOUND'; // TODO: confirm wording
+    return `PQ ${n}\n${renderFareQuote(q)}`;
+  }
+  return pnr.priceQuotes.map((q, i) => `PQ ${i + 1}\n${renderFareQuote(q)}`).join('\n\n');
+}
+
 /** Bargain-finder display: the (lower) quote plus the rebook advisory. */
 export function renderBargain(
   fq: FareQuote,

@@ -133,11 +133,12 @@ export interface EndTransactionEntry extends BaseEntry {
 
 export interface PricingEntry extends BaseEntry {
   kind: 'pricing';
-  mode: 'price' | 'redisplay' | 'bargain'; // WP / WP* / WPNC family
+  mode: 'price' | 'redisplay' | 'bargain' | 'store'; // WP / WP* / WPNC family / PQ
   rebook?: boolean; // WPNCB rebooks the lowest class
   ignoreAvailability?: boolean; // WPNCS ignores availability
   passengerTypes?: string[]; // WPP ADT/C05/INF
   segments?: number[]; // WPS segment selection
+  store?: boolean; // WPRQ: price and store a PQ record in one entry
 }
 
 export interface IgnoreEntry extends BaseEntry {

@@ -5,9 +5,12 @@
  *   WPNC   bargain finder — advise the lowest available class
  *   WPNCS  lowest fare regardless of availability
  *   WPNCB  rebook into the lowest available class
+ *   WPP…   passenger-type pricing (WPPADT/C05/INF)
+ *   WPS…   segment selection (WPS1-3/5)
+ *   WPRQ   price as booked and store a PQ record
+ *   PQ     store the last pricing response as a PQ record (*PQ displays them)
  *
- * TODO (ROADMAP): passenger-type and segment/name qualifiers (WPP…, WPS…,
- * ¥N…), stored PQ records.
+ * TODO (ROADMAP): name qualifier ¥N… and ¥-combined qualifiers.
  */
 
 import type { PricingEntry } from '../entry.js';
@@ -27,6 +30,10 @@ export function parsePricing(raw: string): PricingEntry {
       return { ...base, mode: 'bargain', rebook: false, ignoreAvailability: true };
     case 'WPNCB': // rebook into the lowest available class
       return { ...base, mode: 'bargain', rebook: true, ignoreAvailability: false };
+    case 'WPRQ': // price as booked and store a PQ record
+      return { ...base, mode: 'price', store: true };
+    case 'PQ': // store the last pricing response as a PQ record
+      return { ...base, mode: 'store' };
   }
 
   // WPP<type>/<type>… — price specific passenger types.

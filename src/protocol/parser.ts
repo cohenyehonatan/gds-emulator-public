@@ -49,6 +49,7 @@ const RULES: DispatchRule[] = [
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },
+  { match: equals('PQ'), parse: parsePricing },
   { match: equals('ER'), parse: parseEndTransaction },
   { match: equals('ET'), parse: parseEndTransaction },
   { match: equals('E'), parse: parseEndTransaction },

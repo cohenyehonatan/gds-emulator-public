@@ -125,8 +125,12 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 - [x] **Segment selection** `WPS1-3/5` — price only the chosen segments.
 - [ ] Name selection `¥N1.1` and `¥`-separated qualifier combinations
       (`WPPC03¥S2/4¥N1.2`); other WP qualifiers (WPI/WPAC/WPM/WPT*/WPA/WPB).
-- [ ] **Stored fares (PQ records)** — store a quote and guarantee it.
-- [ ] Fare-calc display `WPDF`, validating-carrier alternates, OB/baggage fees.
+- [x] **Stored fares (PQ records)** — `PQ` stores the last quote (one record per
+      passenger type), `WPRQ` prices + stores in one entry, `*PQ` / `*PQ<n>`
+      displays them. Records live on the PNR (survive commit/retrieve), up to 99.
+      Grounded in `references/Sabre-Fares-and-Pricing-Course-Zenon.pdf`.
+- [ ] Fare-calc display `WPDF`, validating-carrier alternates, OB/baggage fees,
+      name qualifier `¥N…`, manual PQ (`PQM`), PQ delete, ticketing from PQ (v3).
 
 ## v3 — Queues & ticketing
 

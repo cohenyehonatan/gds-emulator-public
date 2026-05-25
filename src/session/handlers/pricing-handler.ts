@@ -131,9 +131,29 @@ export function bargainFind(pnr: Pnr, inventory: Inventory, ignoreAvailability: 
   return { quote, rebooks };
 }
 
+/**
+ * Store a quote as PQ record(s) — one per passenger-type block (Sabre creates a
+ * separate PQ record per type). Returns the "retained" confirmation + records.
+ */
+function storeAndRender(pnr: Pnr, fq: FareQuote): string {
+  const created = fq.passengers.map((block) => ({ ...fq, passengers: [block] }));
+  pnr.priceQuotes.push(...created);
+  const out = ['PRICE QUOTE RECORD RETAINED', 'FARE NOT GUARANTEED UNTIL TICKETED'];
+  for (const q of created) {
+    out.push('', `PQ ${pnr.priceQuotes.indexOf(q) + 1}`, renderFareQuote(q));
+  }
+  return out.join('\n');
+}
+
 export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerContext): string {
   if (entry.mode === 'redisplay') {
     return wa.lastPricing ? renderFareQuote(wa.lastPricing) : 'NO PRICING TO DISPLAY'; // TODO: confirm
+  }
+
+  if (entry.mode === 'store') {
+    // PQ: store the last pricing response.
+    if (!wa.lastPricing) return 'NO PRICING TO STORE'; // TODO: confirm wording
+    return storeAndRender(wa.pnr, wa.lastPricing);
   }
 
   if (entry.mode === 'bargain') {
@@ -162,5 +182,5 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
   const fq = priceItinerary(wa.pnr, { passengerTypes: entry.passengerTypes, segments });
   if (!fq) return 'UNABLE TO PRICE - NO ITINERARY'; // TODO: confirm wording
   wa.lastPricing = fq;
-  return renderFareQuote(fq);
+  return entry.store ? storeAndRender(wa.pnr, fq) : renderFareQuote(fq);
 }
