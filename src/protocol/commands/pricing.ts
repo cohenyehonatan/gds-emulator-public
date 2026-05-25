@@ -1,17 +1,23 @@
 /**
  * Pricing entries (sigil "WP" — Sabre Air Pricing).  (Basic Pricing QR)
- *   WP     price the current itinerary as booked (lowest fare for booked classes)
- *   WP*    redisplay the last pricing response
- *   WPNC   bargain finder — advise the lowest available class
- *   WPNCS  lowest fare regardless of availability
- *   WPNCB  rebook into the lowest available class
- *   WPP…   passenger-type pricing (WPPADT/C05/INF)
- *   WPS…   segment selection (WPS1-3/5)
- *   WPRQ   price as booked and store a PQ record
- *   PQ     store the last pricing response as a PQ record (*PQ displays them)
- *   WPDF   display the fare-calculation description (WPDF* / WPDF<n>)
+ *   WP / WP*           price as booked / redisplay
+ *   WPNC / WPNCS / WPNCB   bargain finder (advise / ignore-avail / rebook)
+ *   WPRQ               price and store a PQ record   (RQ also works as a ¥ qualifier)
+ *   WPDF / WPDF* / WPDF<n>  fare-calculation display
+ *   PQ                 store the last pricing response
  *
- * TODO (ROADMAP): name qualifier ¥N… and ¥-combined qualifiers.
+ * Qualifiers follow the verb, the first inline and the rest separated by the
+ * cross of Lorraine ¥ (workbook "WPPC03¥S2/4¥N1.2"):
+ *   P<types>   passenger types (WPPADT/C05/INF)
+ *   S<segs>    segment selection (WPS1-3/5)
+ *   N<ref>     price one passenger (¥N1.1)
+ *   A<carrier> validating carrier (WPALH)
+ *   M<cur>     display currency (WPMEUR — label only, no conversion)
+ *   TN / TE    exempt all taxes+fees / exempt taxes keep fees
+ *   RQ         store a PQ record
+ *
+ * TODO (ROADMAP): negotiated/account/exclude qualifiers (WPI/WPAC/WPXP/WPXR/
+ * WPXA/WPPL/WPPV/WPB/WP¥TC) — they need fare-rule modeling we don't have.
  */
 
 import type { PricingEntry } from '../entry.js';
@@ -20,45 +26,100 @@ import { ParseError } from '../errors.js';
 export function parsePricing(raw: string): PricingEntry {
   const u = raw.toUpperCase();
   const base = { kind: 'pricing' as const, raw, timestamp: new Date() };
-  switch (u) {
-    case 'WP':
-      return { ...base, mode: 'price' };
-    case 'WP*':
-      return { ...base, mode: 'redisplay' };
-    case 'WPNC': // advise the lowest available class
-      return { ...base, mode: 'bargain', rebook: false, ignoreAvailability: false };
-    case 'WPNCS': // lowest fare regardless of availability
-      return { ...base, mode: 'bargain', rebook: false, ignoreAvailability: true };
-    case 'WPNCB': // rebook into the lowest available class
-      return { ...base, mode: 'bargain', rebook: true, ignoreAvailability: false };
-    case 'WPRQ': // price as booked and store a PQ record
-      return { ...base, mode: 'price', store: true };
-    case 'PQ': // store the last pricing response as a PQ record
-      return { ...base, mode: 'store' };
-  }
 
-  // WPDF / WPDF* / WPDF<n> — display the fare-calculation description.
+  // Exact display / store forms (no qualifiers).
+  if (u === 'WP*') return { ...base, mode: 'redisplay' };
+  if (u === 'PQ') return { ...base, mode: 'store' };
   if (u === 'WPDF' || u === 'WPDF*') return { ...base, mode: 'farecalc' };
   const df = /^WPDF(\d+)$/.exec(u);
   if (df) return { ...base, mode: 'farecalc', fareCalcLine: parseInt(df[1], 10) };
 
-  // WPP<type>/<type>… — price specific passenger types.
-  if (u.startsWith('WPP')) {
-    const types = u
-      .slice(3)
-      .split('/')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (types.length === 0) throw new ParseError(`Pricing: no passenger types in "${raw}"`);
-    return { ...base, mode: 'price', passengerTypes: types };
+  // Base verb (longest first) + qualifier remainder.
+  let mode: PricingEntry['mode'] = 'price';
+  let rebook: boolean | undefined;
+  let ignoreAvailability: boolean | undefined;
+  let store: boolean | undefined;
+  let rest: string;
+  if (u.startsWith('WPNCB')) {
+    mode = 'bargain';
+    rebook = true;
+    ignoreAvailability = false;
+    rest = raw.slice(5);
+  } else if (u.startsWith('WPNCS')) {
+    mode = 'bargain';
+    ignoreAvailability = true;
+    rest = raw.slice(5);
+  } else if (u.startsWith('WPNC')) {
+    mode = 'bargain';
+    ignoreAvailability = false;
+    rest = raw.slice(4);
+  } else if (u.startsWith('WPRQ')) {
+    store = true;
+    rest = raw.slice(4);
+  } else if (u.startsWith('WP')) {
+    rest = raw.slice(2);
+  } else {
+    throw new ParseError(`Pricing: unsupported format "${raw}"`);
   }
 
-  // WPS<segspec> — price selected segments (N, N-M, lists with /).
-  if (u.startsWith('WPS')) {
-    return { ...base, mode: 'price', segments: parseSegmentSpec(u.slice(3), raw) };
-  }
+  const quals = parseQualifiers(rest, raw);
+  return { ...base, mode, rebook, ignoreAvailability, ...quals, store: store || quals.store };
+}
 
-  throw new ParseError(`Pricing: unsupported format "${raw}"`);
+type Qualifiers = Pick<
+  PricingEntry,
+  'passengerTypes' | 'segments' | 'nameRef' | 'validatingCarrier' | 'currency' | 'taxMode' | 'store'
+>;
+
+/** Parse qualifiers from the verb remainder: first inline, rest ¥-separated. */
+function parseQualifiers(rest: string, raw: string): Qualifiers {
+  const q: Qualifiers = {};
+  if (rest.length === 0) return q;
+  const body = rest.startsWith('¥') ? rest.slice(1) : rest;
+  for (const token of body.split('¥').filter(Boolean)) {
+    const key = token[0].toUpperCase();
+    const val = token.slice(1);
+    switch (key) {
+      case 'P': {
+        const types = val.toUpperCase().split('/').filter(Boolean);
+        if (types.length === 0) throw new ParseError(`Pricing: no passenger types in "${raw}"`);
+        q.passengerTypes = types;
+        break;
+      }
+      case 'S':
+        q.segments = parseSegmentSpec(val, raw);
+        break;
+      case 'N':
+        q.nameRef = parseNameRef(val, raw);
+        break;
+      case 'A':
+        if (!/^[A-Z0-9]{2}$/.test(val.toUpperCase())) throw new ParseError(`Pricing: bad carrier "${raw}"`);
+        q.validatingCarrier = val.toUpperCase();
+        break;
+      case 'M':
+        if (!/^[A-Z]{3}$/.test(val.toUpperCase())) throw new ParseError(`Pricing: bad currency "${raw}"`);
+        q.currency = val.toUpperCase();
+        break;
+      case 'T':
+        if (val.toUpperCase() === 'N') q.taxMode = 'none';
+        else if (val.toUpperCase() === 'E') q.taxMode = 'fees';
+        else throw new ParseError(`Pricing: unsupported tax qualifier "${raw}"`);
+        break;
+      case 'R':
+        if (token.toUpperCase() === 'RQ') q.store = true;
+        else throw new ParseError(`Pricing: unsupported qualifier "${token}"`);
+        break;
+      default:
+        throw new ParseError(`Pricing: unsupported qualifier "${token}"`);
+    }
+  }
+  return q;
+}
+
+function parseNameRef(val: string, raw: string): { item: number; passenger?: number } {
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(val);
+  if (!m) throw new ParseError(`Pricing: bad name reference "${raw}"`);
+  return { item: parseInt(m[1], 10), passenger: m[2] ? parseInt(m[2], 10) : undefined };
 }
 
 /** Parse a segment selection like "1-3/5" into [1,2,3,5]. */

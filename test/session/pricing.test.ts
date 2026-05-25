@@ -143,7 +143,39 @@ describe('WP pricing', () => {
 
   it('rejects an unsupported pricing format (until later commits)', () => {
     bookRoundTrip();
-    expect(host.process('WPTN', wa)).toBe('FORMAT'); // tax-exempt qualifier not implemented
+    expect(host.process('WPXP', wa)).toBe('FORMAT'); // exclude-penalty qualifier not modeled
+  });
+
+  it('WPA overrides the validating carrier; WPM sets the currency label', () => {
+    bookRoundTrip();
+    host.process('WPALH', wa);
+    expect(wa.lastPricing!.validatingCarrier).toBe('LH');
+    host.process('WPMEUR', wa);
+    expect(wa.lastPricing!.currency).toBe('EUR');
+  });
+
+  it('WPTN exempts all taxes; WPTE exempts taxes but keeps fees', () => {
+    bookRoundTrip();
+    host.process('WPTN', wa);
+    expect(wa.lastPricing!.passengers[0].taxTotal).toBe(0);
+    host.process('WPTE', wa);
+    expect(wa.lastPricing!.passengers[0].taxes.map((t) => t.code)).toEqual(['XF', 'AY']);
+  });
+
+  it('¥N prices a single named passenger', () => {
+    host.process('115JUNJFKLAX', wa);
+    host.process('02Y1', wa); // 2 seats
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('-JONES/MARY MS', wa);
+    host.process('WP¥N1.1', wa);
+    expect(wa.lastPricing!.passengers[0].count).toBe(1);
+  });
+
+  it('combines qualifiers with ¥ (segment + currency)', () => {
+    bookRoundTrip();
+    host.process('WP¥S1¥MGBP', wa);
+    expect(wa.lastPricing!.fareBasis).toHaveLength(1); // one segment priced
+    expect(wa.lastPricing!.currency).toBe('GBP');
   });
 });
 

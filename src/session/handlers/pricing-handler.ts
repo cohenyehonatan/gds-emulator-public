@@ -75,10 +75,14 @@ function fareCalcFor(legs: Leg[], type: string): string {
   return `${line} ${round2(total).toFixed(2)} END`;
 }
 
-function passengerFare(legs: Leg[], adultBase: number, type: string, count: number): PassengerFare {
+type TaxMode = 'none' | 'fees' | undefined;
+
+function passengerFare(legs: Leg[], adultBase: number, type: string, count: number, taxMode: TaxMode): PassengerFare {
   const base = round2(adultBase * discountFor(type));
-  const taxes = [{ code: 'US', amount: round2(base * 0.075) }];
-  if (type !== 'INF') {
+  const taxes = [];
+  if (taxMode == null) taxes.push({ code: 'US', amount: round2(base * 0.075) }); // US tax exempt for fees/none
+  if (taxMode !== 'none' && type !== 'INF') {
+    // XF/AY are per-seat fees — collected unless 'none' (and infants are exempt)
     taxes.push({ code: 'XF', amount: round2(4.5 * legs.length) });
     taxes.push({ code: 'AY', amount: 5.6 });
   }
@@ -94,14 +98,20 @@ function passengerFare(legs: Leg[], adultBase: number, type: string, count: numb
   };
 }
 
-function buildQuote(legs: Leg[], departureDate: string, validatingCarrier: string, blocks: { type: string; count: number }[]): FareQuote {
+function buildQuote(
+  legs: Leg[],
+  departureDate: string,
+  validatingCarrier: string,
+  blocks: { type: string; count: number }[],
+  opts: PriceOptions = {}
+): FareQuote {
   const { base, fareBasis } = legBase(legs);
   return {
     departureDate,
-    validatingCarrier,
-    currency: 'USD',
+    validatingCarrier: opts.validatingCarrier ?? validatingCarrier,
+    currency: opts.currency ?? 'USD',
     fareBasis,
-    passengers: blocks.map((b) => passengerFare(legs, base, b.type, b.count)),
+    passengers: blocks.map((b) => passengerFare(legs, base, b.type, b.count, opts.taxMode)),
   };
 }
 
@@ -115,15 +125,22 @@ const toLeg = (s: AirSegment): Leg => ({
 export interface PriceOptions {
   passengerTypes?: string[];
   segments?: AirSegment[]; // subset to price (defaults to all)
+  nameRef?: { item: number; passenger?: number }; // price one passenger
+  validatingCarrier?: string;
+  currency?: string;
+  taxMode?: TaxMode;
+}
+
+/** Passenger blocks: explicit types, else one ADT (count 1 for a name select). */
+function blocksFor(pnr: Pnr, opts: PriceOptions): { type: string; count: number }[] {
+  if (opts.passengerTypes?.length) return opts.passengerTypes.map((type) => ({ type, count: 1 }));
+  return [{ type: 'ADT', count: opts.nameRef ? 1 : Math.max(1, pnr.passengerCount()) }];
 }
 
 export function priceItinerary(pnr: Pnr, opts: PriceOptions = {}): FareQuote | null {
   const segs = opts.segments ?? pnr.segments;
   if (segs.length === 0) return null;
-  const blocks = opts.passengerTypes?.length
-    ? opts.passengerTypes.map((type) => ({ type, count: 1 }))
-    : [{ type: 'ADT', count: Math.max(1, pnr.passengerCount()) }];
-  return buildQuote(segs.map(toLeg), segs[0].date, segs[0].carrier, blocks);
+  return buildQuote(segs.map(toLeg), segs[0].date, segs[0].carrier, blocksFor(pnr, opts), opts);
 }
 
 /** Cheapest class for a segment, cheaper than the current one (availability-aware). */
@@ -143,7 +160,12 @@ function recommendedClass(seg: AirSegment, inventory: Inventory, ignoreAvailabil
   return best;
 }
 
-export function bargainFind(pnr: Pnr, inventory: Inventory, ignoreAvailability: boolean): BargainResult | null {
+export function bargainFind(
+  pnr: Pnr,
+  inventory: Inventory,
+  ignoreAvailability: boolean,
+  opts: PriceOptions = {}
+): BargainResult | null {
   if (pnr.segments.length === 0) return null;
   const rebooks: Rebook[] = [];
   const legs: Leg[] = pnr.segments.map((s, i) => {
@@ -153,9 +175,7 @@ export function bargainFind(pnr: Pnr, inventory: Inventory, ignoreAvailability: 
     }
     return { carrier: s.carrier, origin: s.origin, destination: s.destination, bookingClass: to };
   });
-  const quote = buildQuote(legs, pnr.segments[0].date, pnr.segments[0].carrier, [
-    { type: 'ADT', count: Math.max(1, pnr.passengerCount()) },
-  ]);
+  const quote = buildQuote(legs, pnr.segments[0].date, pnr.segments[0].carrier, blocksFor(pnr, opts), opts);
   return { quote, rebooks };
 }
 
@@ -171,6 +191,14 @@ function storeAndRender(pnr: Pnr, fq: FareQuote): string {
     out.push('', `PQ ${pnr.priceQuotes.indexOf(q) + 1}`, renderFareQuote(q));
   }
   return out.join('\n');
+}
+
+/** Validate a name reference (¥N) against the current names. */
+function nameRefValid(pnr: Pnr, ref?: { item: number; passenger?: number }): boolean {
+  if (!ref) return true;
+  const item = pnr.names[ref.item - 1];
+  if (!item) return false;
+  return ref.passenger == null || (ref.passenger >= 1 && ref.passenger <= item.passengers.length);
 }
 
 export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerContext): string {
@@ -190,8 +218,17 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
     return renderFareCalc(wa.lastPricing, entry.fareCalcLine);
   }
 
+  if (!nameRefValid(wa.pnr, entry.nameRef)) return Response.FORMAT;
+  const common: PriceOptions = {
+    passengerTypes: entry.passengerTypes,
+    nameRef: entry.nameRef,
+    validatingCarrier: entry.validatingCarrier,
+    currency: entry.currency,
+    taxMode: entry.taxMode,
+  };
+
   if (entry.mode === 'bargain') {
-    const result = bargainFind(wa.pnr, ctx.inventory, entry.ignoreAvailability ?? false);
+    const result = bargainFind(wa.pnr, ctx.inventory, entry.ignoreAvailability ?? false, common);
     if (!result) return 'UNABLE TO PRICE - NO ITINERARY'; // TODO: confirm wording
 
     if (entry.rebook && result.rebooks.length > 0) {
@@ -207,13 +244,13 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
     return renderBargain(result.quote, result.rebooks, entry.rebook ?? false);
   }
 
-  // mode 'price', optionally with passenger types and/or a segment selection.
+  // mode 'price', optionally with passenger types, segment, name, and qualifiers.
   let segments: AirSegment[] | undefined;
   if (entry.segments) {
     if (entry.segments.some((n) => n < 1 || n > wa.pnr.segments.length)) return Response.SEGMENT_NOT_FOUND;
     segments = entry.segments.map((n) => wa.pnr.segments[n - 1]);
   }
-  const fq = priceItinerary(wa.pnr, { passengerTypes: entry.passengerTypes, segments });
+  const fq = priceItinerary(wa.pnr, { ...common, segments });
   if (!fq) return 'UNABLE TO PRICE - NO ITINERARY'; // TODO: confirm wording
   wa.lastPricing = fq;
   return entry.store ? storeAndRender(wa.pnr, fq) : renderFareQuote(fq);

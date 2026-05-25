@@ -161,8 +161,13 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 - [x] **Passenger types** `WPPADT/C05/INF` — a fare block per type (ADT full,
       child `C…` 75%, infant `INF` 10% + XF/AY exempt); grand TTL across types.
 - [x] **Segment selection** `WPS1-3/5` — price only the chosen segments.
-- [ ] Name selection `¥N1.1` and `¥`-separated qualifier combinations
-      (`WPPC03¥S2/4¥N1.2`); other WP qualifiers (WPI/WPAC/WPM/WPT*/WPA/WPB).
+- [x] **Qualifiers** via a unified `¥`-separated parser: name `¥N1.1`,
+      validating carrier `WPALH`, currency `WPMEUR` (label only), tax exempt
+      `WPTN` (all) / `WPTE` (taxes only, keep fees), combos `WP¥S1¥MEUR`.
+      Folds the existing `P`/`S`/`RQ` qualifiers through the same path.
+- [ ] Negotiated / account / exclude qualifiers (`WPI`/`WPAC`/`WPXP`/`WPXR`/
+      `WPXA`/`WPPL`/`WPPV`/`WPB`/`WP¥TC`) — rejected as FORMAT; need fare-rule
+      and currency-conversion modeling we don't have.
 - [x] **Stored fares (PQ records)** — `PQ` stores the last quote (one record per
       passenger type), `WPRQ` prices + stores in one entry, `*PQ` / `*PQ<n>`
       displays them. Records live on the PNR (survive commit/retrieve), up to 99.

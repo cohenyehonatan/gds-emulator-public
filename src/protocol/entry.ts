@@ -188,6 +188,11 @@ export interface PricingEntry extends BaseEntry {
   segments?: number[]; // WPS segment selection
   store?: boolean; // WPRQ: price and store a PQ record in one entry
   fareCalcLine?: number; // WPDF<n>: a specific fare-calculation line
+  // ¥-separated qualifiers:
+  nameRef?: { item: number; passenger?: number }; // ¥N1.1 — price one passenger
+  validatingCarrier?: string; // WPA<carrier> / ¥A
+  currency?: string; // WPM<currency> / ¥M (label only, no conversion)
+  taxMode?: 'none' | 'fees'; // WPTN (exempt all) / WPTE (exempt taxes, keep fees)
 }
 
 export interface IgnoreEntry extends BaseEntry {
