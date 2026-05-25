@@ -2,6 +2,7 @@
 
 import type { Inventory } from '../../store/inventory.js';
 import type { PnrStore } from '../../store/pnr-store.js';
+import { MONTHS, parseSabreDate } from '../../utils/validation.js';
 
 export interface HandlerContext {
   inventory: Inventory;
@@ -37,4 +38,24 @@ export function dayOfWeekNumber(month: number, day: number): number {
   if (d < now) d = new Date(now.getFullYear() + 1, month, day);
   const js = d.getDay(); // 0=Sun … 6=Sat
   return js === 0 ? 7 : js;
+}
+
+/**
+ * The day after a Sabre date token — used to render a next-day arrival on an
+ * overnight segment (workbook "800A 24NOV M/E"). Returns the new token plus its
+ * letter and numeric day-of-week.
+ */
+export function nextDay(dateToken: string): { raw: string; letter: string; num: number } | null {
+  const parsed = parseSabreDate(dateToken);
+  if (!parsed) return null;
+  const now = new Date();
+  let d = new Date(now.getFullYear(), parsed.date.month, parsed.date.day);
+  if (d < now) d = new Date(now.getFullYear() + 1, parsed.date.month, parsed.date.day);
+  d.setDate(d.getDate() + 1);
+  const js = d.getDay();
+  return {
+    raw: `${d.getDate()}${MONTHS[d.getMonth()]}`,
+    letter: DOW_LETTERS[js],
+    num: js === 0 ? 7 : js,
+  };
 }

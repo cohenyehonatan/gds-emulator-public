@@ -56,10 +56,11 @@ function renderAvailabilityLine(l: AvailabilityLine): string {
 export function renderSoldSegment(s: AirSegment): string {
   const times = s.departTime || s.arriveTime ? `  ${s.departTime}  ${s.arriveTime}` : '';
   const loc = s.airlineLocator ? `*${s.airlineLocator}` : '';
+  const arr = s.arriveDate ? `  ${s.arriveDate} ${s.arriveDayOfWeek}/E` : ' /E';
   return (
     `${String(s.segmentNumber).padStart(2)} ${s.carrier} ` +
     `${s.flightNumber}${s.bookingClass}  ${s.date} ${s.dayOfWeek} ` +
-    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times} /E`
+    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times}${arr}`
   );
 }
 
@@ -71,10 +72,11 @@ export function renderSoldSegment(s: AirSegment): string {
 export function renderItinerarySegment(s: AirSegment): string {
   const times = s.departTime || s.arriveTime ? `  ${to24h(s.departTime)}  ${to24h(s.arriveTime)}` : '';
   const loc = s.airlineLocator ? `*${s.airlineLocator}` : '';
+  const arr = s.arriveDate ? `  ${s.arriveDate} ${s.arriveDayOfWeekNum} /E` : ' /E';
   return (
     `${String(s.segmentNumber).padStart(2)} ${s.carrier} ` +
     `${s.flightNumber}${s.bookingClass}  ${s.date} ${s.dayOfWeekNum} ` +
-    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times} /E`
+    `${s.origin}${s.destination} ${s.status}${s.seats}${loc}${times}${arr}`
   );
 }
 

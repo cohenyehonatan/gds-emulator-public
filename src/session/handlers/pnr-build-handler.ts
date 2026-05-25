@@ -19,7 +19,23 @@ import { renderSoldSegment } from '../../protocol/serializer.js';
 import { StatusCode } from '../../protocol/constants.js';
 import { Response } from '../../protocol/constants.js';
 import type { AirSegment } from '../../models/segment.js';
-import { dayOfWeekLetter, dayOfWeekNumber, type HandlerContext } from './context.js';
+import { parseClockToMinutes } from '../../utils/validation.js';
+import { dayOfWeekLetter, dayOfWeekNumber, nextDay, type HandlerContext } from './context.js';
+
+/** Mark an overnight (next-day) arrival when the arrival time precedes departure. */
+function withArrival(seg: AirSegment): AirSegment {
+  const dep = parseClockToMinutes(seg.departTime);
+  const arr = parseClockToMinutes(seg.arriveTime);
+  if (dep != null && arr != null && arr < dep) {
+    const nd = nextDay(seg.date);
+    if (nd) {
+      seg.arriveDate = nd.raw;
+      seg.arriveDayOfWeek = nd.letter;
+      seg.arriveDayOfWeekNum = nd.num;
+    }
+  }
+  return seg;
+}
 
 export function handleSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
   if (entry.mode === 'direct') {
@@ -75,21 +91,23 @@ function buildAvailabilitySegments(
     if (!entry.waitlist) {
       ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, t.bookingClass, entry.seats);
     }
-    segs.push({
-      segmentNumber: wa.pnr.segments.length + segs.length + 1,
-      carrier: line.carrier,
-      flightNumber: line.flightNumber,
-      bookingClass: t.bookingClass,
-      date: avail.date,
-      dayOfWeek: line.dayOfWeek,
-      dayOfWeekNum: line.dayOfWeekNum,
-      origin: line.origin,
-      destination: line.destination,
-      status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
-      seats: entry.seats,
-      departTime: line.departTime,
-      arriveTime: line.arriveTime,
-    });
+    segs.push(
+      withArrival({
+        segmentNumber: wa.pnr.segments.length + segs.length + 1,
+        carrier: line.carrier,
+        flightNumber: line.flightNumber,
+        bookingClass: t.bookingClass,
+        date: avail.date,
+        dayOfWeek: line.dayOfWeek,
+        dayOfWeekNum: line.dayOfWeekNum,
+        origin: line.origin,
+        destination: line.destination,
+        status: entry.waitlist ? StatusCode.LL : StatusCode.SS,
+        seats: entry.seats,
+        departTime: line.departTime,
+        arriveTime: line.arriveTime,
+      })
+    );
   }
   return segs;
 }
@@ -99,7 +117,7 @@ function buildDirectSegment(entry: SellEntry, wa: WorkArea, ctx: HandlerContext)
   const sched = !entry.open && entry.flightNumber
     ? ctx.inventory.scheduleFor(entry.carrier!, entry.flightNumber)
     : undefined;
-  return {
+  return withArrival({
     segmentNumber: wa.pnr.segments.length + 1,
     carrier: entry.carrier!,
     flightNumber: entry.open ? 'OPEN' : entry.flightNumber!,
@@ -114,7 +132,7 @@ function buildDirectSegment(entry: SellEntry, wa: WorkArea, ctx: HandlerContext)
     departTime: sched?.departTime ?? '',
     arriveTime: sched?.arriveTime ?? '',
     airlineLocator: entry.airlineLocator,
-  };
+  });
 }
 
 export function handleName(entry: NameEntry, wa: WorkArea): string {

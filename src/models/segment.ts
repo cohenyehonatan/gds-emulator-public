@@ -29,4 +29,8 @@ export interface AirSegment {
   departTime: string; // e.g. "520P" (blank for open / unknown-schedule long sells)
   arriveTime: string; // e.g. "800A"
   airlineLocator?: string; // passive sell: the carrier's own record locator
+  // Set only for an overnight (next-day) arrival:
+  arriveDate?: string; // Sabre date token of arrival, e.g. "24NOV"
+  arriveDayOfWeek?: string; // letter DOW of arrival
+  arriveDayOfWeekNum?: number; // numeric DOW of arrival
 }

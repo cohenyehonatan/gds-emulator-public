@@ -59,8 +59,10 @@ Making the happy path feel like a real GDS, within the existing architecture.
       12-hour + letter DOW (workbook "EXAMPLE SOLD SEGMENT"); **availability**
       and the **stored itinerary display** use 24-hour + numeric DOW (workbook
       "EXAMPLE OF BASIC PNR" / Zenon).
-- [ ] Next-day arrival-date rendering (`… 25 JUN 2`) and the spaced-vs-
-      concatenated carrier+flight nuance (the guides differ). Low priority.
+- [x] Next-day arrival rendering on overnight segments — sell echo
+      `800A 16JUN T/E` (12h + letter), itinerary `0800 16JUN 2 /E` (24h + numeric).
+- [ ] Spaced-vs-concatenated carrier+flight (the guides differ: workbook
+      `IB6840F`, Zenon `MA 225K`; we use spaced). Left as-is — sources conflict.
 
 ## SSR / OSI
 

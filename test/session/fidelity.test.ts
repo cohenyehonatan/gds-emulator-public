@@ -98,4 +98,13 @@ describe('fidelity — workbook response formats', () => {
     expect(avail).toContain('0700'); // B6 615 07:00
     expect(avail).not.toContain('700A');
   });
+
+  it('renders a next-day arrival on an overnight segment', () => {
+    host.process('SI*4321', wa);
+    host.process('115JUNDFWLHR', wa); // BA 192 520P → 800A next day
+    const sell = host.process('01Y1', wa);
+    expect(sell).toMatch(/800A  16JUN [A-Z]\/E$/); // 12h + letter arrival DOW
+    const itin = host.process('*I', wa);
+    expect(itin).toMatch(/0800  16JUN \d \/E$/); // 24h + numeric arrival DOW
+  });
 });
