@@ -34,6 +34,7 @@ import { parseFrequentFlyer } from './commands/frequent-flyer.js';
 import { parseFlightInfo } from './commands/flight-info.js';
 import { parseMove } from './commands/move.js';
 import { parseDivide, parseFile } from './commands/divide.js';
+import { parseQueue } from './commands/queue.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -65,6 +66,7 @@ const RULES: DispatchRule[] = [
   { match: equals('I'), parse: parseIgnore },
   { match: equals('F'), parse: parseFile }, // file a divided PNR
   { match: firstChar('D'), parse: parseDivide }, // divide a PNR
+  { match: firstChar('Q'), parse: parseQueue }, // queue place/access/work
   // Field change/delete via '¤' must beat the plain field sigils below.
   { match: isModifyEntry, parse: parseModify },
   // Single-char sigils.

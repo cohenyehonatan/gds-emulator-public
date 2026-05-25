@@ -51,8 +51,10 @@ export const TRANSITIONS: Transition[] = [
   { from: SessionState.BUILDING, event: SessionEvent.SELL, to: SessionState.BUILDING },
   { from: SessionState.BUILDING, event: SessionEvent.MODIFY, to: SessionState.BUILDING },
 
-  // Retrieve an existing PNR
+  // Retrieve an existing PNR (also when advancing through a queue, replacing
+  // the on-screen PNR with the next one)
   { from: SessionState.EMPTY, event: SessionEvent.RETRIEVE, to: SessionState.DISPLAYED },
+  { from: SessionState.DISPLAYED, event: SessionEvent.RETRIEVE, to: SessionState.DISPLAYED },
 
   // Modify a retrieved PNR
   { from: SessionState.DISPLAYED, event: SessionEvent.ADD_FIELD, to: SessionState.DISPLAYED },

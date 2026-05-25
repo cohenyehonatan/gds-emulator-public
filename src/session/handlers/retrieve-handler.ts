@@ -42,6 +42,13 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
   const arg = entry.argument;
   const sig = { pcc: ctx.pcc, agent: wa.agent };
 
+  // Queue status: *Q shows the queue currently being accessed and its depth.
+  if (arg === 'Q') {
+    if (!wa.currentQueue) return 'NO QUEUE ACCESSED';
+    const n = (ctx.queues.get(wa.currentQueue) ?? []).length;
+    return `QUEUE ${wa.currentQueue} - ${n} PNR${n === 1 ? '' : 'S'}`;
+  }
+
   // Stored price quotes: *PQ (all) or *PQ<n> (one).
   if (arg === 'PQ') return renderPriceQuotes(wa.pnr);
   if (/^PQ\d+$/.test(arg)) return renderPriceQuotes(wa.pnr, parseInt(arg.slice(2), 10));

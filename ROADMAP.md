@@ -180,8 +180,18 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 
 ## v3 — Queues & ticketing
 
-- [ ] Queue placement/count/work (`QP`, `Q/`, `QC`).
-- [ ] E-ticket issuance (`W‡`/`TTP`), ticket records (`models/ticket.ts`).
+- [x] **Queue place / access / work** — `QP/<q>[/<pic>]` places the on-screen
+      committed PNR, `Q/<q>` accesses (pulls the first PNR), `*Q` shows the
+      current queue depth, `QR` removes + advances, `QX/QXI/QXE` exits. Queues
+      live at the PCC level (`HandlerContext.queues`, locator lists) so they
+      survive end-transaction and are shared across work areas; working a queue
+      uses the `DISPLAYED → DISPLAYED` RETRIEVE self-loop. The queue
+      prompt/confirmation strings are reconstructed (the course documents the
+      entries, not the host responses).
+      - [ ] Branch-PCC general queues (`QP/2EA0G`), jump (`QJ`), skip
+            (`QBI‡n`/`QBI-n`), `QL`/`QU` re-queue, `QXIR`/`QXER` exit-and-redisplay.
+- [ ] E-ticket issuance (`W¥`, `W¥PQ<n>` from a stored PQ, `TTP`), ticket
+      records (`models/ticket.ts`); qualifiers `W¥N`/`W¥S`/`W¥A`/`W¥F`.
 
 ## v4 — Aviation-suite integration (optional)
 

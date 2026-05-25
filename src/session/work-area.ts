@@ -19,6 +19,8 @@ export class WorkArea {
   lastPricing?: FareQuote;
   /** Original PNR stashed during a divide, awaiting File (F). */
   dividedOriginal?: Pnr;
+  /** Queue currently being accessed in this area (Q/<n>); only one at a time. */
+  currentQueue?: string;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -33,5 +35,6 @@ export class WorkArea {
     this.lastAvailability = undefined;
     this.lastPricing = undefined;
     this.dividedOriginal = undefined;
+    this.currentQueue = undefined;
   }
 }

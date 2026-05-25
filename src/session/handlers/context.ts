@@ -9,6 +9,8 @@ export interface HandlerContext {
   pnrStore: PnrStore;
   /** Pseudo City Code used in signature lines (e.g. "A0UC"). */
   pcc: string;
+  /** Work queues for this PCC: queue id → ordered list of PNR locators. */
+  queues: Map<string, string[]>;
 }
 
 /**

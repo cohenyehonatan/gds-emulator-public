@@ -28,6 +28,7 @@ import { handleFrequentFlyer } from './frequent-flyer-handler.js';
 import { handleFlightInfo } from './flight-info-handler.js';
 import { handleDivide, handleFile } from './divide-handler.js';
 import { handlePricing } from './pricing-handler.js';
+import { handleQueue } from './queue-handler.js';
 
 export type { HandlerContext };
 
@@ -91,6 +92,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleModify(entry, wa);
       case 'pricing':
         return handlePricing(entry, wa, ctx);
+      case 'queue':
+        return handleQueue(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

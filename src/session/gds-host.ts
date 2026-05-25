@@ -42,6 +42,7 @@ export class GdsHost {
       inventory: new Inventory(),
       pnrStore: new PnrStore(),
       pcc: options.pcc ?? 'A0UC',
+      queues: new Map<string, string[]>(),
     };
     this.server = new TcpServer(options.port, options.framing);
 

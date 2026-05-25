@@ -210,6 +210,20 @@ export interface DivideEntry extends BaseEntry {
   refs: { item: number; passenger?: number }[];
 }
 
+/**
+ * Queue ops:
+ *   place   QP/<queue>[/<pic>]  — place the current PNR on a queue
+ *   access  Q/<queue>           — access a queue, pull its first PNR
+ *   remove  QR                  — remove the on-screen PNR, advance to the next
+ *   exit    QX / QXI / QXE      — leave the queue without working the rest
+ */
+export interface QueueEntry extends BaseEntry {
+  kind: 'queue';
+  op: 'place' | 'access' | 'remove' | 'exit';
+  queue?: string; // queue id (number, or letter S/L)
+  pic?: string; // placement instruction code (QP/100/75)
+}
+
 /** File a divided PNR (F) — commit the new PNR and restore the original. */
 export interface FileEntry extends BaseEntry {
   kind: 'file';
@@ -251,4 +265,5 @@ export type ParsedEntry =
   | SignOutEntry
   | DivideEntry
   | FileEntry
+  | QueueEntry
   | UnsupportedEntry;
