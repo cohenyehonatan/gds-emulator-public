@@ -43,6 +43,7 @@ export class GdsHost {
       pnrStore: new PnrStore(),
       pcc: options.pcc ?? 'A0UC',
       queues: new Map<string, string[]>(),
+      ticketSerial: 4692507094, // matches the QR example's order of magnitude
     };
     this.server = new TcpServer(options.port, options.framing);
 

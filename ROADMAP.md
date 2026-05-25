@@ -190,8 +190,17 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       entries, not the host responses).
       - [ ] Branch-PCC general queues (`QP/2EA0G`), jump (`QJ`), skip
             (`QBI‡n`/`QBI-n`), `QL`/`QU` re-queue, `QXIR`/`QXER` exit-and-redisplay.
-- [ ] E-ticket issuance (`W¥`, `W¥PQ<n>` from a stored PQ, `TTP`), ticket
-      records (`models/ticket.ts`); qualifiers `W¥N`/`W¥S`/`W¥A`/`W¥F`.
+- [x] **E-ticket issuance** — `W¥`/`TTP` issue one e-ticket per seat-occupying
+      passenger (pricing as booked or off the last `WP` quote), `W¥PQ<n>` from a
+      stored PQ record, `W¥N<item>` for one name field. Each ticket
+      (`models/ticket.ts`) gets a 13-digit number (3-digit airline code +
+      serial from `ctx.ticketSerial`) and surfaces in the ticketing field
+      (`*T`), per the Issue-Tickets QR's `*T` display
+      (`TE <number>-AT <pax> <pcc>*<agent> <hhmm>/<date> D|I`). Re-issue is
+      blocked once tickets exist. No-PQ / already-issued strings reconstructed.
+      - [ ] Qualifiers `W¥A` (validating carrier), `W¥S` (segment), `W¥K`/`KP`
+            (commission), `W¥F` (form of payment), `W¥DP` (invoice), multi-PQ
+            `W¥PQ1/2`, paper `W¥XETR`; accounting-data line; void/refund.
 
 ## v4 — Aviation-suite integration (optional)
 

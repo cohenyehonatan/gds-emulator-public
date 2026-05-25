@@ -35,6 +35,7 @@ import { parseFlightInfo } from './commands/flight-info.js';
 import { parseMove } from './commands/move.js';
 import { parseDivide, parseFile } from './commands/divide.js';
 import { parseQueue } from './commands/queue.js';
+import { parseTicket } from './commands/ticket.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -56,6 +57,8 @@ const RULES: DispatchRule[] = [
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },
+  { match: startsWith('W'), parse: parseTicket }, // W¥ ticketing (after WP pricing)
+  { match: startsWith('TTP'), parse: parseTicket }, // issue all (synonym for W¥)
   { match: equals('PQ'), parse: parsePricing },
   { match: startsWith('FF'), parse: parseFrequentFlyer },
   { match: startsWith('V'), parse: parseFlightInfo }, // V* / VA* / VI* flight info

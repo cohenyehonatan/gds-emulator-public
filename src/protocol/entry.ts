@@ -229,6 +229,17 @@ export interface FileEntry extends BaseEntry {
   kind: 'file';
 }
 
+/**
+ * Issue e-ticket(s): W¥ / TTP issue for the whole PNR, W¥PQ<n> from a stored
+ * PQ record, W¥N<item> for one name field.
+ */
+export interface TicketEntry extends BaseEntry {
+  kind: 'ticket';
+  source: 'pnr' | 'pq'; // price-as-booked/last quote vs a stored PQ record
+  pqRecord?: number; // W¥PQ<n>
+  nameItem?: number; // W¥N<item>
+}
+
 export interface SignOutEntry extends BaseEntry {
   kind: 'sign_out';
   allAreas: boolean; // SO* signs out of every work area
@@ -266,4 +277,5 @@ export type ParsedEntry =
   | DivideEntry
   | FileEntry
   | QueueEntry
+  | TicketEntry
   | UnsupportedEntry;

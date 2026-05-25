@@ -15,6 +15,7 @@ import type { SpecialServiceRequest, OtherServiceInfo } from './service.js';
 import type { RemarkElement } from './remark.js';
 import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
+import type { TicketRecord } from './ticket.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 export class Pnr {
@@ -27,6 +28,7 @@ export class Pnr {
   remarks: RemarkElement[] = [];
   frequentFlyers: FrequentFlyer[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
+  tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   ticketing?: string;
   optionField?: string; // time-limit / option field (sigil 8)
   receivedFrom?: string;
@@ -54,6 +56,7 @@ export class Pnr {
     p.remarks = this.remarks.map((x) => ({ ...x }));
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
+    p.tickets = this.tickets.map((t) => ({ ...t }));
     p.ticketing = this.ticketing;
     p.optionField = this.optionField;
     p.receivedFrom = this.receivedFrom;

@@ -11,6 +11,8 @@ export interface HandlerContext {
   pcc: string;
   /** Work queues for this PCC: queue id → ordered list of PNR locators. */
   queues: Map<string, string[]>;
+  /** Monotonic serial for generated e-ticket numbers (mutated on issue). */
+  ticketSerial: number;
 }
 
 /**

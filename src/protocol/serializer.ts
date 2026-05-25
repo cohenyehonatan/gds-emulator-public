@@ -16,6 +16,7 @@ import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
 import { formatRemark } from '../models/remark.js';
 import type { FareQuote } from '../models/fare.js';
+import type { TicketRecord } from '../models/ticket.js';
 import { MONTHS, to24h, parseClockToMinutes } from '../utils/validation.js';
 import { HOME_CITY } from './constants.js';
 
@@ -138,10 +139,28 @@ export function renderPhones(pnr: Pnr): string {
   return ['PHONES', ...lines].join('\n');
 }
 
-/** Ticketing field, with the "TKT/TIME LIMIT" header (workbook layout). */
+/** One issued-ticket line: "TE 0254692507094-AT SMITH/J A0UC*4321 2332/8FEB D". */
+function renderTicketLine(t: TicketRecord): string {
+  const sign = `${t.pcc}*${t.agent ?? 'AGT'}`;
+  return `${t.type} ${t.number}-${t.stock} ${t.passenger} ${sign} ${sabreTime(t.issuedAt)}/${sabreDayMon(t.issuedAt)} ${t.tariff}`;
+}
+
+/**
+ * Ticketing field, with the "TKT/TIME LIMIT" header (workbook layout). After
+ * issuance the field also carries the issue header (T-<date>-<pcc>*<agent>) and
+ * one line per ticket, per the Issue-Tickets QR's *T display.
+ */
 export function renderTicketing(pnr: Pnr): string {
-  if (!pnr.ticketing) return 'NO TICKETING FIELD';
-  return ['TKT/TIME LIMIT', `  1.${pnr.ticketing}`].join('\n');
+  const lines: string[] = [];
+  let n = 0;
+  if (pnr.ticketing) lines.push(`  ${++n}.${pnr.ticketing}`);
+  if (pnr.tickets.length > 0) {
+    const first = pnr.tickets[0];
+    lines.push(`  ${++n}.T-${sabreDayMon(first.issuedAt)}-${first.pcc}*${first.agent ?? 'AGT'}`);
+    for (const t of pnr.tickets) lines.push(`  ${++n}.${renderTicketLine(t)}`);
+  }
+  if (lines.length === 0) return 'NO TICKETING FIELD';
+  return ['TKT/TIME LIMIT', ...lines].join('\n');
 }
 
 /** SSR lines: "SSR VGML YY NN -1.1 <text>". */
