@@ -99,6 +99,15 @@ describe('fidelity — workbook response formats', () => {
     expect(avail).not.toContain('700A');
   });
 
+  it('prepends the home city to a phone, or an explicit city if entered', () => {
+    host.process('SI*4321', wa);
+    host.process('9305-555-1212-H', wa); // no city → home city NYC
+    expect(host.process('*P', wa)).toContain('1.NYC305-555-1212-H');
+    host.process('9LON020-7946-0000-B', wa); // explicit city LON
+    const p = host.process('*P', wa);
+    expect(p).toContain('2.LON020-7946-0000-B');
+  });
+
   it('renders a next-day arrival on an overnight segment', () => {
     host.process('SI*4321', wa);
     host.process('115JUNDFWLHR', wa); // BA 192 520P → 800A next day

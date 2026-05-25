@@ -16,6 +16,7 @@ import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
 import type { FareQuote } from '../models/fare.js';
 import { MONTHS, to24h } from '../utils/validation.js';
+import { HOME_CITY } from './constants.js';
 
 /** Signature-line inputs (PCC + agent sign). */
 export interface PnrSignature {
@@ -94,10 +95,12 @@ export function renderItinerary(pnr: Pnr): string {
   return pnr.segments.map(renderItinerarySegment).join('\n');
 }
 
-/** Phone field, with the "PHONES" header (workbook layout). */
+/** Phone field, with the "PHONES" header; city prefix shown (workbook layout). */
 export function renderPhones(pnr: Pnr): string {
   if (pnr.phones.length === 0) return 'NO PHONE FIELD';
-  const lines = pnr.phones.map((p, i) => `  ${i + 1}.${p.number}${p.type ? '-' + p.type : ''}`);
+  const lines = pnr.phones.map(
+    (p, i) => `  ${i + 1}.${p.city ?? HOME_CITY}${p.number}${p.type ? '-' + p.type : ''}`
+  );
   return ['PHONES', ...lines].join('\n');
 }
 

@@ -9,6 +9,9 @@
 
 export const DEFAULT_PORT = 9600;
 
+/** Agency home city, prepended to a phone with no explicit city (display only). */
+export const HOME_CITY = 'NYC';
+
 /**
  * Entry sigils — the leading key of a cryptic entry. Multi-char sigils
  * (SI, SO, IG, ER, ET) must be matched longest-first in the parser.

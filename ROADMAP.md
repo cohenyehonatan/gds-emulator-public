@@ -61,6 +61,8 @@ Making the happy path feel like a real GDS, within the existing architecture.
       "EXAMPLE OF BASIC PNR" / Zenon).
 - [x] Next-day arrival rendering on overnight segments — sell echo
       `800A 16JUN T/E` (12h + letter), itinerary `0800 16JUN 2 /E` (24h + numeric).
+- [x] Phone field shows a city — explicit (`9NYC305-…`) or the agency home city
+      prepended on display (`1.NYC305-555-1212-H`, per workbook `1.LOS080-…`).
 - [ ] Spaced-vs-concatenated carrier+flight (the guides differ: workbook
       `IB6840F`, Zenon `MA 225K`; we use spaced). Left as-is — sources conflict.
 
