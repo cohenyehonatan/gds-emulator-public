@@ -71,7 +71,7 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'modify':
         return handleModify(entry, wa);
       case 'pricing':
-        return handlePricing(entry, wa);
+        return handlePricing(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

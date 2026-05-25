@@ -66,6 +66,41 @@ describe('WP pricing', () => {
 
   it('rejects an unsupported pricing format (until later commits)', () => {
     bookRoundTrip();
-    expect(host.process('WPNCB', wa)).toBe('FORMAT');
+    expect(host.process('WPS3', wa)).toBe('FORMAT');
+  });
+});
+
+describe('bargain finder (WPNC family)', () => {
+  let host: GdsHost;
+  let wa: WorkArea;
+
+  beforeEach(() => {
+    host = new GdsHost({ port: 0, logLevel: 'error' });
+    wa = host.newWorkArea();
+    host.process('SI*4321', wa);
+    host.process('115JUNJFKLAX', wa);
+    host.process('01Y1', wa); // AA 100 Y (M is cheaper and available)
+  });
+
+  it('WPNC advises a cheaper available class without changing the PNR', () => {
+    const resp = host.process('WPNC', wa);
+    expect(resp).toContain('REBOOK');
+    expect(resp).toContain('Y TO M'); // M is the cheapest available class on AA100
+    expect(wa.pnr.segments[0].bookingClass).toBe('Y'); // PNR untouched
+    expect(wa.lastPricing!.base).toBeLessThan(245); // cheaper than the Y fare
+  });
+
+  it('WPNCS ignores availability and finds the globally cheapest class', () => {
+    const resp = host.process('WPNCS', wa);
+    expect(resp).toContain('Y TO V'); // V has the lowest multiplier in the tariff
+    expect(wa.pnr.segments[0].bookingClass).toBe('Y'); // still advisory only
+  });
+
+  it('WPNCB rebooks the class in the PNR', () => {
+    const resp = host.process('WPNCB', wa);
+    expect(resp).toContain('REBOOKED');
+    expect(wa.pnr.segments[0].bookingClass).toBe('M');
+    // a second WPNCB finds nothing cheaper available
+    expect(host.process('WPNCB', wa)).toContain('LOWEST AVAILABLE');
   });
 });

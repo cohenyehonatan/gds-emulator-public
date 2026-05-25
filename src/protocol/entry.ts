@@ -133,7 +133,9 @@ export interface EndTransactionEntry extends BaseEntry {
 
 export interface PricingEntry extends BaseEntry {
   kind: 'pricing';
-  mode: 'price' | 'redisplay'; // WP / WP*
+  mode: 'price' | 'redisplay' | 'bargain'; // WP / WP* / WPNC family
+  rebook?: boolean; // WPNCB rebooks the lowest class
+  ignoreAvailability?: boolean; // WPNCS ignores availability
 }
 
 export interface IgnoreEntry extends BaseEntry {

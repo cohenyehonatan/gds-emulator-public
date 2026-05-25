@@ -140,6 +140,18 @@ export class Inventory {
     return lines;
   }
 
+  /** Remaining seats in a class for a known flight; undefined if not tracked. */
+  remainingSeats(date: string, carrier: string, flightNumber: string, bookingClass: string): number | undefined {
+    const seats = this.remaining.get(this.key(date, carrier, flightNumber));
+    return seats ? (seats[bookingClass] ?? 0) : undefined;
+  }
+
+  /** Return seats to a class (e.g. when a rebook moves a segment off it). */
+  release(date: string, carrier: string, flightNumber: string, bookingClass: string, seats: number): void {
+    const seatsByClass = this.remaining.get(this.key(date, carrier, flightNumber));
+    if (seatsByClass) seatsByClass[bookingClass] = (seatsByClass[bookingClass] ?? 0) + seats;
+  }
+
   /** Decrement seats for a sold flight. Returns false if not enough seats. */
   sell(date: string, carrier: string, flightNumber: string, bookingClass: string, seats: number): boolean {
     const k = this.key(date, carrier, flightNumber);

@@ -38,6 +38,14 @@ const CLASS_MULT: Record<string, number> = {
 };
 const DEFAULT_MULT = 1.0;
 
+/** Booking classes the tariff knows, for bargain-finder search. */
+export const BOOKING_CLASSES = Object.keys(CLASS_MULT);
+
+/** Price multiplier for a class (default 1.0 for unknown classes). */
+export function classMultiplier(bookingClass: string): number {
+  return CLASS_MULT[bookingClass] ?? DEFAULT_MULT;
+}
+
 /** Look up the one-way fare for a market and booking class. */
 export function fareFor(origin: string, destination: string, bookingClass: string): SegmentFare {
   const marketBase = MARKET_BASE[origin + destination] ?? DEFAULT_BASE;

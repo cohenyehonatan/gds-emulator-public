@@ -162,6 +162,22 @@ export function renderFareQuote(fq: FareQuote): string {
   return out.join('\n');
 }
 
+/** Bargain-finder display: the (lower) quote plus the rebook advisory. */
+export function renderBargain(
+  fq: FareQuote,
+  rebooks: { segment: number; carrier: string; flight: string; from: string; to: string }[],
+  applied: boolean
+): string {
+  const out = [renderFareQuote(fq)];
+  if (rebooks.length === 0) {
+    out.push('ITINERARY AT LOWEST AVAILABLE FARE'); // TODO: confirm wording
+    return out.join('\n');
+  }
+  out.push(applied ? 'REBOOKED:' : 'REBOOK TO OBTAIN THIS FARE:'); // TODO: confirm wording
+  for (const r of rebooks) out.push(`  ${r.segment} ${r.carrier} ${r.flight} ${r.from} TO ${r.to}`);
+  return out.join('\n');
+}
+
 /** Numbered list shown when a name search matches more than one PNR. */
 export function renderSimilarNameList(matches: Pnr[]): string {
   const lines = matches.map((p, i) => {
