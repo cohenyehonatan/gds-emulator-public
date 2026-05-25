@@ -15,22 +15,31 @@ export function handleAvailability(
   wa: WorkArea,
   ctx: HandlerContext
 ): string {
+  // Scroll / redisplay operate on the cached display.
+  if (entry.mode === 'more') {
+    return wa.lastAvailability ? 'NO MORE FLIGHTS' : 'NO AVAILABILITY DISPLAYED'; // we never paginate past one screen
+  }
+  if (entry.mode === 'redisplay') {
+    return wa.lastAvailability ? renderAvailability(wa.lastAvailability) : 'NO AVAILABILITY DISPLAYED';
+  }
+
+  const date = entry.date!;
   const dow = {
-    letter: dayOfWeekLetter(entry.date.month, entry.date.day),
-    num: dayOfWeekNumber(entry.date.month, entry.date.day),
+    letter: dayOfWeekLetter(date.month, date.day),
+    num: dayOfWeekNumber(date.month, date.day),
   };
   const afterMinutes = entry.time ? parseClockToMinutes(entry.time) ?? undefined : undefined;
 
-  const lines = ctx.inventory.availability(entry.date.raw, dow, entry.origin, entry.destination, {
+  const lines = ctx.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
     afterMinutes,
     bookingClass: entry.bookingClass,
     carriers: entry.carriers,
   });
 
   const result = {
-    date: entry.date.raw,
-    origin: entry.origin,
-    destination: entry.destination,
+    date: date.raw,
+    origin: entry.origin!,
+    destination: entry.destination!,
     lines,
   };
   wa.lastAvailability = result;

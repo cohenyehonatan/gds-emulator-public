@@ -47,6 +47,18 @@ describe('richer availability & sell', () => {
     expect(wa.lastAvailability!.lines).toHaveLength(2); // one AA connection only
   });
 
+  it('scrolls (1*) and redisplays (1*R) the cached availability', () => {
+    const first = host.process('115JUNJFKLAX', wa);
+    expect(host.process('1*', wa)).toBe('NO MORE FLIGHTS'); // we never paginate past one screen
+    expect(host.process('1*R', wa)).toBe(first); // redisplay
+  });
+
+  it('rejects scroll/redisplay with no prior availability', () => {
+    const fresh = host.newWorkArea();
+    host.process('SI*4321', fresh);
+    expect(host.process('1*R', fresh)).toContain('NO AVAILABILITY');
+  });
+
   it('waitlists a sold-out class (LL) without drawing inventory', () => {
     host.process('115JUNJFKLAX', wa);
     const resp = host.process('01V1LL', wa); // class V not in inventory → 0 seats

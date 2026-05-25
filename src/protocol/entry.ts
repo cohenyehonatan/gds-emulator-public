@@ -16,9 +16,11 @@ export interface BaseEntry {
 
 export interface AvailabilityEntry extends BaseEntry {
   kind: 'availability';
-  date: SabreDate;
-  origin: string;
-  destination: string;
+  /** display = 1<date><citypair>…; more = 1*; redisplay = 1*R/1*OA. */
+  mode: 'display' | 'more' | 'redisplay';
+  date?: SabreDate; // present for display
+  origin?: string;
+  destination?: string;
   /** Optional preferred departure time as typed, e.g. "2030". */
   time?: string;
   /** Optional class-of-service qualifier ("-Y"). */

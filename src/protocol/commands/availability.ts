@@ -14,6 +14,11 @@ import type { AvailabilityEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
 
 export function parseAvailability(raw: string): AvailabilityEntry {
+  const base = { kind: 'availability' as const, raw, timestamp: new Date() };
+  const u = raw.toUpperCase();
+  if (u === '1*') return { ...base, mode: 'more' };
+  if (u === '1*R' || u === '1*OA') return { ...base, mode: 'redisplay' };
+
   const args = raw.slice(1); // drop leading '1'
   const dateMatch = parseSabreDate(args);
   if (!dateMatch) throw new ParseError(`Availability: bad date in "${raw}"`);
@@ -43,15 +48,5 @@ export function parseAvailability(raw: string): AvailabilityEntry {
 
   const time = tail.replace(/[^0-9AP].*$/i, '') || undefined; // leading clock token
 
-  return {
-    kind: 'availability',
-    raw,
-    timestamp: new Date(),
-    date: dateMatch.date,
-    origin,
-    destination,
-    time,
-    bookingClass,
-    carriers,
-  };
+  return { ...base, mode: 'display', date: dateMatch.date, origin, destination, time, bookingClass, carriers };
 }
