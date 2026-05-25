@@ -42,6 +42,25 @@ export class Pnr {
     this.segments.forEach((s, i) => (s.segmentNumber = i + 1));
   }
 
+  /** Deep-ish copy (for dividing a PNR). */
+  clone(): Pnr {
+    const p = new Pnr();
+    p.locator = this.locator;
+    p.names = this.names.map((n) => ({ ...n, passengers: n.passengers.map((pa) => ({ ...pa })) }));
+    p.segments = this.segments.map((s) => ({ ...s }));
+    p.phones = this.phones.map((x) => ({ ...x }));
+    p.ssrs = this.ssrs.map((x) => ({ ...x }));
+    p.osis = this.osis.map((x) => ({ ...x }));
+    p.remarks = this.remarks.map((x) => ({ ...x }));
+    p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
+    p.priceQuotes = [...this.priceQuotes];
+    p.ticketing = this.ticketing;
+    p.optionField = this.optionField;
+    p.receivedFrom = this.receivedFrom;
+    p.createdAt = this.createdAt;
+    return p;
+  }
+
   /** True once at least one field has been added (work area is dirty). */
   hasContent(): boolean {
     return (

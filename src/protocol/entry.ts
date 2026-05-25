@@ -199,6 +199,17 @@ export interface SignInEntry extends BaseEntry {
   argument: string;
 }
 
+/** Divide a PNR: D<refs> — split named passengers into a new PNR. */
+export interface DivideEntry extends BaseEntry {
+  kind: 'divide';
+  refs: { item: number; passenger?: number }[];
+}
+
+/** File a divided PNR (F) — commit the new PNR and restore the original. */
+export interface FileEntry extends BaseEntry {
+  kind: 'file';
+}
+
 export interface SignOutEntry extends BaseEntry {
   kind: 'sign_out';
   allAreas: boolean; // SO* signs out of every work area
@@ -233,4 +244,6 @@ export type ParsedEntry =
   | IgnoreEntry
   | SignInEntry
   | SignOutEntry
+  | DivideEntry
+  | FileEntry
   | UnsupportedEntry;

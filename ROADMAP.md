@@ -93,6 +93,16 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **Frequent Flyer (`FF`)** — add `FFBA2345678-1.1`, change `FF1¤…`,
       delete `FF1¤`; passenger-associated; shown under `FREQUENT FLYER` (`*FF`).
 
+## PNR operations
+
+- [x] **Move / insert segments** `/0/2` (to front), `/3/1`, `/0/2-4` (range) —
+      reorders the itinerary and renumbers.
+- [x] **Divide** `D2.1` / `D1` / `D3.1*4.1` + **File** `F` — splits passengers
+      into a new pending PNR (copy of the itinerary + `DIVIDED FROM` remark),
+      stashes the remainder; `F` files the new PNR (locator), cross-refs the
+      original (`DIVIDED TO`), restores it. `6P§F` chains. Range `D1.2-3.2`
+      deferred.
+
 ## Keyboard & special keys (done)
 
 - [x] Keyboard mapping (workbook p.3 "Other Identification Code Keys"):

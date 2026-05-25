@@ -17,6 +17,8 @@ export class WorkArea {
   pnr = new Pnr();
   lastAvailability?: AvailabilityResult;
   lastPricing?: FareQuote;
+  /** Original PNR stashed during a divide, awaiting File (F). */
+  dividedOriginal?: Pnr;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -30,5 +32,6 @@ export class WorkArea {
     this.pnr = new Pnr();
     this.lastAvailability = undefined;
     this.lastPricing = undefined;
+    this.dividedOriginal = undefined;
   }
 }
