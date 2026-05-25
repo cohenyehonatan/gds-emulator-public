@@ -87,7 +87,9 @@ Making the happy path feel like a real GDS, within the existing architecture.
 - [x] **Remarks (`5`)** — general `5<text>`, form-of-payment `5-CASH`,
       historical `5H-…`; shown under `REMARKS` (`*P5`); change/delete by line
       via `¤` (`51¤NEW`, `52-3¤`). Survives commit/retrieve.
-- [ ] **Time Limit / option (`8`)** — `86P/17JUN` (auto-cancel if unticketed).
+- [x] **Time Limit / option (`8`)** — `86P/17JUN` stored as an option field,
+      shown `OPTION - 6P/17JUN`, overwrite on re-entry. (Thinly documented;
+      auto-cancel not simulated — no wall clock.)
 - [ ] **Frequent Flyer (`FF`)** — `FFCY123456-1.2`, change/delete `FF1¤`.
 
 ## Keyboard & special keys (done)

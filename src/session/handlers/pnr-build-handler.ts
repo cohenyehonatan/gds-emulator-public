@@ -11,6 +11,7 @@ import type {
   TicketingEntry,
   ReceivedFromEntry,
   RemarkEntry,
+  TimeLimitEntry,
 } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
@@ -164,4 +165,10 @@ export function handleRemark(entry: RemarkEntry, wa: WorkArea): string {
   wa.machine.transition(SessionEvent.ADD_FIELD);
   wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text });
   return renderRemarks(wa.pnr);
+}
+
+export function handleTimeLimit(entry: TimeLimitEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.optionField = entry.text; // re-entering overwrites
+  return Response.OK;
 }

@@ -26,6 +26,7 @@ export class Pnr {
   remarks: RemarkElement[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   ticketing?: string;
+  optionField?: string; // time-limit / option field (sigil 8)
   receivedFrom?: string;
   createdAt?: Date;
 
@@ -49,6 +50,7 @@ export class Pnr {
       this.osis.length > 0 ||
       this.remarks.length > 0 ||
       this.ticketing !== undefined ||
+      this.optionField !== undefined ||
       this.receivedFrom !== undefined
     );
   }

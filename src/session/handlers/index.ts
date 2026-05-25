@@ -18,6 +18,7 @@ import {
   handleTicketing,
   handleReceivedFrom,
   handleRemark,
+  handleTimeLimit,
 } from './pnr-build-handler.js';
 import { handleEndTransaction } from './end-tx-handler.js';
 import { handleRetrieve } from './retrieve-handler.js';
@@ -61,6 +62,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleReceivedFrom(entry, wa);
       case 'remark':
         return handleRemark(entry, wa);
+      case 'time_limit':
+        return handleTimeLimit(entry, wa);
       case 'ssr':
         return handleSsr(entry, wa);
       case 'osi':

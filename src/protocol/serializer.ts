@@ -145,6 +145,7 @@ export function renderPnr(pnr: Pnr, sig?: PnrSignature): string {
   out.push(renderNames(pnr));
   pnr.segments.forEach((s) => out.push(renderItinerarySegment(s)));
   if (pnr.ticketing) out.push(renderTicketing(pnr));
+  if (pnr.optionField) out.push(`OPTION - ${pnr.optionField}`);
   if (pnr.phones.length) out.push(renderPhones(pnr));
   if (pnr.remarks.length) out.push(renderRemarks(pnr));
   if (pnr.osis.length) out.push(renderOsis(pnr));

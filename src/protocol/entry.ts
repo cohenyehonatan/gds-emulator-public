@@ -94,6 +94,11 @@ export interface RemarkEntry extends BaseEntry {
   text: string;
 }
 
+export interface TimeLimitEntry extends BaseEntry {
+  kind: 'time_limit';
+  text: string; // e.g. "6P/17JUN"
+}
+
 export interface DisplayEntry extends BaseEntry {
   kind: 'display';
   /** Everything after '*': a locator, "-NAME", or a section code (A/I/N/P/T). */
@@ -179,6 +184,7 @@ export type ParsedEntry =
   | SsrEntry
   | OsiEntry
   | RemarkEntry
+  | TimeLimitEntry
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry

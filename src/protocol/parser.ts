@@ -29,6 +29,7 @@ import { parseModify, isModifyEntry } from './commands/modify.js';
 import { parseService } from './commands/service.js';
 import { parsePricing } from './commands/pricing.js';
 import { parseRemark } from './commands/remark.js';
+import { parseTimeLimit } from './commands/time-limit.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -64,6 +65,7 @@ const RULES: DispatchRule[] = [
   { match: firstChar('-'), parse: parseName },
   { match: firstChar('9'), parse: parsePhone },
   { match: firstChar('7'), parse: parseTicketing },
+  { match: firstChar('8'), parse: parseTimeLimit },
   { match: firstChar('6'), parse: parseReceivedFrom },
   { match: firstChar('5'), parse: parseRemark }, // remarks
   { match: firstChar('3'), parse: parseService }, // SSR / OSI (other airlines)
