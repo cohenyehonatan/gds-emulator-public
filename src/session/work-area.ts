@@ -10,11 +10,13 @@ import { SessionMachine } from './session-machine.js';
 import { SessionState } from './session-state.js';
 import { Pnr } from '../models/pnr.js';
 import type { AvailabilityResult } from '../models/availability-result.js';
+import type { FareQuote } from '../models/fare.js';
 
 export class WorkArea {
   readonly machine = new SessionMachine();
   pnr = new Pnr();
   lastAvailability?: AvailabilityResult;
+  lastPricing?: FareQuote;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -27,5 +29,6 @@ export class WorkArea {
   reset(): void {
     this.pnr = new Pnr();
     this.lastAvailability = undefined;
+    this.lastPricing = undefined;
   }
 }

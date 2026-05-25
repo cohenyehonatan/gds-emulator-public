@@ -27,6 +27,7 @@ import { parseCancel } from './commands/cancel.js';
 import { parseSegmentStatus } from './commands/segment-status.js';
 import { parseModify, isModifyEntry } from './commands/modify.js';
 import { parseService } from './commands/service.js';
+import { parsePricing } from './commands/pricing.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -47,6 +48,7 @@ const RULES: DispatchRule[] = [
   // Multi-char alphabetic sigils first (longest / most specific).
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
+  { match: startsWith('WP'), parse: parsePricing },
   { match: equals('ER'), parse: parseEndTransaction },
   { match: equals('ET'), parse: parseEndTransaction },
   { match: equals('E'), parse: parseEndTransaction },

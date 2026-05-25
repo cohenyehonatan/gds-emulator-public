@@ -110,8 +110,19 @@ Making the happy path feel like a real GDS, within the existing architecture.
 
 ## v2 — Pricing & fares
 
-- [ ] `WP` fare quote; stored fares (`WPNCB`, …); fare display.
-- [ ] Fare engine + tariff seed (`models/fare.ts`, `store/tariff.ts`).
+Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
+
+- [x] **`WP` price-as-booked + `WP*` redisplay** — fare engine (`pricing-handler.ts`)
+      sums per-segment base fares from a tariff seed (`store/tariff.ts`), adds a
+      simple tax model (US 7.5%, XF 4.50/seg, AY 5.60), totals for the
+      seat-occupying passengers (ADT), and renders the fare quote. Cached on the
+      work area for `WP*`. Pricing is a query (no state change).
+- [ ] **Bargain finder** — `WPNC` (advise lowest class), `WPNCS` (ignore
+      availability), `WPNCB` (rebook the lowest class).
+- [ ] **Passenger types & qualifiers** — `WPPADT/C05/INF`, segment `WPS1-3/5`,
+      name `¥N1.1`, all separated by the cross of Lorraine `¥`.
+- [ ] **Stored fares (PQ records)** — store a quote and guarantee it.
+- [ ] Fare-calc display `WPDF`, validating-carrier alternates, OB/baggage fees.
 
 ## v3 — Queues & ticketing
 

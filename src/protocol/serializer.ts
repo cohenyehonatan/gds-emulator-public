@@ -13,6 +13,7 @@ import type { AirSegment } from '../models/segment.js';
 import { Pnr } from '../models/pnr.js';
 import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
+import type { FareQuote } from '../models/fare.js';
 import { MONTHS } from '../utils/validation.js';
 
 /** Signature-line inputs (PCC + agent sign). */
@@ -138,6 +139,27 @@ export function renderSignature(sig: PnrSignature, pnr: Pnr): string {
  */
 export function renderSignInResponse(sig: PnrSignature): string {
   return `${sig.pcc}.${sig.pcc}*${sig.agent ?? 'AGT'}....A.B.C.D.E.F\n${sabreDayMon(new Date())}`;
+}
+
+/**
+ * Fare quote display (WP). Modeled on the Basic Pricing QR response: header,
+ * a BASE FARE / TAXES / TOTAL row per passenger type, the tax breakdown,
+ * fare-basis line, and validating carrier.
+ */
+export function renderFareQuote(fq: FareQuote): string {
+  const money = (n: number) => n.toFixed(2);
+  const out: string[] = [];
+  out.push(`${fq.departureDate} DEPARTURE DATE`);
+  out.push('      BASE FARE     TAXES          TOTAL');
+  out.push(
+    `${String(fq.passengerCount).padStart(2)}-  ${fq.currency}${money(fq.base)}` +
+      `     ${money(fq.taxTotal)}XT     ${fq.currency}${money(fq.total)}${fq.passengerType}`
+  );
+  out.push('   XT ' + fq.taxes.map((t) => `${money(t.amount)}${t.code}`).join(' '));
+  out.push(`      ${money(fq.base)}     ${money(fq.taxTotal)}          ${money(fq.total)}TTL`);
+  out.push(`${fq.passengerType}-${String(fq.passengerCount).padStart(2, '0')} ${fq.fareBasis.join(' ')}`);
+  out.push(`VALIDATING CARRIER - ${fq.validatingCarrier}`);
+  return out.join('\n');
 }
 
 /** Numbered list shown when a name search matches more than one PNR. */

@@ -131,6 +131,11 @@ export interface EndTransactionEntry extends BaseEntry {
   redisplay: boolean; // ER redisplays the PNR; E / ET do not
 }
 
+export interface PricingEntry extends BaseEntry {
+  kind: 'pricing';
+  mode: 'price' | 'redisplay'; // WP / WP*
+}
+
 export interface IgnoreEntry extends BaseEntry {
   kind: 'ignore';
 }
@@ -164,6 +169,7 @@ export type ParsedEntry =
   | CancelEntry
   | SegmentStatusEntry
   | ModifyEntry
+  | PricingEntry
   | EndTransactionEntry
   | IgnoreEntry
   | SignInEntry
