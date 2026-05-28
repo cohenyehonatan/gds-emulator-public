@@ -38,6 +38,7 @@ import { parseQueue } from './commands/queue.js';
 import { parseTicket } from './commands/ticket.js';
 import { parseAuditTrail } from './commands/audit-trail.js';
 import { parseRefund, parseCancelRefund } from './commands/refund.js';
+import { parseAccounting } from './commands/accounting.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -56,6 +57,7 @@ const firstChar = (c: string) => (raw: string) => raw.startsWith(c);
 
 const RULES: DispatchRule[] = [
   // Multi-char alphabetic sigils first (longest / most specific).
+  { match: startsWith('AC¤'), parse: parseAccounting }, // accounting-line delete (¤ separator)
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },

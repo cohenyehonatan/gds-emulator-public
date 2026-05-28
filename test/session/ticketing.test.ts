@@ -304,6 +304,46 @@ describe('e-ticket issuance', () => {
       expect(host.process('*PAC', wa)).toContain('/ONE/CC');
     });
 
+    it('AC¤<n> deletes a single accounting line; the deleted slot disappears from *PAC', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('-DOE/JANE MS', wa);
+      host.process('W¥', wa); // 2 tickets → 2 accounting lines
+      expect(host.process('*PAC', wa)).toContain('SMITH/J');
+      expect(host.process('AC¤1', wa)).toBe('OK');
+      const after = host.process('*PAC', wa);
+      expect(after).not.toContain('SMITH/J'); // line 1 hidden
+      expect(after).toContain('DOE/J');        // line 2 still there
+    });
+
+    it('AC¤ALL clears the whole accounting field', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      host.process('AC¤ALL', wa);
+      expect(host.process('*PAC', wa)).toBe('NO ACCOUNTING DATA');
+    });
+
+    it('AC¤<n> rejects an out-of-range line number', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      expect(host.process('AC¤9', wa)).toBe('ACCOUNTING LINE NOT FOUND');
+    });
+
+    it('AC¤<range> and AC¤<list> both work', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('-DOE/JANE MS', wa);
+      host.process('W¥', wa);
+      host.process('AC¤1-2', wa);
+      expect(host.process('*PAC', wa)).toBe('NO ACCOUNTING DATA');
+      // Clear and retry the comma-list form.
+      wa.pnr.accountingLinesHidden.clear();
+      host.process('AC¤1,2', wa);
+      expect(host.process('*PAC', wa)).toBe('NO ACCOUNTING DATA');
+    });
+
     it('maps the international tariff (I) to F per the QR (D=Domestic, F=Foreign)', () => {
       // Issue normally (domestic seed inventory), then mark the resulting
       // ticket as international and re-display — covers the I→F mapping

@@ -29,6 +29,13 @@ export class Pnr {
   frequentFlyers: FrequentFlyer[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
+  /**
+   * Set of 1-indexed accounting-line numbers that have been deleted via
+   * `AC¤<n>` / `AC¤ALL` / `AC¤<range>`. Filtered out by *PAC. The deletion
+   * is a soft-delete on the auto-generated view of pnr.tickets — the
+   * underlying ticket record stays, so *T still surfaces it.
+   */
+  accountingLinesHidden: Set<number> = new Set();
   ticketing?: string;
   optionField?: string; // time-limit / option field (sigil 8)
   receivedFrom?: string;
@@ -57,6 +64,7 @@ export class Pnr {
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
+    p.accountingLinesHidden = new Set(this.accountingLinesHidden);
     p.ticketing = this.ticketing;
     p.optionField = this.optionField;
     p.receivedFrom = this.receivedFrom;

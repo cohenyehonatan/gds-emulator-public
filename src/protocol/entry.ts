@@ -395,7 +395,26 @@ export type ParsedEntry =
   | AuditTrailEntry
   | RefundEntry
   | CancelRefundEntry
+  | AccountingDeleteEntry
   | UnsupportedEntry;
+
+/**
+ * Delete accounting-line(s) (`AC¤…`). Source: Sabre Accounting Lines QR
+ * p.1 verbatim:
+ *   AC¤1           delete one accounting line
+ *   AC¤ALL         delete all accounting lines
+ *   AC¤3-5         delete a range
+ *   AC¤1,3,6       delete a list
+ * The separator here is `¤` (change key), NOT `¥` (cross of Lorraine) —
+ * the QR p.1 documents this explicitly. Keyboard-alias `[` maps to `¤`,
+ * so the parser handles ASCII `AC[1` as well.
+ */
+export interface AccountingDeleteEntry extends BaseEntry {
+  kind: 'accounting_delete';
+  /** `'all'` deletes the whole field; otherwise `lines` carries the explicit list. */
+  mode: 'lines' | 'all';
+  lines: number[];
+}
 
 /**
  * Cancel a refund within the same day (`WTRX<ticket>`). Source: Zenon

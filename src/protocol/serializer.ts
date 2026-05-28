@@ -168,15 +168,22 @@ function renderTicketLine(t: TicketRecord): string {
 export function renderAccountingLines(pnr: Pnr): string {
   if (pnr.tickets.length === 0) return 'NO ACCOUNTING DATA';
   const fmtAmt = (n: number): string => n.toFixed(2);
-  const lines = pnr.tickets.map((t, i) => {
-    const ticketSerial = t.number.slice(3); // strip 3-digit airline code
-    const commission = fmtAmt(t.commission ?? 0);
-    const base = fmtAmt(t.base);
-    const tax = fmtAmt(t.taxTotal);
-    const fop = fopCode(t);
-    const tariffLetter = t.tariff === 'I' ? 'F' : 'D';
-    return `  ${i + 1}. ${t.validatingCarrier}¥${ticketSerial}/ ${commission}/ ${base}/ ${tax}/ONE/${fop} ${t.passenger}/1/${tariffLetter}`;
-  });
+  // Filter out lines deleted via AC¤<n>; line numbers stay stable (the deleted
+  // index just doesn't render — the others keep their original 1-indexed
+  // position so a subsequent AC¤<n> still refers to the same ticket).
+  const lines = pnr.tickets
+    .map((t, i) => ({ t, n: i + 1 }))
+    .filter(({ n }) => !pnr.accountingLinesHidden.has(n))
+    .map(({ t, n }) => {
+      const ticketSerial = t.number.slice(3); // strip 3-digit airline code
+      const commission = fmtAmt(t.commission ?? 0);
+      const base = fmtAmt(t.base);
+      const tax = fmtAmt(t.taxTotal);
+      const fop = fopCode(t);
+      const tariffLetter = t.tariff === 'I' ? 'F' : 'D';
+      return `  ${n}. ${t.validatingCarrier}¥${ticketSerial}/ ${commission}/ ${base}/ ${tax}/ONE/${fop} ${t.passenger}/1/${tariffLetter}`;
+    });
+  if (lines.length === 0) return 'NO ACCOUNTING DATA'; // everything deleted
   return ['ACCOUNTING DATA', ...lines].join('\n');
 }
 
