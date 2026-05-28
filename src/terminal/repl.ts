@@ -12,8 +12,6 @@ import { GdsHost } from '../session/gds-host.js';
 import { WorkArea } from '../session/work-area.js';
 import { CrtScreen } from './crt-screen.js';
 
-const BANNER = 'SABRE GDS terminal — type a cryptic entry. SI to sign in, .q to quit.';
-
 export async function startRepl(): Promise<void> {
   const host = new GdsHost({ port: 0, logLevel: 'warn' }); // in-process, port unused
   const wa = host.newWorkArea();
@@ -27,9 +25,9 @@ function isQuit(entry: string): boolean {
 /** Full-screen CRT mode. */
 function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
   const out = process.stdout;
-  const screen = new CrtScreen(out);
+  const screen = new CrtScreen(out, host.dialect.screenName);
   screen.enter();
-  screen.print(BANNER);
+  screen.print(host.dialect.bannerText);
   screen.print('');
 
   const rl = readline.createInterface({ input: process.stdin, output: out, prompt: '› ' });
@@ -70,7 +68,7 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
 /** Plain line-mode fallback for non-TTY stdin/stdout. */
 function startLineMode(host: GdsHost, wa: WorkArea): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  console.log(BANNER + '\n');
+  console.log(host.dialect.bannerText + '\n');
   const prompt = () => process.stdout.write(`\n[${wa.state()}]\n› `);
   prompt();
 

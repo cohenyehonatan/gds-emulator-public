@@ -13,11 +13,9 @@ import { TcpServer } from '../transport/tcp-server.js';
 import type { Connection } from '../transport/connection.js';
 import type { FramingStrategy } from '../transport/framing.js';
 import { WorkArea } from './work-area.js';
-import { dispatch, type HandlerContext } from './handlers/index.js';
-import { parseEntry } from '../protocol/parser.js';
-import { ParseError } from '../protocol/errors.js';
-import { Response } from '../dialects/sabre/responses.js';
-import { normalizeKeyboard, splitEndItems } from '../protocol/keyboard.js';
+import { type HandlerContext } from './handlers/index.js';
+import type { Dialect } from '../dialects/dialect.js';
+import { SabreDialect } from '../dialects/sabre/index.js';
 import { Inventory } from '../store/inventory.js';
 import { PnrStore } from '../store/pnr-store.js';
 import { Logger, type LogLevel } from '../logging/logger.js';
@@ -28,6 +26,8 @@ export interface GdsHostOptions {
   framing?: FramingStrategy;
   /** Pseudo City Code used in signature lines (default "A0UC"). */
   pcc?: string;
+  /** Cryptic dialect this host serves (default: Sabre). */
+  dialect?: Dialect;
 }
 
 export class GdsHost {
@@ -35,9 +35,11 @@ export class GdsHost {
   private workAreas = new WeakMap<Connection, WorkArea>();
   private logger: Logger;
   readonly context: HandlerContext;
+  readonly dialect: Dialect;
 
   constructor(private readonly options: GdsHostOptions) {
     this.logger = new Logger('GDS', options.logLevel ?? 'info');
+    this.dialect = options.dialect ?? new SabreDialect();
     this.context = {
       inventory: new Inventory(),
       pnrStore: new PnrStore(),
@@ -61,12 +63,13 @@ export class GdsHost {
   }
 
   /**
-   * Run an entry against a work area. Applies keyboard normalization, then
-   * splits on the End-Item separator (§) and runs each component entry in
-   * sequence — stopping at the first error, like a real Sabre end-item chain.
+   * Run an entry against a work area. Delegates keyboard normalization,
+   * chain splitting (Sabre's `§` end-item, Amadeus's `;`, …), parse +
+   * dispatch, and error classification to the dialect — stopping a chain
+   * at the first dialect-recognized error, like a real host transmission.
    */
   process(raw: string, wa: WorkArea): string {
-    const entries = splitEndItems(normalizeKeyboard(raw));
+    const entries = this.dialect.splitChain(this.dialect.normalizeKeyboard(raw));
     if (entries.length <= 1) return this.processOne(entries[0] ?? raw, wa);
 
     // A chain shows only the final screen state (or the error that halts it),
@@ -74,47 +77,20 @@ export class GdsHost {
     let last = '';
     for (const e of entries) {
       last = this.processOne(e, wa);
-      if (GdsHost.ERROR_RESPONSES.has(last)) break; // chain halts on first error
+      if (this.dialect.isErrorResponse(last)) break;
     }
     return last;
   }
 
   /** Parse → dispatch a single (already keyboard-normalized) entry. */
   private processOne(raw: string, wa: WorkArea): string {
-    let entry;
-    try {
-      entry = parseEntry(raw);
-    } catch (err) {
-      if (err instanceof ParseError) return Response.FORMAT;
-      throw err;
-    }
-    return dispatch(entry, wa, this.context);
+    return this.dialect.processEntry(raw, wa, this.context);
   }
 
   /** A fresh work area, e.g. for the in-process REPL. */
   newWorkArea(): WorkArea {
     return new WorkArea();
   }
-
-  private static readonly ERROR_RESPONSES = new Set<string>([
-    Response.FORMAT,
-    Response.NEED_PHONE,
-    Response.NEED_TICKETING,
-    Response.NEED_RECEIVED_FROM,
-    Response.NEED_ITINERARY,
-    Response.NEED_NAME,
-    Response.NAMES_NOT_EQUAL,
-    Response.NO_PNR,
-    Response.NO_ITINERARY,
-    Response.SEGMENT_NOT_FOUND,
-    Response.INVALID_STATUS,
-    Response.RECORD_LOCATOR_NOT_FOUND,
-    'NO AVAILABILITY DISPLAYED',
-    'CLASS NOT AVAILABLE',
-    'NOT A CONNECTION',
-    'OUT OF SEQUENCE',
-    'NO FLIGHTS',
-  ]);
 
   private onConnection(conn: Connection): void {
     const wa = new WorkArea();

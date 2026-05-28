@@ -39,7 +39,11 @@ function clock(): string {
 export class CrtScreen {
   private lines: string[] = [];
 
-  constructor(private readonly out: NodeJS.WriteStream = process.stdout) {}
+  constructor(
+    private readonly out: NodeJS.WriteStream = process.stdout,
+    /** Short label rendered in the status bar (e.g. 'SABRE GDS', 'GALILEO'). */
+    private readonly screenName: string = 'SABRE GDS',
+  ) {}
 
   get cols(): number {
     return this.out.columns ?? 80;
@@ -86,7 +90,7 @@ export class CrtScreen {
       `${BOLD_GREEN}│${color}${fit(content, inner)}${BOLD_GREEN}│${RESET}`;
 
     // Status bar: title + AAA/state on the left, clock on the right.
-    const left = ` SABRE GDS   ${statusLeft}`;
+    const left = ` ${this.screenName}   ${statusLeft}`;
     const right = `${clock()} `;
     const gap = Math.max(1, inner - left.length - right.length);
     const status = fit(left + ' '.repeat(gap) + right, inner);
