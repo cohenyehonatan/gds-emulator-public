@@ -36,6 +36,7 @@ import { parseMove } from './commands/move.js';
 import { parseDivide, parseFile } from './commands/divide.js';
 import { parseQueue } from './commands/queue.js';
 import { parseTicket } from './commands/ticket.js';
+import { parseAuditTrail } from './commands/audit-trail.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -68,6 +69,7 @@ const RULES: DispatchRule[] = [
   { match: equals('IG'), parse: parseIgnore },
   { match: equals('I'), parse: parseIgnore },
   { match: equals('F'), parse: parseFile }, // file a divided PNR
+  { match: startsWith('DQB'), parse: parseAuditTrail }, // audit trail before D-divide
   { match: firstChar('D'), parse: parseDivide }, // divide a PNR
   { match: firstChar('Q'), parse: parseQueue }, // queue place/access/work
   // Field change/delete via '¤' must beat the plain field sigils below.

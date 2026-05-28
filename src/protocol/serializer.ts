@@ -180,6 +180,64 @@ export function renderAccountingLines(pnr: Pnr): string {
   return ['ACCOUNTING DATA', ...lines].join('\n');
 }
 
+/**
+ * Render the DQB* audit trail report — all system-generated tickets matching
+ * the (date, branch) filter. Source: Sabre Ticket Display Tools QR p.2.
+ *
+ * The QR documents the entry but not the exact report layout (it's "see
+ * Format Finder for detail"), so the layout below is reconstructed at the
+ * same fidelity bar as the queue-prompt strings: it lists the QR-named
+ * fields (type of coupon, ticket amount, commission, doc count) per ticket,
+ * plus a header and totals footer that mirror the typical Sabre report
+ * shape. Mark this if/when a verbatim sample surfaces.
+ */
+export function renderAuditTrail(
+  pnrs: Pnr[],
+  opts: { date?: string; branch: string }
+): string {
+  const target = opts.date ? matchesSabreDate(opts.date) : matchesToday;
+  const rows = pnrs.flatMap((p) =>
+    p.tickets.filter((t) => target(t.issuedAt)).map((t) => ({ pnr: p, t }))
+  );
+  if (rows.length === 0) return 'NO AUDIT TRAIL DATA'; // reconstructed
+  const fmt = (n: number): string => n.toFixed(2);
+  const headerDate = opts.date ?? sabreDayMon(new Date()).toUpperCase();
+  const lines = [
+    `AUDIT TRAIL ${opts.branch} ${headerDate}`,
+    ...rows.map((r, i) => {
+      const ticketSerial = r.t.number.slice(3);
+      return `  ${i + 1}. ${r.t.validatingCarrier}${ticketSerial} ${r.t.type} ${fmt(r.t.total)} ${fmt(r.t.commission ?? 0)} ${r.pnr.locator ?? '------'}`;
+    }),
+    `TOTAL: ${rows.length} TKT(S)`,
+  ];
+  return lines.join('\n');
+}
+
+/** Predicate: was this Date issued today? */
+function matchesToday(d: Date): boolean {
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+}
+
+/**
+ * Predicate factory: was this Date issued on the given Sabre date token?
+ * Tokens are `DDMMM` (current year) or `DDMMMYY` (explicit year).
+ */
+function matchesSabreDate(tok: string): (d: Date) => boolean {
+  const m = /^(\d{1,2})([A-Z]{3})(\d{2})?$/.exec(tok);
+  if (!m) return () => false;
+  const day = parseInt(m[1], 10);
+  const month = MONTHS.indexOf(m[2]);
+  const yy = m[3];
+  return (d) => {
+    if (d.getDate() !== day || d.getMonth() !== month) return false;
+    if (yy == null) return true; // any year — caller verified token shape
+    return d.getFullYear() % 100 === parseInt(yy, 10);
+  };
+}
+
 /** Map TicketRecord.formOfPayment to its Accounting-Lines-QR code (CA/CC). */
 function fopCode(t: TicketRecord): string {
   const fop = t.formOfPayment;

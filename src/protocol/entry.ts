@@ -392,4 +392,30 @@ export type ParsedEntry =
   | FileEntry
   | QueueEntry
   | TicketEntry
+  | AuditTrailEntry
   | UnsupportedEntry;
+
+/**
+ * Audit Trail Report (DQB asterisk) — daily/branch ticket-issuance log.
+ * Source: Sabre-Ticket-Display-Tools-QR.pdf p.2 (verbatim formats below;
+ * `*` and `/` show through as plain glyphs in the doc, but JSDoc closes
+ * its own block on a literal asterisk-slash so the examples below are
+ * spaced to avoid that).
+ *
+ *   DQB *                  today's audit (current day, current PCC)
+ *   DQB * 01OCT            specific day of current year (DDMMM)
+ *   DQB * 12FEB01          specific day in previous year (DDMMMYY)
+ *   DQB *  /B4T0           today, an authorized branch PCC
+ *   DQB * 01OCT/B4T0       day + branch
+ *   DQB * DELETE | DQB * YES   delete (requires EPR ATBRPT + duty code 9,
+ *                              which the emulator doesn't enforce —
+ *                              modeled as a no-op stub).
+ */
+export interface AuditTrailEntry extends BaseEntry {
+  kind: 'audit_trail';
+  mode: 'display' | 'delete_request' | 'delete_confirm';
+  /** Sabre date token (`01OCT`, `12FEB01`, …). Empty / undefined = today. */
+  date?: string;
+  /** Branch PCC argument — the `B4T0` in `DQB*` + `/B4T0`. */
+  branch?: string;
+}

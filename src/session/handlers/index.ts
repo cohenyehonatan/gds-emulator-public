@@ -36,6 +36,7 @@ import { handleDivide, handleFile } from './divide-handler.js';
 import { handlePricing } from './pricing-handler.js';
 import { handleQueue } from './queue-handler.js';
 import { handleTicket } from './ticket-handler.js';
+import { handleAuditTrail } from './audit-trail-handler.js';
 
 export type { HandlerContext };
 
@@ -105,6 +106,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleQueue(entry, wa, ctx);
       case 'ticket':
         return handleTicket(entry, wa, ctx);
+      case 'audit_trail':
+        return handleAuditTrail(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

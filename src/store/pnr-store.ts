@@ -35,6 +35,11 @@ export class PnrStore {
     return this.byLocator.has(locator.toUpperCase());
   }
 
+  /** All stored PNRs (e.g. for system-wide reports like the DQB* audit trail). */
+  values(): Pnr[] {
+    return [...this.byLocator.values()];
+  }
+
   get size(): number {
     return this.byLocator.size;
   }
