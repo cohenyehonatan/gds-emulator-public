@@ -248,13 +248,28 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
             "¥DP qualifier must be last" violations at parse time per QR
             p.1; PQ-must-be-first is enforced implicitly (PQ recognized
             only as base entry).
-      - [ ] **Remaining unblocked work** (Issue Tickets QR + siblings):
-            multi-PQ `W¥PQ2N1.2¥PQ5N1.3-1.5` (max 4 records, ranges
-            ascending), the `*PAC` accounting-data line display
-            (commission + FOP live here, *not* `*T`), the `*T` variants
-            (`*T/N` / `*TA` / `*TI`) and `WETR*` / `WTDB*` / `DQB*`
-            display family, plus refund / exchange flow
-            (WFR/WFRT/WTRX, third-party Zenon QREX manual).
+      - [x] **Multi-PQ range/list** — `W¥PQ2-4/7` (`0b8cdf3`). Enforces
+            QR p.1 rules: max 4 records, ranges ascending, sequential-
+            order fulfillment regardless of typed order. Per-PQ named-
+            selection form (`W¥PQ2N1.2¥PQ5N1.3-1.5`) still open —
+            needs the dotted-name parser extension.
+      - [x] **`*T` display variants** — all six from the Ticket Display
+            Tools QR (`690d6bd`): `*T` / `*T/N` / `*TA` / `*TA/O` / `*TI`
+            / `*TI/O`, with the QR's exact active/inactive partition
+            (OPEN / ACTL vs everything else) and per-variant default
+            ordering (T = oldest-first; TA / TI = newest-first).
+      - [x] **`*PAC` accounting field display** — auto-renders one
+            accounting line per issued TicketRecord per the QR p.5
+            verbatim layout (`faee30f`). Commission and FOP surface
+            here, not `*T` — Sabre's data model. Manual `AC/<…>` create,
+            `AC¤<n>` delete, `AC<n>/<…>` modify, and `*HAC` history are
+            still open.
+      - [ ] **Remaining unblocked work** — per-PQ named selection
+            (needs dotted-name parser), manual accounting-line CRUD
+            (AC/AC¤/AC<n>/), `WETR*` ETR display + `WTDB*` ticket-image
+            (need a coupon/per-segment model the TicketRecord doesn't
+            carry yet), `DQB*` audit trail, and the third-party Zenon
+            QREX refund / exchange flow (WFR/WFRT/WTRX).
       - [ ] **Void** stays the one permanent source gap — no first-party
             Sabre QR documents the standalone `WV` sigil with response
             screens; only third-party reseller cheat sheets do. Void
