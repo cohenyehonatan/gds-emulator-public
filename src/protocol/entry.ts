@@ -309,6 +309,10 @@ export interface TicketEntry extends BaseEntry {
   commissionPercent?: number;
   /** `K<amount>` commission flat amount in the fare-quote currency. */
   commissionAmount?: number;
+  /** `S<n>` — issue ticket for a specific segment (Issue Tickets QR p.2). */
+  segment?: number;
+  /** `XETR` — issue a paper ticket overriding the default electronic ticketing (ARC only, p.3). */
+  paperTicket?: boolean;
 }
 
 export interface SignOutEntry extends BaseEntry {

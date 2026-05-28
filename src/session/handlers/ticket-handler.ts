@@ -78,6 +78,20 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
   // prefix and the *T display; otherwise inherit from the fare quote.
   const validating = entry.validatingCarrier ?? fq.validatingCarrier;
 
+  // W¥S<n> selects a specific segment for ticketing. Validate against the
+  // itinerary; the *T render doesn't show segment-number directly, so this
+  // is for now a recorded selection only — the fare is the existing quote,
+  // which the agent is expected to have built per-segment via WPS if they
+  // wanted per-segment fares.
+  if (entry.segment != null && (entry.segment < 1 || entry.segment > pnr.segments.length)) {
+    return Response.SEGMENT_NOT_FOUND;
+  }
+
+  // W¥XETR forces paper-ticket issuance (ARC only per the QR). Changes the
+  // *T `TE` (electronic) to `TK` (paper) and records the override on each
+  // ticket.
+  const ticketType: 'TE' | 'TK' = entry.paperTicket ? 'TK' : 'TE';
+
   pax.forEach((passenger, i) => {
     const fare = fares[i] ?? fares[fares.length - 1] ?? zero;
     // Commission: KP<n> = percent of base; K<amt> = flat amount. Both forms
@@ -89,7 +103,7 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
 
     const record: TicketRecord = {
       number: ticketNumber(validating, ctx.ticketSerial++),
-      type: 'TE',
+      type: ticketType,
       stock: 'AT',
       passenger,
       pcc: ctx.pcc,

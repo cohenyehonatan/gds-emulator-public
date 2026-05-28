@@ -41,6 +41,21 @@ describe('ticketing parsing', () => {
     }
   });
 
+  it('parses W¥S<n> segment select (Issue Tickets QR p.2)', () => {
+    const e = parseEntry('W¥S2');
+    if (e.kind === 'ticket') expect(e).toMatchObject({ source: 'pnr', segment: 2 });
+  });
+
+  it('parses W¥XETR paper-ticket override (Issue Tickets QR p.3)', () => {
+    const e = parseEntry('W¥XETR');
+    if (e.kind === 'ticket') expect(e).toMatchObject({ source: 'pnr', paperTicket: true });
+  });
+
+  it('parses chained qualifiers (W¥S2¥XETR)', () => {
+    const e = parseEntry('W¥S2¥XETR');
+    if (e.kind === 'ticket') expect(e).toMatchObject({ segment: 2, paperTicket: true });
+  });
+
   it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
     // Form of payment, segment selection, paper ticket, void/refund all
     // need the Issue-Tickets QR which isn't in references/ yet.
@@ -159,5 +174,24 @@ describe('e-ticket issuance', () => {
     host.process('WP', wa);
     host.process('W¥K12.50', wa);
     expect(wa.pnr.tickets[0].commission).toBe(12.5);
+  });
+
+  it('XETR overrides the default electronic ticket to a paper ticket (TK)', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    host.process('W¥XETR', wa);
+    expect(wa.pnr.tickets[0].type).toBe('TK');
+  });
+
+  it('S<n> validates the segment exists; rejects out-of-range', () => {
+    book(); // creates 1 segment
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    expect(host.process('W¥S99', wa)).toContain('SEGMENT NUMBER NOT IN ITINERARY');
+    expect(wa.pnr.tickets).toHaveLength(0); // nothing issued on rejection
+    // A valid segment number issues normally.
+    host.process('W¥S1', wa);
+    expect(wa.pnr.tickets).toHaveLength(1);
   });
 });

@@ -10,10 +10,12 @@
  * the base entry, each separated by ¥, per the Basic Reservation Course
  * example: `W¥PQ1¥KP0¥ALH` (PQ 1, commission 0%, validating airline LH).
  *
- * Implemented qualifiers (source-grounded by the example above):
+ * Implemented qualifiers (source-grounded by the Issue Tickets QR):
  *   A<carrier>     validating carrier override        e.g. ALH
  *   KP<n>          commission percentage              e.g. KP0
  *   K<amount>      commission flat amount             e.g. K12.50
+ *   S<n>           single-segment selection           e.g. S2     (QR p.2)
+ *   XETR           paper-ticket override (ARC only)   e.g. XETR   (QR p.3)
  *   PQ<n>          stored PQ record reference          (still recognized
  *                  as a base entry too, for W¥PQ1 alone)
  *   N<item>        name-field selector
@@ -68,7 +70,13 @@ export function parseTicket(raw: string): TicketEntry {
 }
 
 function isQualifier(t: string): boolean {
-  return /^A[A-Z0-9]{2}$/.test(t) || /^KP\d+$/.test(t) || /^K\d+(\.\d+)?$/.test(t);
+  return (
+    /^A[A-Z0-9]{2}$/.test(t) ||
+    /^KP\d+$/.test(t) ||
+    /^K\d+(\.\d+)?$/.test(t) ||
+    /^S\d+$/.test(t) ||
+    t === 'XETR'
+  );
 }
 
 function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
@@ -85,6 +93,15 @@ function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
   const k = /^K(\d+(?:\.\d+)?)$/.exec(token);
   if (k) {
     entry.commissionAmount = parseFloat(k[1]);
+    return;
+  }
+  const seg = /^S(\d+)$/.exec(token);
+  if (seg) {
+    entry.segment = parseInt(seg[1], 10);
+    return;
+  }
+  if (token === 'XETR') {
+    entry.paperTicket = true;
     return;
   }
   throw new ParseError(`Ticket: unrecognized qualifier "${token}" in "${raw}"`);
