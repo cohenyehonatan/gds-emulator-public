@@ -151,6 +151,44 @@ function renderTicketLine(t: TicketRecord): string {
  * one line per ticket, per the Issue-Tickets QR's *T display.
  */
 /**
+ * Render the accounting-field display (`*PAC`). Source: Sabre Accounting
+ * Lines QR p.1 + the auto-generated example on Issue Tickets QR p.5:
+ *   1. BA¥4692507094/ 38.78/  554.00/ 34.20/ONE/CA 1.1SMITH J MR/1/F
+ *
+ * Fields, in order: line#, validating-carrier, ¥, ticket-number-without-
+ * 3-digit-airline-prefix, commission, base fare, total taxes, fare
+ * application (ONE/PER/ALL), form-of-payment code, passenger ref+name,
+ * conjunct-document count, tariff basis (D=Domestic / F=Foreign /
+ * T=Transborder — the emulator's existing 'D' / 'I' maps to D / F).
+ *
+ * One accounting line per issued TicketRecord (auto-generated; the
+ * AC<n>/… manual entry + AC¤<n> delete formats are deferred). Commission
+ * and FOP land here, NOT in `*T` — per the QR data model.
+ */
+export function renderAccountingLines(pnr: Pnr): string {
+  if (pnr.tickets.length === 0) return 'NO ACCOUNTING DATA';
+  const fmtAmt = (n: number): string => n.toFixed(2);
+  const lines = pnr.tickets.map((t, i) => {
+    const ticketSerial = t.number.slice(3); // strip 3-digit airline code
+    const commission = fmtAmt(t.commission ?? 0);
+    const base = fmtAmt(t.base);
+    const tax = fmtAmt(t.taxTotal);
+    const fop = fopCode(t);
+    const tariffLetter = t.tariff === 'I' ? 'F' : 'D';
+    return `  ${i + 1}. ${t.validatingCarrier}¥${ticketSerial}/ ${commission}/ ${base}/ ${tax}/ONE/${fop} ${t.passenger}/1/${tariffLetter}`;
+  });
+  return ['ACCOUNTING DATA', ...lines].join('\n');
+}
+
+/** Map TicketRecord.formOfPayment to its Accounting-Lines-QR code (CA/CC). */
+function fopCode(t: TicketRecord): string {
+  const fop = t.formOfPayment;
+  if (!fop) return 'CA'; // QR auto-example defaults; no FOP captured ≈ cash
+  if (fop.kind === 'cash' || fop.kind === 'check') return 'CA'; // QR p.5: "CA = cash or cheque"
+  return 'CC'; // credit_card or preapproved both ride the CC code
+}
+
+/**
  * Render the ticketing field (`*T` family). Source: Sabre Ticket Display
  * Tools QR p.1, six variants — all/active/inactive × oldest-first/newest-
  * first. The `filter` opt is the active/inactive partition; `reverse`

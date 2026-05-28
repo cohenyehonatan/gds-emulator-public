@@ -275,6 +275,48 @@ describe('e-ticket issuance', () => {
     expect(wa.pnr.tickets).toHaveLength(0);
   });
 
+  describe('*PAC accounting field (Accounting Lines QR p.1 + Issue Tickets QR p.5)', () => {
+    it('returns NO ACCOUNTING DATA when no tickets are issued', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      expect(host.process('*PAC', wa)).toBe('NO ACCOUNTING DATA');
+    });
+
+    it('renders one accounting line per ticket with the QR field layout', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥KP10', wa); // 10% commission
+      const pac = host.process('*PAC', wa);
+      expect(pac).toContain('ACCOUNTING DATA');
+      // Each line shape: "  1. <carrier>¥<serial>/ <comm>/ <base>/ <tax>/ONE/CA <pax>/1/D"
+      const t = wa.pnr.tickets[0];
+      const expectedCommission = (t.base * 0.1).toFixed(2);
+      expect(pac).toContain(`${t.validatingCarrier}¥${t.number.slice(3)}/`);
+      expect(pac).toContain(`/ ${expectedCommission}/`);
+      expect(pac).toContain('/ONE/CA'); // cash default (no FOP set)
+      expect(pac).toContain('SMITH/J/1/D'); // domestic → D
+    });
+
+    it('uses CC code for credit-card and pre-approved FOPs (QR p.5: CC)', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥F*VI4111111111111111/1204', wa);
+      expect(host.process('*PAC', wa)).toContain('/ONE/CC');
+    });
+
+    it('maps the international tariff (I) to F per the QR (D=Domestic, F=Foreign)', () => {
+      // Issue normally (domestic seed inventory), then mark the resulting
+      // ticket as international and re-display — covers the I→F mapping
+      // without depending on an international route being in the seed schedule.
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      wa.pnr.tickets[0].tariff = 'I';
+      const pac = host.process('*PAC', wa);
+      expect(pac).toMatch(/\/1\/F$/m); // last field on the line is F (Foreign)
+    });
+  });
+
   describe('*T display variants (Ticket Display Tools QR)', () => {
     function issueTwo(): void {
       // Two tickets, distinct passengers — first is "older" (lower in array).

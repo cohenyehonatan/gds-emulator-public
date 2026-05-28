@@ -27,6 +27,7 @@ import {
   renderPriceQuotes,
   renderRemarks,
   renderFrequentFlyers,
+  renderAccountingLines,
 } from '../../protocol/serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { HandlerContext } from './context.js';
@@ -63,6 +64,8 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
   if (arg === 'P5') return wa.pnr.hasContent() ? renderRemarks(wa.pnr) : Response.NO_PNR;
   // Frequent flyer: *FF.
   if (arg === 'FF') return wa.pnr.hasContent() ? renderFrequentFlyers(wa.pnr) : Response.NO_PNR;
+  // Accounting field: *PAC (Sabre Accounting Lines QR p.1).
+  if (arg === 'PAC') return wa.pnr.hasContent() ? renderAccountingLines(wa.pnr) : Response.NO_PNR;
 
   // *T family — six variants per the Ticket Display Tools QR p.1:
   //   *T      all (active+inactive), oldest-first    (the natural array order)
