@@ -11,8 +11,8 @@
  *   QX / QXI / QXE      exit the queue without working the rest
  *   QXIR                ignore work-area changes, exit queue, redisplay PNR
  *   QXER                end-transact (commit), exit queue, redisplay PNR
- *   QBI¥4               skip current + 4 PNRs ahead (Zenon course); forward only
- *   QBI-3               backward skip — rejected, no queue-cursor history modeled
+ *   QBI¥4               cursor forward 4 (Zenon "ignores current + moves forward")
+ *   QBI-3               cursor backward 3 (matching the source's "ignores" semantics)
  *   QL / QL-MSG         re-queue to LMTC (Left Message to Contact); message logged
  *   QU / QU-MSG         re-queue to UTR (Under Reservation); message logged
  *

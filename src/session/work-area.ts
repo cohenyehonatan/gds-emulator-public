@@ -22,6 +22,14 @@ export class WorkArea {
   /** Queue currently being accessed in this area (Q/<n>); only one at a time. */
   currentQueue?: string;
   /**
+   * Cursor (0-indexed) into the current queue's list. Mutated by QR/QL/QU
+   * (which splice at the cursor and leave it pointing at the next PNR) and by
+   * QBI¥N / QBI-N (which move the cursor without mutating the list — matching
+   * the source's "ignores" vs "removes" distinction). Undefined when no
+   * queue is accessed.
+   */
+  queueCursor?: number;
+  /**
    * Most recent similar-name list (from `*-SMITH` when surname matched >1
    * PNR), cached so a subsequent `*<n>` selects line N. Cleared on the
    * selection, on a new similar-name search, on a no-match search, or on
@@ -43,6 +51,7 @@ export class WorkArea {
     this.lastPricing = undefined;
     this.dividedOriginal = undefined;
     this.currentQueue = undefined;
+    this.queueCursor = undefined;
     this.lastSimilarNameList = undefined;
   }
 }

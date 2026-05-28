@@ -5,13 +5,24 @@
  * (ctx.queues), so it survives end-transaction and is shared across work areas.
  *
  *   QP/<q>[/<pic>]  place the on-screen (committed) PNR on queue <q>
- *   Q/<q>           access queue <q> — pull its first PNR onto the screen
- *   QR              remove the on-screen PNR from the queue, advance to the next
+ *   Q/<q>           access queue <q> — pull the first PNR onto the screen
+ *   QR              remove the on-screen PNR from the queue, advance to next
+ *   QL / QU         re-queue to LMTC / UTR, advance to next
+ *   QBI¥N / QBI-N   move the queue cursor forward/backward N — does NOT
+ *                   remove anything (the source says "ignores", not "removes")
  *   QX/QXI/QXE      exit the queue without working the rest
+ *   QXIR / QXER     exit-and-redisplay variants
  *
- * Working a queue replaces the on-screen PNR with the next (RETRIEVE event), so
- * it is legal from EMPTY or DISPLAYED but not mid-build (BUILDING → OUT OF
- * SEQUENCE, like any other retrieve).
+ * Cursor model. The queue's list is a fixed sequence; the per-WorkArea
+ * `queueCursor` is the on-screen position (0-indexed). QR/QL/QU splice at
+ * the cursor (the on-screen PNR leaves the queue; the cursor now points at
+ * the PNR that took its place). QBI just moves the cursor — backward
+ * navigation lands on previously-skipped PNRs that are still in the queue.
+ * This matches the Zenon source's deliberate "removes" vs "ignores" split.
+ *
+ * Working a queue replaces the on-screen PNR with the next (RETRIEVE event),
+ * so it is legal from EMPTY or DISPLAYED but not mid-build (BUILDING → OUT
+ * OF SEQUENCE, like any other retrieve).
  *
  * NOTE: the queue prompt/confirmation strings below are reconstructed — the
  * reference course describes the *entries* but not their exact host responses.
@@ -27,13 +38,19 @@ import type { HandlerContext } from './context.js';
 const NO_QUEUE = 'NO QUEUE ACCESSED'; // reconstructed
 const pnrCount = (n: number): string => `${n} PNR${n === 1 ? '' : 'S'}`;
 
-/** Pull the front PNR of queue <q> onto the screen, skipping stale locators. */
-function loadFront(wa: WorkArea, ctx: HandlerContext, q: string): string {
+/**
+ * Pull the PNR at `wa.queueCursor` onto the screen, advancing past stale
+ * locators (PNRs that no longer resolve in the store). If the cursor runs
+ * past the end of the queue, exit the queue and return "QUEUE X EMPTY".
+ */
+function loadAtCursor(wa: WorkArea, ctx: HandlerContext, q: string): string {
   const list = ctx.queues.get(q) ?? [];
-  while (list.length > 0) {
-    const pnr = ctx.pnrStore.get(list[0]);
+  while ((wa.queueCursor ?? 0) < list.length) {
+    const cursor = wa.queueCursor!;
+    const pnr = ctx.pnrStore.get(list[cursor]);
     if (!pnr) {
-      list.shift(); // locator no longer resolves — drop it and try the next
+      list.splice(cursor, 1); // stale locator — housekeeping, cursor stays
+      ctx.queues.set(q, list);
       continue;
     }
     wa.pnr = pnr;
@@ -42,6 +59,7 @@ function loadFront(wa: WorkArea, ctx: HandlerContext, q: string): string {
     return `${header}\n${renderPnr(pnr, { pcc: ctx.pcc, agent: wa.agent })}`;
   }
   wa.currentQueue = undefined;
+  wa.queueCursor = undefined;
   return `QUEUE ${q} EMPTY`;
 }
 
@@ -65,24 +83,31 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
     case 'access': {
       const q = entry.queue!;
       wa.currentQueue = q;
+      wa.queueCursor = 0;
       const list = ctx.queues.get(q) ?? [];
-      if (list.length === 0) return `QUEUE ${q} EMPTY`;
-      return loadFront(wa, ctx, q);
+      if (list.length === 0) {
+        wa.currentQueue = undefined;
+        wa.queueCursor = undefined;
+        return `QUEUE ${q} EMPTY`;
+      }
+      return loadAtCursor(wa, ctx, q);
     }
 
     case 'remove': {
       const q = wa.currentQueue;
-      if (!q) return NO_QUEUE;
+      if (q == null || wa.queueCursor == null) return NO_QUEUE;
       const list = ctx.queues.get(q) ?? [];
-      list.shift(); // remove the on-screen PNR, unaltered
+      list.splice(wa.queueCursor, 1); // remove the on-screen PNR at the cursor
       ctx.queues.set(q, list);
-      return loadFront(wa, ctx, q);
+      // Cursor stays — now points at whoever moved into the vacated slot.
+      return loadAtCursor(wa, ctx, q);
     }
 
     case 'exit': {
       if (!wa.currentQueue) return NO_QUEUE;
       const q = wa.currentQueue;
       wa.currentQueue = undefined;
+      wa.queueCursor = undefined;
       return `QUEUE ${q} EXITED`;
     }
 
@@ -94,7 +119,6 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       if (!loc) return 'NO PNR IN AAA'; // no on-screen PNR to redisplay
       wa.machine.transition(SessionEvent.IGNORE);
       wa.reset();
-      wa.currentQueue = undefined;
       const pnr = ctx.pnrStore.get(loc);
       if (!pnr) return 'IGNORED'; // committed locator vanished — degenerate but possible
       wa.pnr = pnr;
@@ -104,16 +128,16 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
 
     case 'requeue': {
       // QL → LMTC (Left Message to Contact), QU → UTR (Under Reservation).
-      // Removes the on-screen PNR from the current queue (like QR) and places
-      // it on the follow-up queue. Optional message gets logged as a general
-      // remark on the PNR (Zenon note 1: "Entry logged in Remarks Field of
-      // PNR if message added"). The source's auto-requeue-after-24h (LMTC) /
-      // 15min-4h (UTR) timer behavior isn't modeled — no wall clock.
-      if (!wa.currentQueue) return NO_QUEUE;
-      const list = ctx.queues.get(wa.currentQueue) ?? [];
-      if (list.length === 0) return `QUEUE ${wa.currentQueue} EMPTY`;
-      const loc = list[0];
-      // Append message to PNR's remarks if provided.
+      // Splices the on-screen PNR out of the current queue at the cursor and
+      // places it on the follow-up queue. Optional message gets logged as a
+      // general remark on the PNR (Zenon note 1: "Entry logged in Remarks
+      // Field of PNR if message added"). The source's auto-requeue-after-24h
+      // (LMTC) / 15min-4h (UTR) timer behavior isn't modeled — no wall clock.
+      const q = wa.currentQueue;
+      if (q == null || wa.queueCursor == null) return NO_QUEUE;
+      const list = ctx.queues.get(q) ?? [];
+      if (list.length === 0 || wa.queueCursor >= list.length) return `QUEUE ${q} EMPTY`;
+      const loc = list[wa.queueCursor];
       if (entry.requeueMessage) {
         const pnr = ctx.pnrStore.get(loc);
         if (pnr) {
@@ -123,26 +147,31 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
           });
         }
       }
-      list.shift();
-      ctx.queues.set(wa.currentQueue, list);
+      list.splice(wa.queueCursor, 1);
+      ctx.queues.set(q, list);
       const followUp = ctx.queues.get(entry.requeueTarget!) ?? [];
       if (!followUp.includes(loc)) followUp.push(loc);
       ctx.queues.set(entry.requeueTarget!, followUp);
-      return loadFront(wa, ctx, wa.currentQueue);
+      return loadAtCursor(wa, ctx, q);
     }
 
     case 'skip': {
-      // QBI¥N — drop N PNRs from the front of the current queue (including the
-      // on-screen one) and load the new front. QBI-N (backward) needs a queue-
-      // cursor history we don't keep; rejected with a reconstructed string.
-      if (!wa.currentQueue) return NO_QUEUE;
-      const n = entry.skipCount ?? 0;
-      if (n <= 0) return 'BACKWARD SKIP NOT SUPPORTED'; // reconstructed; not in any public source
+      // QBI¥N (positive) moves the cursor forward; QBI-N (negative) backward.
+      // The queue list is NOT mutated — the source says "ignores", not
+      // "removes". Past the end → exit queue (worked past). Past the start →
+      // clamp at 0.
       const q = wa.currentQueue;
+      if (q == null || wa.queueCursor == null) return NO_QUEUE;
       const list = ctx.queues.get(q) ?? [];
-      list.splice(0, n); // drop up to N (no-op past the end is fine)
-      ctx.queues.set(q, list);
-      return loadFront(wa, ctx, q);
+      const n = entry.skipCount ?? 0;
+      const next = wa.queueCursor + n;
+      if (next >= list.length) {
+        wa.currentQueue = undefined;
+        wa.queueCursor = undefined;
+        return `QUEUE ${q} EMPTY`;
+      }
+      wa.queueCursor = Math.max(0, next);
+      return loadAtCursor(wa, ctx, q);
     }
 
     case 'exit_end_redisplay': {
@@ -161,6 +190,7 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       // leaves it intact on failure (so the agent can fix the missing field).
       if (wa.state() !== SessionState.EMPTY) return result; // ET failed, stay
       wa.currentQueue = undefined;
+      wa.queueCursor = undefined;
       return result;
     }
   }

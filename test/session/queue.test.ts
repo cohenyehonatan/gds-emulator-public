@@ -97,7 +97,8 @@ describe('queue place / access / work', () => {
 
   it('reports an empty queue and a missing access context', () => {
     expect(host.process('Q/77', wa)).toBe('QUEUE 77 EMPTY');
-    expect(host.process('QR', wa)).toBe('QUEUE 77 EMPTY'); // currentQueue=77 but empty
+    // Empty-queue access leaves no context (cursor model: nothing to point at).
+    expect(host.process('QR', wa)).toBe('NO QUEUE ACCESSED');
     expect(host.process('*Q', host.newWorkArea())).toBe('NO QUEUE ACCESSED');
   });
 
@@ -166,27 +167,57 @@ describe('queue place / access / work', () => {
     expect(host.process('QXER', wa)).toBe('NO QUEUE ACCESSED');
   });
 
-  it('QBI¥N skips N PNRs forward in the current queue', () => {
+  it('QBI¥N moves the cursor forward without removing PNRs from the queue', () => {
     const a = commit('ABLE');
     host.process('IG', wa);
     const b = commit('BAKER');
     host.process('IG', wa);
     const c = commit('CHARLIE');
     host.context.queues.set('77', [a, b, c]);
-    host.process('Q/77', wa); // loads ABLE
+    host.process('Q/77', wa); // loads ABLE; cursor=0
     expect(wa.pnr.locator).toBe(a);
-    // Skip 2: drops ABLE + BAKER from the queue, loads CHARLIE.
+    // Cursor advances 2 → on CHARLIE; queue list unchanged ("ignores", not "removes").
     const resp = host.process('QBI¥2', wa);
     expect(resp).toContain('CHARLIE');
-    expect(host.context.queues.get('77')).toEqual([c]);
+    expect(host.context.queues.get('77')).toEqual([a, b, c]); // intact
     expect(wa.pnr.locator).toBe(c);
+    expect(wa.queueCursor).toBe(2);
   });
 
-  it('QBI-N rejects backward skip (no queue-cursor history modeled)', () => {
+  it('QBI-N navigates backward to previously skipped PNRs', () => {
+    const a = commit('ABLE');
+    host.process('IG', wa);
+    const b = commit('BAKER');
+    host.process('IG', wa);
+    const c = commit('CHARLIE');
+    host.context.queues.set('77', [a, b, c]);
+    host.process('Q/77', wa); // ABLE, cursor=0
+    host.process('QBI¥2', wa); // forward 2 → CHARLIE, cursor=2
+    const back = host.process('QBI-2', wa); // back 2 → ABLE, cursor=0
+    expect(back).toContain('ABLE');
+    expect(wa.pnr.locator).toBe(a);
+    expect(wa.queueCursor).toBe(0);
+    expect(host.context.queues.get('77')).toEqual([a, b, c]); // still intact
+  });
+
+  it('QBI-N clamps to the start of the queue (no underflow)', () => {
     const loc = commit('SMITH');
     host.context.queues.set('77', [loc]);
     host.process('Q/77', wa);
-    expect(host.process('QBI-1', wa)).toBe('BACKWARD SKIP NOT SUPPORTED');
+    expect(wa.queueCursor).toBe(0);
+    host.process('QBI-9', wa);
+    expect(wa.queueCursor).toBe(0); // still on the same PNR
+    expect(wa.pnr.locator).toBe(loc);
+  });
+
+  it('QBI¥N past the end exits the queue', () => {
+    const a = commit('ABLE');
+    host.process('IG', wa);
+    const b = commit('BAKER');
+    host.context.queues.set('77', [a, b]);
+    host.process('Q/77', wa);
+    expect(host.process('QBI¥9', wa)).toBe('QUEUE 77 EMPTY');
+    expect(wa.currentQueue).toBeUndefined();
   });
 
   it('QBI without a queue context returns NO QUEUE ACCESSED', () => {
