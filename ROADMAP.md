@@ -212,13 +212,13 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 The project's name promises more than Sabre. v5 introduces two orthogonal axes
 so it can grow into it without faking fidelity. The matrix:
 
-|              | emulated (offline)  | live (real GDS via REST)         |
-|--------------|---------------------|----------------------------------|
-| sabre        | ✅ everything today | — (Dev Studio REST, later)       |
-| galileo (1G) | future, oracle-built| **proven path** via 7K9S         |
-| apollo (1V)  | —                   | — (Travelport, separate provisioning) |
-| worldspan(1P)| —                   | — (Travelport, separate provisioning) |
-| amadeus      | —                   | — (separate vendor, no creds)    |
+|              | emulated (offline)        | live (real GDS via REST)         |
+|--------------|---------------------------|----------------------------------|
+| sabre        | ✅ everything today       | — (Dev Studio REST, later)       |
+| galileo (1G) | future, oracle-built      | **proven path** via 7K9S         |
+| apollo (1V)  | sibling of galileo (cheap)| — (Travelport, separate access group) |
+| worldspan(1P)| —                         | — (Travelport, separate provisioning) |
+| amadeus      | **viable, format-grounded**| — (separate vendor, no creds)   |
 
 - **Dialect** = parser, serializer, keyboard, screen profile, FSM rules,
   fidelity sources. Pure content. Selected per-tenant.
@@ -253,12 +253,22 @@ so it can grow into it without faking fidelity. The matrix:
 The cryptic-to-REST adapter. Inventory and tariff state evaporate — 1G itself
 is the source of truth — but cryptic format fidelity becomes the new burden.
 
-- [ ] **Galileo cryptic references (BLOCKER)** — parse-side input grammar
-      (`A`/`SS`/`N:`/`RF`/…) and render-side screen layout. The live API
-      supplies *neither* (it's REST/JSON only, "conceptual travel terminology"
-      per the TripServices guide). Same source-grounding bar Sabre already
-      meets; ship a `galileo` dialect only when its `references/` is as honest
-      as Sabre's.
+- [x] **Galileo cryptic references** — gathered in `references/galileo/` and
+      covering 11 of 12 fidelity categories at A-grade: Travelport+ Mini Format
+      Guide v2 (canonical), Smartpoint Module 2 (annotated availability + sold-
+      segment columns — the only public source with column-by-column
+      annotation), Galileo Pocket Guide (legacy queue verbs + worked ticketing
+      recipes), the 5-way GDS Format Comparison Guide (Apollo / Worldspan /
+      Amadeus Rosetta), and the Travelport Smartpoint Kuwait 2021 mirror
+      (segment-status code table the v2 guide dropped). Error wording is the
+      one C-grade category — same Format Finder gap Sabre has — mitigable by
+      provoking errors against the live REST API and using the few public
+      examples as style anchors.
+- [ ] **Apollo (1V) as a sibling dialect** — almost free given Galileo: the
+      Comparison Guide gives a verb-by-verb Rosetta, and Apollo's conventions
+      are closer to Sabre's (`0` sell, `¤` change/delete, `:3`/`:4` SSR/OSI,
+      `N:` name) than Galileo's. Same Travelport OAuth path with a 1V access
+      group. Not a separate version — a co-build once Galileo lands.
 - [ ] **OAuth client** — token fetch, in-memory cache to 24h expiry, single
       refresh on 401. Reads `TVP_CLIENT_ID`/`SECRET`/`USERNAME`/`PASSWORD` from
       env (never on disk); production `auth.travelport.net` swap is one env var.
@@ -284,6 +294,43 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
 - [ ] **Sandbox caveats documented** — pre-prod = synthetic inventory, no real
       tickets, trial creds expirable. Make these surface in the banner, not in
       a comment somewhere.
+
+### Amadeus — emulated, format-grounded
+
+A different fidelity claim than Galileo. Amadeus is a separate vendor (no
+Travelport-style creds path), so any Amadeus dialect ships fully `emulated` —
+the project owns the behavior layer. The references in `references/amadeus/`
+cover format and errors *better* than anything publicly available for Sabre,
+but public sources are silent on behavior (fare construction NUC/ROE/HIP,
+availability simulation, alliance/MCT logic). Honest framing: format-faithful,
+behavior-synthesized. Not a successor to Galileo — a parallel option with a
+different upside.
+
+- [x] **Amadeus references** — gathered in `references/amadeus/` and covering
+      11 of 12 fidelity categories at A-grade in a single artifact: the
+      Amadeus Cryptic Entries Reference Guide, Ed. 9.2 (276 pp, 2012, Amadeus
+      Global Learning Services). Plus `errors/Predef_Errors_*_*.htm` — the
+      official ~10,000-entry Predefined Host Messages dump from
+      `api.dev.amadeus.net`, mirrored locally as 10 HTML pages. Verbatim
+      error strings with numbered codes (e.g. `400 NO ITINERARY - FINISH OR
+      IGNORE`) — exceeds anything publicly available for Sabre or Galileo.
+- [ ] **Amadeus dialect (emulated)** — parser, serializer, keyboard, screen
+      layout, FSM rules under the same seam as Sabre. Cryptic differs
+      meaningfully: `AN` avail, `SS` sell, `NM1` name, `AP` phone, `TKOK`
+      ticketing, `RF` received-from, `ET` end, `RT` retrieve, `IR` ignore-
+      redisplay; passenger association via `/P1` tail-syntax; `;`-separated
+      multi-element entries; status set `HK/HX/KK/KL/NN/UC/UN/NO`.
+- [ ] **Behavior layer (the honest hard part)** — no public source documents
+      Amadeus's actual algorithms (fare construction, inventory simulation,
+      MCT, alliance ranking). The emulator owns these. State the claim in
+      the banner: "amadeus emulated; format and error wording source-
+      grounded; behavior synthesized." Don't let it look like a real Amadeus.
+- [ ] **Screen layouts (B-grade gap)** — the QRG documents *what to send*,
+      not what comes back. Annotated screen responses live in the Amadeus
+      Service Hub (login-gated) and a 224-pp Travel Agency Basic Functionality
+      Course on Yumpu (view-only). Recoverable but assembly-required, unlike
+      Galileo's Smartpoint Module 2 which has the column annotations cleanly.
+      Acknowledge before shipping.
 
 ### Live-as-oracle (bonus, after both Galileo backends exist)
 
