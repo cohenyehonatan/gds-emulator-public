@@ -17,10 +17,11 @@
  * reference course describes the *entries* but not their exact host responses.
  */
 
-import type { QueueEntry } from '../../protocol/entry.js';
+import type { QueueEntry, EndTransactionEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
-import { SessionEvent } from '../session-state.js';
+import { SessionEvent, SessionState } from '../session-state.js';
 import { renderPnr } from '../../protocol/serializer.js';
+import { handleEndTransaction } from './end-tx-handler.js';
 import type { HandlerContext } from './context.js';
 
 const NO_QUEUE = 'NO QUEUE ACCESSED'; // reconstructed
@@ -83,6 +84,41 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       const q = wa.currentQueue;
       wa.currentQueue = undefined;
       return `QUEUE ${q} EXITED`;
+    }
+
+    case 'exit_ignore_redisplay': {
+      // QXIR — ignore work-area changes, exit queue, redisplay the PNR
+      // (Zenon course p.54). Requires a PNR on screen and a queue context.
+      if (!wa.currentQueue) return NO_QUEUE;
+      const loc = wa.pnr.locator;
+      if (!loc) return 'NO PNR IN AAA'; // no on-screen PNR to redisplay
+      wa.machine.transition(SessionEvent.IGNORE);
+      wa.reset();
+      wa.currentQueue = undefined;
+      const pnr = ctx.pnrStore.get(loc);
+      if (!pnr) return 'IGNORED'; // committed locator vanished — degenerate but possible
+      wa.pnr = pnr;
+      wa.machine.transition(SessionEvent.RETRIEVE);
+      return renderPnr(pnr, { pcc: ctx.pcc, agent: wa.agent });
+    }
+
+    case 'exit_end_redisplay': {
+      // QXER — end-transact (commits PNR), exit queue, redisplay PNR
+      // (Zenon course p.54). If end-tx rejects (missing field, names mismatch),
+      // the agent stays in the queue context to correct.
+      if (!wa.currentQueue) return NO_QUEUE;
+      const fakeEr: EndTransactionEntry = {
+        kind: 'end_transaction',
+        raw: '',
+        timestamp: new Date(),
+        redisplay: true,
+      };
+      const result = handleEndTransaction(fakeEr, wa, ctx);
+      // handleEndTransaction resets the work area on success (→ EMPTY) and
+      // leaves it intact on failure (so the agent can fix the missing field).
+      if (wa.state() !== SessionState.EMPTY) return result; // ET failed, stay
+      wa.currentQueue = undefined;
+      return result;
     }
   }
 }

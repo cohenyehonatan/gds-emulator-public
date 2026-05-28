@@ -245,7 +245,19 @@ export interface DivideEntry extends BaseEntry {
  */
 export interface QueueEntry extends BaseEntry {
   kind: 'queue';
-  op: 'place' | 'access' | 'remove' | 'exit';
+  /**
+   * `exit_ignore_redisplay` (QXIR) and `exit_end_redisplay` (QXER) are the
+   * Zenon-course exit-and-redisplay variants — QXIR discards work-area
+   * changes and brings the pristine PNR back; QXER end-transacts (commits)
+   * and redisplays. Both leave the queue afterward.
+   */
+  op:
+    | 'place'
+    | 'access'
+    | 'remove'
+    | 'exit'
+    | 'exit_ignore_redisplay'
+    | 'exit_end_redisplay';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (QP/100/75)
   /**

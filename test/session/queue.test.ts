@@ -138,4 +138,31 @@ describe('queue place / access / work', () => {
     const targets = ['G', 'S', 'T', 'A', 'L', 'U', '1', '2', '3', '4'].join('¥');
     expect(host.process(`QP/${targets}`, wa)).toBe('FORMAT');
   });
+
+  it('QXIR exits the queue and redisplays the on-screen PNR', () => {
+    const loc = commit('SMITH');
+    host.context.queues.set('100', [loc]);
+    host.process('Q/100', wa); // PNR now on screen via queue access
+    const resp = host.process('QXIR', wa);
+    expect(resp).toContain('SMITH/JOHN'); // PNR redisplayed
+    expect(wa.currentQueue).toBeUndefined();
+    expect(wa.pnr.locator).toBe(loc); // still on screen
+  });
+
+  it('QXER ends the transaction, exits the queue, and redisplays the PNR', () => {
+    const loc = commit('SMITH');
+    host.context.queues.set('100', [loc]);
+    host.process('Q/100', wa);
+    // Add a remark (legal modify on a retrieved PNR), then QXER commits.
+    host.process('5GENERAL REMARK', wa);
+    const resp = host.process('QXER', wa);
+    expect(resp).toContain('SMITH/JOHN'); // committed PNR rendered
+    expect(resp).toContain('GENERAL REMARK'); // the added remark persisted
+    expect(wa.currentQueue).toBeUndefined();
+  });
+
+  it('QXIR and QXER without a queue context return NO QUEUE ACCESSED', () => {
+    expect(host.process('QXIR', wa)).toBe('NO QUEUE ACCESSED');
+    expect(host.process('QXER', wa)).toBe('NO QUEUE ACCESSED');
+  });
 });

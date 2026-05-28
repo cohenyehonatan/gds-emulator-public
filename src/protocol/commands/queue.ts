@@ -9,11 +9,12 @@
  *   Q/10                access queue 10 (Q/S supervisory, Q/L left-message)
  *   QR                  remove the on-screen PNR, advance to the next
  *   QX / QXI / QXE      exit the queue without working the rest
+ *   QXIR                ignore work-area changes, exit queue, redisplay PNR
+ *   QXER                end-transact (commit), exit queue, redisplay PNR
  *
  * `*Q` (queue status) is a display entry, parsed by commands/retrieve.ts.
  *
- * TODO (ROADMAP): jump (QJ), skip (QBI¥n/QBI-n), QL/QU re-queue,
- * QXIR/QXER exit-and-redisplay.
+ * TODO (ROADMAP): jump (QJ), skip (QBI¥n/QBI-n), QL/QU re-queue.
  */
 
 import type { QueueEntry } from '../entry.js';
@@ -27,6 +28,8 @@ export function parseQueue(raw: string): QueueEntry {
 
   if (u === 'QR') return { ...base, op: 'remove' };
   if (u === 'QX' || u === 'QXI' || u === 'QXE') return { ...base, op: 'exit' };
+  if (u === 'QXIR') return { ...base, op: 'exit_ignore_redisplay' };
+  if (u === 'QXER') return { ...base, op: 'exit_end_redisplay' };
 
   const place = /^QP\/(.+)$/.exec(u);
   if (place) {
