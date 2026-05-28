@@ -207,6 +207,91 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
 - [ ] BHS check-in retrieves a PNR by locator before generating PECTAB; the
       `AgentTerminal` client is the seam. (Not a current dependency.)
 
+## v5 — Multi-GDS via Dialect ⊥ Backend
+
+The project's name promises more than Sabre. v5 introduces two orthogonal axes
+so it can grow into it without faking fidelity. The matrix:
+
+|              | emulated (offline)  | live (real GDS via REST)         |
+|--------------|---------------------|----------------------------------|
+| sabre        | ✅ everything today | — (Dev Studio REST, later)       |
+| galileo (1G) | future, oracle-built| **proven path** via 7K9S         |
+| apollo (1V)  | —                   | — (Travelport, separate provisioning) |
+| worldspan(1P)| —                   | — (Travelport, separate provisioning) |
+| amadeus      | —                   | — (separate vendor, no creds)    |
+
+- **Dialect** = parser, serializer, keyboard, screen profile, FSM rules,
+  fidelity sources. Pure content. Selected per-tenant.
+- **Backend** = where answers come from. `emulated` reads local
+  `inventory`/`tariff`/`pnr-store`; `live` translates cryptic ⟷ vendor REST.
+- Sabre stays the reference tenant; everything in v1–v3 is its emulated backend.
+
+### Foundations
+
+- [x] **Live-1G feasibility proven** — `chore: validate Travelport pre-prod
+      creds for live-Galileo spike`. OAuth `password` grant against
+      `auth.pp.travelport.net/oauth/token` returns a 24h Bearer; POST
+      `/11/air/catalog/search/catalogproductofferings` with
+      `TVP-PCC-CORE: 7K9S_1G` returns a real `CatalogProductOfferingsResponse`
+      (10 offers, `DEN→FRA`, sandbox synthetic). `validate-travelport-creds.ts`
+      at the repo root is the re-runnable gate.
+- [ ] **`Dialect` seam** — extract today's `protocol/{parser,serializer,
+      constants,keyboard}` + Sabre FSM rules behind a `Dialect` interface,
+      `GdsHost` becomes dialect-agnostic, banner sourced from the dialect (not
+      the `'SABRE GDS terminal'` constant in `terminal/repl.ts:15`). All 175
+      existing tests must pass unchanged — that's the refactor's correctness gate.
+- [ ] **`Backend` seam + async** — `process(entry, wa): Promise<string>`. Today
+      it's synchronous (`session/gds-host.ts:68`); live REST calls force the
+      change. Localized to `GdsHost.process` + the REPL's `rl.on('line')`. Do it
+      when the seam is cut, not after.
+- [ ] **CLI dispatch** — `start:terminal:sabre` (the explicit default) and the
+      `index.ts` arg path that picks `{ dialect, backend }`. npm scripts fall out
+      for free once the seam exists; they are the *last* commit, not the first.
+
+### Galileo (1G) — live backend
+
+The cryptic-to-REST adapter. Inventory and tariff state evaporate — 1G itself
+is the source of truth — but cryptic format fidelity becomes the new burden.
+
+- [ ] **Galileo cryptic references (BLOCKER)** — parse-side input grammar
+      (`A`/`SS`/`N:`/`RF`/…) and render-side screen layout. The live API
+      supplies *neither* (it's REST/JSON only, "conceptual travel terminology"
+      per the TripServices guide). Same source-grounding bar Sabre already
+      meets; ship a `galileo` dialect only when its `references/` is as honest
+      as Sabre's.
+- [ ] **OAuth client** — token fetch, in-memory cache to 24h expiry, single
+      refresh on 401. Reads `TVP_CLIENT_ID`/`SECRET`/`USERNAME`/`PASSWORD` from
+      env (never on disk); production `auth.travelport.net` swap is one env var.
+- [ ] **Cryptic → REST mapping** — minimum viable surface:
+      `A` (availability) → `catalogproductofferings`, `0` (sell line N) →
+      cache offer refs from search and resolve N → offerRef on `0`, `N:` (name)
+      → passenger on the in-flight order, `*R` (retrieve) → order lookup,
+      `ER` (commit) → `CreateOrder`. The BUILDING→DISPLAYED FSM choreographs
+      the offer/order lifecycle — the avail-cached-on-work-area invariant maps
+      almost 1:1 onto "cache offer refs for later resolution."
+- [ ] **JSON → Galileo screen rendering** — reconstruct cryptic screens from
+      REST responses. Real data, reconstructed presentation (same caveat the
+      project already documents for reconstructed strings — just with authentic
+      data underneath).
+- [ ] **Hybrid coverage, made explicit** — only entries with REST analogs
+      (search/price/order/ticket/retrieve) go live. Queue ops, exotic displays,
+      host-only functions have no endpoint → return a single, explicit
+      "not-supported in `galileo:live`" string. Silent stubs are worse than
+      an honest boundary.
+- [ ] **Vendor-pacing discipline** — single-worker, jittered delays,
+      capture-then-replay for dev iteration. Local response cache so iteration
+      doesn't hammer pre-prod. Never probe for limits. (Project rule.)
+- [ ] **Sandbox caveats documented** — pre-prod = synthetic inventory, no real
+      tickets, trial creds expirable. Make these surface in the banner, not in
+      a comment somewhere.
+
+### Live-as-oracle (bonus, after both Galileo backends exist)
+
+- [ ] Diff harness — fire the same cryptic at `galileo:emulated` and
+      `galileo:live`, structurally compare the rendered screens. Live 1G becomes
+      ground truth for *building* the emulated Galileo, instead of speculation.
+      This is precisely why `Backend ⊥ Dialect` is worth the abstraction.
+
 ## Infra / DX
 
 - [ ] `start:terminal:tcp` — drive the CRT over a real socket via `AgentTerminal`.
