@@ -37,7 +37,7 @@ import { parseDivide, parseFile } from './commands/divide.js';
 import { parseQueue } from './commands/queue.js';
 import { parseTicket } from './commands/ticket.js';
 import { parseAuditTrail } from './commands/audit-trail.js';
-import { parseRefund } from './commands/refund.js';
+import { parseRefund, parseCancelRefund } from './commands/refund.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -60,6 +60,7 @@ const RULES: DispatchRule[] = [
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },
   { match: startsWith('WFR'), parse: parseRefund }, // WFR/WFRT refunds — before bare W ticketing
+  { match: startsWith('WTRX'), parse: parseCancelRefund }, // WTRX cancel refund — before bare W
   { match: startsWith('W'), parse: parseTicket }, // W¥ ticketing (after WP pricing)
   { match: startsWith('TTP'), parse: parseTicket }, // issue all (synonym for W¥)
   { match: equals('PQ'), parse: parsePricing },

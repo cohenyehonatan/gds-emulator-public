@@ -36,6 +36,12 @@ export class WorkArea {
    * any work-area reset (End Transaction / Ignore / sign-out).
    */
   lastSimilarNameList?: Pnr[];
+  /**
+   * Pending WTRX (cancel refund) — the ticket number the agent typed once,
+   * awaiting their second WTRX to confirm. Per QREX p.21's two-step flow.
+   * Cleared on confirmation, on a different ticket WTRX, or on reset.
+   */
+  pendingCancelRefundTicket?: string;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -53,5 +59,6 @@ export class WorkArea {
     this.currentQueue = undefined;
     this.queueCursor = undefined;
     this.lastSimilarNameList = undefined;
+    this.pendingCancelRefundTicket = undefined;
   }
 }

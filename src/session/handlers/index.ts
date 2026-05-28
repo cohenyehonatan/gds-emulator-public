@@ -37,7 +37,7 @@ import { handlePricing } from './pricing-handler.js';
 import { handleQueue } from './queue-handler.js';
 import { handleTicket } from './ticket-handler.js';
 import { handleAuditTrail } from './audit-trail-handler.js';
-import { handleRefund } from './refund-handler.js';
+import { handleRefund, handleCancelRefund } from './refund-handler.js';
 
 export type { HandlerContext };
 
@@ -111,6 +111,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleAuditTrail(entry, wa, ctx);
       case 'refund':
         return handleRefund(entry, wa, ctx);
+      case 'cancel_refund':
+        return handleCancelRefund(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

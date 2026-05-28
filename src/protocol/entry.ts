@@ -394,7 +394,29 @@ export type ParsedEntry =
   | TicketEntry
   | AuditTrailEntry
   | RefundEntry
+  | CancelRefundEntry
   | UnsupportedEntry;
+
+/**
+ * Cancel a refund within the same day (`WTRX<ticket>`). Source: Zenon
+ * QREX manual p.21 — quotes both legs of the two-step flow verbatim:
+ *
+ *   First entry:    WTRX0485633742763 «
+ *                   RE-ENTER TO CANCEL REFUND FOR TKT
+ *                   0485633742763
+ *
+ *   Re-enter same:  WTRX0485633742763 «
+ *                   OK-REFUND
+ *                   CANCELLED
+ *
+ * Two strings landed VERBATIM from QREX p.21 (third-party transcription
+ * but quoted exactly). Same-day window isn't enforced — the emulator
+ * doesn't model wall-clock cutoffs.
+ */
+export interface CancelRefundEntry extends BaseEntry {
+  kind: 'cancel_refund';
+  ticketNumber: string;
+}
 
 /**
  * Refund a ticket (`WFR<ticket>`) or its taxes only (`WFRT<ticket>`).

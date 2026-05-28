@@ -19,7 +19,8 @@
  * the cancel-refund WTRX flow (p.21), so this is a reconstruction.
  */
 
-import type { RefundEntry } from '../../protocol/entry.js';
+import type { RefundEntry, CancelRefundEntry } from '../../protocol/entry.js';
+import type { TicketRecord } from '../../models/ticket.js';
 import type { WorkArea } from '../work-area.js';
 import type { HandlerContext } from './context.js';
 
@@ -39,4 +40,42 @@ export function handleRefund(
     return `OK-${label} TKT ${entry.ticketNumber}`;
   }
   return 'TKT NOT FOUND'; // reconstructed
+}
+
+/**
+ * WTRX — cancel a refund. Two-step flow per QREX p.21:
+ *   First entry:    "RE-ENTER TO CANCEL REFUND FOR TKT\n<ticket>"   verbatim
+ *   Re-entry same:  "OK-REFUND\nCANCELLED"                          verbatim
+ *
+ * The pending ticket sits on the work area; a different ticket number on
+ * step 2 resets to step 1 (treats it as a fresh request).
+ */
+export function handleCancelRefund(
+  entry: CancelRefundEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string {
+  const ticket = findTicket(ctx, entry.ticketNumber);
+  if (!ticket) return 'TKT NOT FOUND'; // reconstructed
+  if (ticket.status !== 'REFUNDED') return 'TKT NOT REFUNDED'; // reconstructed
+
+  // Step 2: same ticket number → confirm and flip status back to OPEN.
+  if (wa.pendingCancelRefundTicket === entry.ticketNumber) {
+    ticket.status = 'OPEN';
+    wa.pendingCancelRefundTicket = undefined;
+    return 'OK-REFUND\nCANCELLED'; // verbatim from QREX p.21
+  }
+
+  // Step 1 (or a fresh start with a different ticket): record + ask to re-enter.
+  wa.pendingCancelRefundTicket = entry.ticketNumber;
+  return `RE-ENTER TO CANCEL REFUND FOR TKT\n${entry.ticketNumber}`; // verbatim from QREX p.21
+}
+
+/** Find a ticket by number across all stored PNRs. */
+function findTicket(ctx: HandlerContext, number: string): TicketRecord | undefined {
+  for (const pnr of ctx.pnrStore.values()) {
+    const t = pnr.tickets.find((tk) => tk.number === number);
+    if (t) return t;
+  }
+  return undefined;
 }

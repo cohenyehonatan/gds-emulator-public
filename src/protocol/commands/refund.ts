@@ -13,10 +13,11 @@
  * Each is its own follow-up.
  */
 
-import type { RefundEntry } from '../entry.js';
+import type { RefundEntry, CancelRefundEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
 
 const RE = /^WFR(T)?(\d{13})$/i;
+const WTRX_RE = /^WTRX(\d{13})$/i;
 
 export function parseRefund(raw: string): RefundEntry {
   const m = RE.exec(raw);
@@ -27,5 +28,16 @@ export function parseRefund(raw: string): RefundEntry {
     timestamp: new Date(),
     mode: m[1] ? 'tax_only' : 'full',
     ticketNumber: m[2],
+  };
+}
+
+export function parseCancelRefund(raw: string): CancelRefundEntry {
+  const m = WTRX_RE.exec(raw);
+  if (!m) throw new ParseError(`Cancel refund: expected WTRX<13-digit ticket> in "${raw}"`);
+  return {
+    kind: 'cancel_refund',
+    raw,
+    timestamp: new Date(),
+    ticketNumber: m[1],
   };
 }
