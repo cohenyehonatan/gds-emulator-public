@@ -275,6 +275,58 @@ describe('e-ticket issuance', () => {
     expect(wa.pnr.tickets).toHaveLength(0);
   });
 
+  describe('*T display variants (Ticket Display Tools QR)', () => {
+    function issueTwo(): void {
+      // Two tickets, distinct passengers — first is "older" (lower in array).
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('-DOE/JANE MS', wa);
+      host.process('W¥', wa); // issues a ticket per name (2 tickets)
+    }
+
+    it('*T returns all tickets oldest-first (existing behavior preserved)', () => {
+      issueTwo();
+      const lines = host.process('*T', wa).split('\n');
+      // The first ticket-line should be SMITH (issued first), then DOE.
+      const ticketLines = lines.filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(ticketLines[0]).toContain('SMITH');
+      expect(ticketLines[1]).toContain('DOE');
+    });
+
+    it('*T/N reverses to newest-first', () => {
+      issueTwo();
+      const lines = host.process('*T/N', wa).split('\n');
+      const ticketLines = lines.filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(ticketLines[0]).toContain('DOE');
+      expect(ticketLines[1]).toContain('SMITH');
+    });
+
+    it('*TA active-only defaults to newest-first; *TA/O reverses to oldest-first', () => {
+      issueTwo();
+      // Both tickets default to active (status OPEN at issuance).
+      const ta = host.process('*TA', wa).split('\n').filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(ta[0]).toContain('DOE'); // newest first
+      const tao = host.process('*TA/O', wa).split('\n').filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(tao[0]).toContain('SMITH'); // oldest first
+    });
+
+    it('*TI returns NO TICKETING FIELD when nothing is inactive yet', () => {
+      issueTwo();
+      expect(host.process('*TI', wa)).toBe('NO TICKETING FIELD');
+    });
+
+    it('*TI surfaces a manually-marked-VOIDED ticket; *TA hides it', () => {
+      issueTwo();
+      wa.pnr.tickets[0].status = 'VOIDED'; // simulate a future void
+      const ti = host.process('*TI', wa).split('\n').filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(ti).toHaveLength(1);
+      expect(ti[0]).toContain('SMITH');
+      const ta = host.process('*TA', wa).split('\n').filter((l) => /^\s+\d+\.TE\s/.test(l));
+      expect(ta).toHaveLength(1);
+      expect(ta[0]).toContain('DOE');
+    });
+  });
+
   it('FOP propagates to the issued TicketRecord (cash + credit card cases)', () => {
     book();
     host.process('-SMITH/JOHN MR', wa);

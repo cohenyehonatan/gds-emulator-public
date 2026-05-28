@@ -16,7 +16,7 @@ import { formatNameItem } from '../models/name-element.js';
 import { formatNameRef } from '../models/service.js';
 import { formatRemark } from '../models/remark.js';
 import type { FareQuote } from '../models/fare.js';
-import type { TicketRecord } from '../models/ticket.js';
+import { isActiveTicket, type TicketRecord } from '../models/ticket.js';
 import { MONTHS, to24h, parseClockToMinutes } from '../utils/validation.js';
 import { HOME_CITY } from './constants.js';
 
@@ -150,14 +150,30 @@ function renderTicketLine(t: TicketRecord): string {
  * issuance the field also carries the issue header (T-<date>-<pcc>*<agent>) and
  * one line per ticket, per the Issue-Tickets QR's *T display.
  */
-export function renderTicketing(pnr: Pnr): string {
+/**
+ * Render the ticketing field (`*T` family). Source: Sabre Ticket Display
+ * Tools QR p.1, six variants — all/active/inactive × oldest-first/newest-
+ * first. The `filter` opt is the active/inactive partition; `reverse`
+ * inverts the natural chronological order (which is per-variant default).
+ */
+export function renderTicketing(
+  pnr: Pnr,
+  opts: { filter?: 'all' | 'active' | 'inactive'; reverse?: boolean } = {}
+): string {
+  const filter = opts.filter ?? 'all';
   const lines: string[] = [];
   let n = 0;
-  if (pnr.ticketing) lines.push(`  ${++n}.${pnr.ticketing}`);
-  if (pnr.tickets.length > 0) {
-    const first = pnr.tickets[0];
+  if (pnr.ticketing && filter === 'all') lines.push(`  ${++n}.${pnr.ticketing}`);
+  const matching = pnr.tickets.filter((t) => {
+    if (filter === 'active') return isActiveTicket(t);
+    if (filter === 'inactive') return !isActiveTicket(t);
+    return true;
+  });
+  if (matching.length > 0) {
+    const ordered = opts.reverse ? [...matching].reverse() : matching;
+    const first = ordered[0];
     lines.push(`  ${++n}.T-${sabreDayMon(first.issuedAt)}-${first.pcc}*${first.agent ?? 'AGT'}`);
-    for (const t of pnr.tickets) lines.push(`  ${++n}.${renderTicketLine(t)}`);
+    for (const t of ordered) lines.push(`  ${++n}.${renderTicketLine(t)}`);
   }
   if (lines.length === 0) return 'NO TICKETING FIELD';
   return ['TKT/TIME LIMIT', ...lines].join('\n');

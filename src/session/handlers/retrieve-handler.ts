@@ -31,15 +31,18 @@ import {
 import type { Pnr } from '../../models/pnr.js';
 import type { HandlerContext } from './context.js';
 
-/** Section codes that redisplay part of the current work-area PNR. */
+/** Section codes that redisplay part of the current work-area PNR (T variants
+ *  handled separately below for the QR's 6-way active/inactive × order split). */
 const SECTIONS: Record<string, (pnr: Pnr) => string> = {
   A: renderPnr,
   N: renderNames,
   I: renderItinerary,
   IA: renderItinerary,
   P: renderPhones,
-  T: renderTicketing,
 };
+
+/** Ticket-display variants (Sabre Ticket Display Tools QR p.1). */
+const T_VARIANTS = new Set(['T', 'T/N', 'TA', 'TA/O', 'TI', 'TI/O']);
 
 export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerContext): string {
   const arg = entry.argument;
@@ -61,7 +64,30 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
   // Frequent flyer: *FF.
   if (arg === 'FF') return wa.pnr.hasContent() ? renderFrequentFlyers(wa.pnr) : Response.NO_PNR;
 
-  // Redisplay current work area: '*A' (all), '*N/*I/*P/*T' (sections), or bare '*'.
+  // *T family — six variants per the Ticket Display Tools QR p.1:
+  //   *T      all (active+inactive), oldest-first    (the natural array order)
+  //   *T/N    all, newest-first
+  //   *TA     active only, newest-first
+  //   *TA/O   active only, oldest-first
+  //   *TI     inactive only, newest-first
+  //   *TI/O   inactive only, oldest-first
+  // "Active" = status OPEN or ACTL; everything else (voided, refunded,
+  // exchanged) is inactive — matches the QR's definition exactly.
+  if (T_VARIANTS.has(arg)) {
+    if (!wa.pnr.hasContent()) return Response.NO_PNR;
+    const filter: 'all' | 'active' | 'inactive' = arg.startsWith('TA')
+      ? 'active'
+      : arg.startsWith('TI')
+        ? 'inactive'
+        : 'all';
+    // Newest-first when: it's the *T's `/N` override, or it's a TA/TI without
+    // the `/O` override (since TA/TI default to newest-first per the QR).
+    const reverse = (filter === 'all' && arg.endsWith('/N'))
+      || (filter !== 'all' && !arg.endsWith('/O'));
+    return renderTicketing(wa.pnr, { filter, reverse });
+  }
+
+  // Redisplay current work area: '*A' (all), '*N/*I/*P' (sections), or bare '*'.
   const sectionKey = arg === '' ? 'A' : arg;
   if (sectionKey in SECTIONS) {
     if (!wa.pnr.hasContent()) return Response.NO_PNR;

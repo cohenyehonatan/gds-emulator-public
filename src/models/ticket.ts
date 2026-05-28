@@ -31,6 +31,24 @@ export interface TicketRecord {
    * per the Sabre Ticket Display Tools QR.
    */
   formOfPayment?: FormOfPayment;
+  /**
+   * Ticket lifecycle status. Drives the *TA / *TI split in the Ticket
+   * Display Tools QR p.1: "active documents are those with an OPEN or ACTL
+   * status code; inactive documents are those with any other status code"
+   * (e.g. voided, refunded, exchanged). Defaults to OPEN at issuance.
+   */
+  status?: 'OPEN' | 'ACTL' | 'VOIDED' | 'REFUNDED' | 'EXCHANGED';
+}
+
+/** Set of statuses considered "active" for the *TA display (QR p.1). */
+export const ACTIVE_STATUSES: ReadonlySet<NonNullable<TicketRecord['status']>> = new Set([
+  'OPEN',
+  'ACTL',
+]);
+
+/** Is this ticket "active" per the QR's *TA/*TI partition? */
+export function isActiveTicket(t: TicketRecord): boolean {
+  return ACTIVE_STATUSES.has(t.status ?? 'OPEN');
 }
 
 
