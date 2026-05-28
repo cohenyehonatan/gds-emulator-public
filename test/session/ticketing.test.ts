@@ -126,6 +126,36 @@ describe('ticketing parsing', () => {
     expect(() => parseEntry('W¥PQ1/2/3/4/5')).toThrow(/max 4 Enhanced PQ/);
   });
 
+  it('parses per-PQ named selection (QR p.1 verbatim W¥PQ2N1.2¥PQ5N1.3-1.5)', () => {
+    const e = parseEntry('W¥PQ2N1.2¥PQ5N1.3-1.5');
+    if (e.kind === 'ticket') {
+      expect(e).toMatchObject({
+        source: 'pq',
+        pqNamedSelections: [
+          { record: 2, names: [{ item: 1, passenger: 2 }] },
+          {
+            record: 5,
+            names: [
+              { item: 1, passenger: 3 },
+              { item: 1, passenger: 4 },
+              { item: 1, passenger: 5 },
+            ],
+          },
+        ],
+      });
+    }
+  });
+
+  it('enforces max 4 PQs on the per-PQ named form too', () => {
+    expect(() =>
+      parseEntry('W¥PQ1N1.1¥PQ2N1.2¥PQ3N1.3¥PQ4N1.4¥PQ5N1.5')
+    ).toThrow(/max 4 Enhanced PQ/);
+  });
+
+  it('rejects a per-PQ named selection with a malformed name part', () => {
+    expect(() => parseEntry('W¥PQ2N3')).toThrow(/bad per-PQ name selector/);
+  });
+
   it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
     // Form of payment, segment selection, paper ticket, void/refund all
     // need the Issue-Tickets QR which isn't in references/ yet.
@@ -263,6 +293,26 @@ describe('e-ticket issuance', () => {
     // A valid segment number issues normally.
     host.process('W¥S1', wa);
     expect(wa.pnr.tickets).toHaveLength(1);
+  });
+
+  it('per-PQ named issues one ticket per referenced passenger', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('-DOE/JANE MS', wa);
+    host.process('WPPADT', wa); // price for ADT
+    host.process('PQ', wa); // store PQ1
+    host.process('W¥PQ1N1.1', wa);
+    expect(wa.pnr.tickets).toHaveLength(1);
+    expect(wa.pnr.tickets[0].passenger).toContain('SMITH');
+  });
+
+  it('per-PQ named rejects an out-of-range PQ', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WPPADT', wa);
+    host.process('PQ', wa);
+    expect(host.process('W¥PQ2N1.1', wa)).toBe('NO PQ RECORD');
+    expect(wa.pnr.tickets).toHaveLength(0);
   });
 
   it('multi-PQ rejects missing PQ records (NO PQ RECORD)', () => {

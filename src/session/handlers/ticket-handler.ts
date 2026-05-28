@@ -54,6 +54,63 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
   if (pnr.names.length === 0) return Response.NEED_NAME;
   if (pnr.tickets.length > 0) return 'TICKETS ALREADY ISSUED'; // reconstructed
 
+  // Per-PQ named selection (W¥PQ2N1.2¥PQ5N1.3-1.5) — one ticket per named
+  // passenger, drawn from that passenger's source PQ. Validate all PQs and
+  // refs up front, then issue atomically (no partial state on failure).
+  if (entry.pqNamedSelections) {
+    const tariff: 'D' | 'I' = pnr.segments.some(
+      (s) => INTL_AIRPORTS.has(s.origin) || INTL_AIRPORTS.has(s.destination)
+    )
+      ? 'I'
+      : 'D';
+    type Plan = { fq: FareQuote; passenger: string; base: number; taxTotal: number; total: number };
+    const plan: Plan[] = [];
+    for (const sel of entry.pqNamedSelections) {
+      const q = pnr.priceQuotes[sel.record - 1];
+      if (!q) return 'NO PQ RECORD'; // reconstructed
+      const fares = expandFares(q);
+      let i = 0;
+      for (const ref of sel.names) {
+        const item = pnr.names[ref.item - 1];
+        const pax = item?.passengers[ref.passenger - 1];
+        if (!item || !pax) return Response.FORMAT;
+        const fare = fares[i] ?? fares[fares.length - 1] ?? { base: 0, taxTotal: 0, total: 0 };
+        plan.push({
+          fq: q,
+          passenger: `${item.surname}/${pax.firstName.charAt(0)}`,
+          base: fare.base,
+          taxTotal: fare.taxTotal,
+          total: fare.total,
+        });
+        i++;
+      }
+    }
+    const type: 'TE' | 'TK' = entry.paperTicket ? 'TK' : 'TE';
+    for (const p of plan) {
+      const validating = entry.validatingCarrier ?? p.fq.validatingCarrier;
+      let commission: number | undefined;
+      if (entry.commissionAmount != null) commission = entry.commissionAmount;
+      else if (entry.commissionPercent != null) commission = (p.base * entry.commissionPercent) / 100;
+      pnr.tickets.push({
+        number: ticketNumber(validating, ctx.ticketSerial++),
+        type,
+        stock: 'AT',
+        passenger: p.passenger,
+        pcc: ctx.pcc,
+        agent: wa.agent,
+        issuedAt: new Date(),
+        tariff,
+        validatingCarrier: validating,
+        base: p.base,
+        taxTotal: p.taxTotal,
+        total: p.total,
+        commission,
+        formOfPayment: entry.formOfPayment,
+      });
+    }
+    return renderTicketing(pnr);
+  }
+
   // Resolve to one or more FareQuotes. Multi-PQ (W¥PQ2-4/7) expands into
   // a list; ticketing draws fares from each PQ in ascending order per the
   // Issue Tickets QR p.1 "ticketing fulfills the Enhanced PQ records in

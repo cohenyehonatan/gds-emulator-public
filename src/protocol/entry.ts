@@ -306,10 +306,17 @@ export interface TicketEntry extends BaseEntry {
    * `W¥PQ<n>-<m>` / `W¥PQ<n>/<m>` / `W¥PQ<n>-<m>/<o>` — multi-PQ list (Issue
    * Tickets QR p.1, "Issue tickets for multiple Enhanced PQ records").
    * Max 4 per QR source; ranges must be ascending; ticketing fulfills in
-   * sequential order regardless of how the agent typed them. Per-PQ name
-   * selection (`W¥PQ2N1.2¥PQ5N1.3-1.5`) is a separate form, not modeled here.
+   * sequential order regardless of how the agent typed them.
    */
   pqRecords?: number[];
+  /**
+   * `W¥PQ<n>N<dotted>(¥PQ<m>N<dotted>)*` — per-PQ named selection (QR p.1
+   * verbatim: `W¥PQ2N1.2¥PQ5N1.3-1.5`). Max 4 PQs per source; ticketing
+   * fulfills in sequential order. Each entry pairs a PQ record with an
+   * explicit list of passenger refs (range/list/single via
+   * parsePassengerSelection).
+   */
+  pqNamedSelections?: { record: number; names: import('../utils/passenger-ref.js').PassengerRef[] }[];
   nameItem?: number; // W¥N<item>
   /** `A<carrier>` (e.g. ALH → LH) — override the validating carrier for issue. */
   validatingCarrier?: string;

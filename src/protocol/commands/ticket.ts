@@ -43,6 +43,7 @@
 
 import type { TicketEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
+import { parsePassengerSelection } from '../../utils/passenger-ref.js';
 
 export function parseTicket(raw: string): TicketEntry {
   const base = { kind: 'ticket' as const, raw, timestamp: new Date() };
@@ -65,6 +66,23 @@ export function parseTicket(raw: string): TicketEntry {
   const dpAt = tokens.indexOf('DP');
   if (dpAt !== -1 && dpAt !== tokens.length - 1) {
     throw new ParseError(`Ticket: ¥DP qualifier must be last in "${raw}"`);
+  }
+
+  // Per-PQ named selection (QR p.1 verbatim form W¥PQ2N1.2¥PQ5N1.3-1.5):
+  // every ¥-separated token is its own (PQ, names) unit, no plain
+  // qualifiers allowed in the same entry. Detect by checking that ALL
+  // tokens match `PQ\d+N…`.
+  if (tokens.every((t) => /^PQ\d+N/i.test(t))) {
+    if (tokens.length > 4) throw new ParseError(`Ticket: max 4 Enhanced PQ records in "${raw}"`);
+    const selections = tokens.map((t) => {
+      const m = /^PQ(\d+)N(.+)$/i.exec(t)!;
+      try {
+        return { record: parseInt(m[1], 10), names: parsePassengerSelection(m[2]) };
+      } catch (err) {
+        throw new ParseError(`Ticket: bad per-PQ name selector "${t}" in "${raw}" — ${(err as Error).message}`);
+      }
+    });
+    return { ...base, source: 'pq', pqNamedSelections: selections };
   }
 
   // Base entry: PQ<n>, PQ<list/range>, N<item>, or empty (issue all).
