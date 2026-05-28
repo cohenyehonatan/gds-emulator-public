@@ -111,4 +111,31 @@ describe('queue place / access / work', () => {
     expect(wa.currentQueue).toBeUndefined();
     expect(host.process('QX', wa)).toBe('NO QUEUE ACCESSED');
   });
+
+  it('places a PNR on multiple queues in one entry (QP/G¥S¥T)', () => {
+    const loc = commit('SMITH');
+    host.process(`*${loc}`, wa); // bring committed PNR back to the work area
+    // Cross of Lorraine separates targets; first target = primary, rest = additional.
+    expect(host.process('QP/G¥S¥T', wa)).toBe('QUEUED G S T');
+    expect(host.context.queues.get('G')).toContain(loc);
+    expect(host.context.queues.get('S')).toContain(loc);
+    expect(host.context.queues.get('T')).toContain(loc);
+  });
+
+  it('supports branch-PCC placement (QP/2EA0G) and chained branch placements', () => {
+    const loc = commit('SMITH');
+    host.process(`*${loc}`, wa);
+    expect(host.process('QP/2EA0G¥5OT0S¥A', wa)).toBe('QUEUED 2EA0G 5OT0S A');
+    expect(host.context.queues.get('2EA0G')).toContain(loc);
+    expect(host.context.queues.get('5OT0S')).toContain(loc);
+    expect(host.context.queues.get('A')).toContain(loc);
+  });
+
+  it('rejects more than 9 placement targets', () => {
+    const loc = commit('SMITH');
+    host.process(`*${loc}`, wa);
+    // 10 targets ¥-joined; source caps at 9.
+    const targets = ['G', 'S', 'T', 'A', 'L', 'U', '1', '2', '3', '4'].join('¥');
+    expect(host.process(`QP/${targets}`, wa)).toBe('FORMAT');
+  });
 });

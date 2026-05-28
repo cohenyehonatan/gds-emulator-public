@@ -49,11 +49,16 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
     case 'place': {
       const loc = wa.pnr.locator;
       if (!loc || !ctx.pnrStore.has(loc)) return 'FINISH OR IGNORE'; // must be committed first
-      const q = entry.queue!;
-      const list = ctx.queues.get(q) ?? [];
-      if (!list.includes(loc)) list.push(loc); // idempotent: no duplicate placement
-      ctx.queues.set(q, list);
-      return `QUEUED ${q}`;
+      const targets = [
+        { queue: entry.queue!, pic: entry.pic },
+        ...(entry.additionalTargets ?? []),
+      ];
+      for (const t of targets) {
+        const list = ctx.queues.get(t.queue) ?? [];
+        if (!list.includes(loc)) list.push(loc); // idempotent: no duplicate placement
+        ctx.queues.set(t.queue, list);
+      }
+      return `QUEUED ${targets.map((t) => t.queue).join(' ')}`;
     }
 
     case 'access': {

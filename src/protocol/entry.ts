@@ -246,8 +246,14 @@ export interface DivideEntry extends BaseEntry {
 export interface QueueEntry extends BaseEntry {
   kind: 'queue';
   op: 'place' | 'access' | 'remove' | 'exit';
-  queue?: string; // queue id (number, or letter S/L)
+  queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (QP/100/75)
+  /**
+   * Multi-target chained placement (Zenon course): `QP/G¥S¥T` or
+   * `QP/2EA0G¥5OT0S¥A`. The first target is in `queue`/`pic`; the rest
+   * land here. Up to 9 addresses per the source. Place-op only.
+   */
+  additionalTargets?: { queue: string; pic?: string }[];
 }
 
 /** File a divided PNR (F) — commit the new PNR and restore the original. */
