@@ -6,7 +6,7 @@
  * rejected (NO ITINERARY) rather than starting a new PNR.
  */
 
-import type { CancelEntry, SegmentStatusEntry, ModifyEntry, MoveEntry } from '../../protocol/entry.js';
+import type { CancelEntry, SegmentStatusEntry, PassiveCancelEntry, ModifyEntry, MoveEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
@@ -183,6 +183,30 @@ export function handleMove(entry: MoveEntry, wa: WorkArea): string {
   wa.pnr.segments = remaining;
   wa.pnr.renumberSegments();
   return renderItinerary(wa.pnr);
+}
+
+/**
+ * Passive cancel `.<sel>XK` — remove the selected segments from the agent's
+ * itinerary. In a real Sabre, this leaves the airline-side booking in place
+ * (no cancel message sent); this emulator doesn't model an airline party, so
+ * the observable behavior is identical to an `X` cancel modulo the wire
+ * format. The agent-side semantics that matter — segment removal + renumber
+ * + state transition — are unified with handleCancel for that reason.
+ */
+export function handlePassiveCancel(entry: PassiveCancelEntry, wa: WorkArea): string {
+  if (wa.pnr.segments.length === 0) return Response.NO_ITINERARY;
+
+  const max = wa.pnr.segments.length;
+  for (const n of entry.segments) {
+    if (n < 1 || n > max) return Response.SEGMENT_NOT_FOUND;
+  }
+
+  wa.machine.transition(SessionEvent.MODIFY);
+  const remove = new Set(entry.segments);
+  wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  wa.pnr.renumberSegments();
+
+  return wa.pnr.segments.length > 0 ? renderItinerary(wa.pnr) : 'ITINERARY CANCELLED';
 }
 
 export function handleSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): string {

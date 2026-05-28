@@ -62,6 +62,29 @@ describe('PNR lifecycle depth', () => {
     expect(host.process('.9HK', wa)).toContain('SEGMENT NUMBER NOT IN ITINERARY');
   });
 
+  it('passively cancels one segment with .1XK and renumbers the rest', () => {
+    bookTwoSegments();
+    const resp = host.process('.1XK', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(wa.pnr.segments[0].segmentNumber).toBe(1); // renumbered from 2 → 1
+    expect(resp).toContain('AA');
+  });
+
+  it('passively cancels a range with .1-2XK', () => {
+    bookTwoSegments();
+    expect(host.process('.1-2XK', wa)).toContain('CANCELLED');
+    expect(wa.pnr.segments).toHaveLength(0);
+  });
+
+  it('rejects .<seg>XK when the segment does not exist', () => {
+    bookTwoSegments();
+    expect(host.process('.9XK', wa)).toContain('SEGMENT NUMBER NOT IN ITINERARY');
+  });
+
+  it('rejects .<seg>XK when there is no itinerary', () => {
+    expect(host.process('.1XK', wa)).toContain('NO ITINERARY');
+  });
+
   it('shows a similar-name list when a surname matches more than one PNR', () => {
     // Commit two SMITH PNRs.
     for (const first of ['JOHN', 'JANE']) {

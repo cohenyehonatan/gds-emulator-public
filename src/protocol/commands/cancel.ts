@@ -6,7 +6,8 @@
  *   XI     cancel the entire itinerary
  *   XIA    cancel all air segments
  *
- * TODO (later, see ROADMAP): passive cancel `.(sel)XK`, cancel+rebook `X1¥0…`.
+ * Passive cancel `.(sel)XK` lives under sigil `.` (commands/segment-status.ts).
+ * TODO (later, see ROADMAP): cancel+rebook `X1¥0…`.
  */
 
 import type { CancelEntry } from '../entry.js';

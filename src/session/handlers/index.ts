@@ -22,7 +22,13 @@ import {
 } from './pnr-build-handler.js';
 import { handleEndTransaction } from './end-tx-handler.js';
 import { handleRetrieve } from './retrieve-handler.js';
-import { handleCancel, handleSegmentStatus, handleModify, handleMove } from './modify-handler.js';
+import {
+  handleCancel,
+  handleSegmentStatus,
+  handlePassiveCancel,
+  handleModify,
+  handleMove,
+} from './modify-handler.js';
 import { handleSsr, handleOsi } from './service-handler.js';
 import { handleFrequentFlyer } from './frequent-flyer-handler.js';
 import { handleFlightInfo } from './flight-info-handler.js';
@@ -87,6 +93,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleCancel(entry, wa);
       case 'segment_status':
         return handleSegmentStatus(entry, wa);
+      case 'passive_cancel':
+        return handlePassiveCancel(entry, wa);
       case 'move':
         return handleMove(entry, wa);
       case 'modify':

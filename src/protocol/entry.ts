@@ -147,6 +147,19 @@ export interface SegmentStatusEntry extends BaseEntry {
   status: string; // e.g. "HK"
 }
 
+/**
+ * Passive cancel (`.<sel>XK`) — remove segments from the agent's itinerary
+ * while leaving the airline-side reservation in place. Source: Sabre Basic
+ * Reservation Course, "Passively cancel segments, no message sent to the
+ * airline" — format `.(segment selection)XK`, example `.1-3XK`. Selection
+ * grammar mirrors the X cancel (single, list `1/3`, range `1-3`); whole-
+ * itinerary form (XI/XIA) has no passive analog.
+ */
+export interface PassiveCancelEntry extends BaseEntry {
+  kind: 'passive_cancel';
+  segments: number[];
+}
+
 /** Move/insert segments: /<after>/<from>[-<to>] — /0/2 moves seg 2 to the front. */
 export interface MoveEntry extends BaseEntry {
   kind: 'move';
@@ -267,6 +280,7 @@ export type ParsedEntry =
   | FlightInfoEntry
   | CancelEntry
   | SegmentStatusEntry
+  | PassiveCancelEntry
   | MoveEntry
   | ModifyEntry
   | PricingEntry
