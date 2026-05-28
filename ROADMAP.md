@@ -235,26 +235,30 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
             Source: the Basic Reservation Course example `W¥PQ1¥KP0¥ALH`
             (p.6 ICK table footer). All three are ¥-separated qualifiers
             that combine with the existing PQ / N base entries.
-      - [ ] **Now unblocked — Issue Tickets QR + siblings in `references/`** —
-            the Sabre Issue Tickets QR, Ticket Display Tools QR, and
-            Accounting Lines QR pin the full wire format for: `W¥S<segs>`
-            (segment select, e.g. `W¥S1*Q…¥S2*Q…`), `W¥F<fop>` (form of
-            payment — CASH/CHECK/credit card with CVV/extended payment/
-            pre-approved code), `W¥DP` (invoice), multi-PQ
-            `W¥PQ2N1.2¥PQ5N1.3-1.5` (max 4 PQs, ranges ascending), paper
-            `W¥XETR`, the canonical `*PAC` accounting-data line (this is
-            where commission lives — *not* `*T`), and the full `*T` /
-            `*TA` / `*TI` / `WETR*` / `WTDB*` / `DQB*` display family.
-            Qualifier ordering rules from p.1: `¥PQ` must be first, `¥DP`
-            must be last. Refund / exchange flow (WFR/WFRT/WTRX +
-            `OK-REFUND CANCELLED`) pinned in the third-party Zenon QREX
-            manual; treat its strings as verbatim-third-party (slightly
-            lower bar than first-party Sabre QRs — flag in code).
-            **Void** is the one remaining source gap: no first-party
+      - [x] **W¥S<n>** segment select + **W¥XETR** paper-ticket override
+            (`a770d46`). Segment validated against the itinerary; paper
+            flips ticket type from `TE` to `TK` per QR p.5.
+      - [x] **W¥F<fop>** form of payment (`f82951e`) — all four QR p.2-3
+            shapes: cash, check (FCHECK/FCHEQUE/FCK), credit card with
+            optional `*E` extended payment or `*Z` approval code inline,
+            pre-approved (`F*Z<code>`). Plus the separate `¥CVV<n>`
+            credit-card-security qualifier. FOP persists on TicketRecord;
+            renders in `*PAC` (lands when *PAC display does).
+      - [x] **W¥DP** invoice + ordering enforcement (`8e4b38e`). Catches
+            "¥DP qualifier must be last" violations at parse time per QR
+            p.1; PQ-must-be-first is enforced implicitly (PQ recognized
+            only as base entry).
+      - [ ] **Remaining unblocked work** (Issue Tickets QR + siblings):
+            multi-PQ `W¥PQ2N1.2¥PQ5N1.3-1.5` (max 4 records, ranges
+            ascending), the `*PAC` accounting-data line display
+            (commission + FOP live here, *not* `*T`), the `*T` variants
+            (`*T/N` / `*TA` / `*TI`) and `WETR*` / `WTDB*` / `DQB*`
+            display family, plus refund / exchange flow
+            (WFR/WFRT/WTRX, third-party Zenon QREX manual).
+      - [ ] **Void** stays the one permanent source gap — no first-party
             Sabre QR documents the standalone `WV` sigil with response
-            screens. Only third-party reseller cheat sheets (EmQuest) do,
-            and we deliberately didn't import those. Void responses
-            would land as "reconstructed" if implemented.
+            screens; only third-party reseller cheat sheets do. Void
+            responses would land as "reconstructed" if implemented.
 
 ## v4 — Aviation-suite integration (optional)
 
