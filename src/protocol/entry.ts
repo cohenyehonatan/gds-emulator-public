@@ -393,7 +393,29 @@ export type ParsedEntry =
   | QueueEntry
   | TicketEntry
   | AuditTrailEntry
+  | RefundEntry
   | UnsupportedEntry;
+
+/**
+ * Refund a ticket (`WFR<ticket>`) or its taxes only (`WFRT<ticket>`).
+ * Source: Zenon QREX manual pp.7-9 (verbatim entries + mask responses
+ * for the refund flow). Third-party transcription of Sabre's QREX
+ * sigil family — strings landed from here are flagged "verbatim-
+ * third-party" rather than first-party Sabre.
+ *
+ *   WFR<13-digit-ticket>           full refund
+ *   WFRT<13-digit-ticket>          tax-only refund
+ *
+ * The QREX `WFR<ticket>¥AGF` "agent fare" qualifier and `WFR*` redisplay
+ * are deferred to a follow-up — this commit lands the minimum
+ * status-changing surface so the *TA / *TI partition (added in 690d6bd)
+ * becomes meaningful end-to-end.
+ */
+export interface RefundEntry extends BaseEntry {
+  kind: 'refund';
+  ticketNumber: string;
+  mode: 'full' | 'tax_only';
+}
 
 /**
  * Audit Trail Report (DQB asterisk) — daily/branch ticket-issuance log.
