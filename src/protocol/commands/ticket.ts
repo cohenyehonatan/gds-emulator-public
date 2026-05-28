@@ -18,9 +18,13 @@
  *                  as a base entry too, for W¥PQ1 alone)
  *   N<item>        name-field selector
  *
- * TODO (ROADMAP, source not yet in references/): W¥S (segment select),
- * W¥F (form of payment), W¥DP (invoice), multi-PQ W¥PQ1/2, paper W¥XETR,
- * accounting-data line, void/refund. Each needs the Issue-Tickets QR.
+ * TODO (ROADMAP, now source-grounded in references/Sabre-Issue-Tickets-QR.pdf
+ * + sibling Ticket-Display-Tools / Accounting-Lines QRs and Zenon QREX manual):
+ * W¥S (segment select), W¥F (form of payment with CVV/extended/pre-approved),
+ * W¥DP (invoice — must be last per QR p.1), multi-PQ W¥PQ2N1.2¥PQ5N1.3-1.5
+ * (max 4 records), paper W¥XETR, *PAC accounting line (commission lives
+ * there, not *T), WFR/WFRT/WTRX refund flow. Void's standalone WV sigil
+ * isn't in any first-party Sabre QR; deferred separately.
  */
 
 import type { TicketEntry } from '../entry.js';
