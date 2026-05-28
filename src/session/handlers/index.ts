@@ -90,7 +90,7 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'display':
         return handleRetrieve(entry, wa, ctx);
       case 'cancel':
-        return handleCancel(entry, wa);
+        return handleCancel(entry, wa, ctx);
       case 'segment_status':
         return handleSegmentStatus(entry, wa);
       case 'passive_cancel':

@@ -25,7 +25,7 @@ import { parseClockToMinutes } from '../../utils/validation.js';
 import { dayOfWeekLetter, dayOfWeekNumber, nextDay, type HandlerContext } from './context.js';
 
 /** Mark an overnight (next-day) arrival when the arrival time precedes departure. */
-function withArrival(seg: AirSegment): AirSegment {
+export function withArrival(seg: AirSegment): AirSegment {
   const dep = parseClockToMinutes(seg.departTime);
   const arr = parseClockToMinutes(seg.arriveTime);
   if (dep != null && arr != null && arr < dep) {

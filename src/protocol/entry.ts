@@ -139,6 +139,19 @@ export interface CancelEntry extends BaseEntry {
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
   /** Affected segment numbers (empty for whole-itinerary cancels). */
   segments: number[];
+  /**
+   * Optional rebook leg for the single-entry cancel-and-rebook forms
+   * (Sabre Basic Reservation Course, p.~52):
+   *   `cpa_line`            — `X<sel>¥0<seats><class><line>` (e.g. `X3¥01F1`),
+   *                            sell from the cached availability display.
+   *   `same_flight_new_date` — `X<sel>¥00<date>` (e.g. `X1¥0025APR`), re-sell
+   *                            the same carrier/flight/class on a new date.
+   * The cancel is executed first; if the rebook then fails, the cancellation
+   * still stands (per the Zenon course's note: agent recovers via `IR`).
+   */
+  rebook?:
+    | { kind: 'cpa_line'; seats: number; bookingClass: string; line: number }
+    | { kind: 'same_flight_new_date'; newDate: string };
 }
 
 export interface SegmentStatusEntry extends BaseEntry {

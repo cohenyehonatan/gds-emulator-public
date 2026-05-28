@@ -6,18 +6,29 @@
  * rejected (NO ITINERARY) rather than starting a new PNR.
  */
 
-import type { CancelEntry, SegmentStatusEntry, PassiveCancelEntry, ModifyEntry, MoveEntry } from '../../protocol/entry.js';
+import type {
+  CancelEntry,
+  SellEntry,
+  SegmentStatusEntry,
+  PassiveCancelEntry,
+  ModifyEntry,
+  MoveEntry,
+} from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
+import type { AirSegment } from '../../models/segment.js';
 import { SessionEvent } from '../session-state.js';
-import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
+import { MANUAL_STATUS_CODES, StatusCode } from '../../protocol/constants.js';
 import { Response } from '../../dialects/sabre/responses.js';
-import { renderItinerary, renderNames, renderPhones, renderTicketing, renderRemarks } from '../../protocol/serializer.js';
+import { renderItinerary, renderNames, renderPhones, renderTicketing, renderRemarks, renderSoldSegment } from '../../protocol/serializer.js';
 import { parseNameText, parsePassenger } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
 import { parseRemarkText } from '../../models/remark.js';
+import { parseSabreDate } from '../../utils/validation.js';
+import { dayOfWeekLetter, dayOfWeekNumber, type HandlerContext } from './context.js';
+import { handleSell, withArrival } from './pnr-build-handler.js';
 
-export function handleCancel(entry: CancelEntry, wa: WorkArea): string {
+export function handleCancel(entry: CancelEntry, wa: WorkArea, ctx: HandlerContext): string {
   if (wa.pnr.segments.length === 0) return Response.NO_ITINERARY;
 
   if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
@@ -32,12 +43,82 @@ export function handleCancel(entry: CancelEntry, wa: WorkArea): string {
     if (n < 1 || n > max) return Response.SEGMENT_NOT_FOUND;
   }
 
+  // Capture cancelled segments before removal — a same-flight/new-date rebook
+  // needs the carrier/flight/class/origin/dest the cancellation just dropped.
+  const targets = new Set(entry.segments);
+  const cancelled = entry.rebook
+    ? wa.pnr.segments.filter((s) => targets.has(s.segmentNumber))
+    : [];
+
   wa.machine.transition(SessionEvent.MODIFY);
-  const remove = new Set(entry.segments);
-  wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  wa.pnr.segments = wa.pnr.segments.filter((s) => !targets.has(s.segmentNumber));
   wa.pnr.renumberSegments();
 
+  if (entry.rebook) {
+    return rebookAfterCancel(entry.rebook, cancelled, wa, ctx);
+  }
   return wa.pnr.segments.length > 0 ? renderItinerary(wa.pnr) : 'ITINERARY CANCELLED';
+}
+
+/**
+ * Execute the rebook half of a cancel-and-rebook entry. On failure, the
+ * cancellation already stands — agent recovers via `IR` per the Zenon course.
+ */
+function rebookAfterCancel(
+  spec: NonNullable<CancelEntry['rebook']>,
+  cancelled: AirSegment[],
+  wa: WorkArea,
+  ctx: HandlerContext
+): string {
+  if (spec.kind === 'cpa_line') {
+    // Delegate to handleSell — same availability cache, class/seat validation,
+    // inventory decrement, segment numbering, FSM transition.
+    const sell: SellEntry = {
+      kind: 'sell',
+      raw: '',
+      timestamp: new Date(),
+      mode: 'availability',
+      seats: spec.seats,
+      bookingClass: spec.bookingClass,
+      line: spec.line,
+    };
+    return handleSell(sell, wa, ctx);
+  }
+
+  // same_flight_new_date: re-sell each cancelled leg on the new date.
+  const parsed = parseSabreDate(spec.newDate);
+  if (!parsed) return Response.FORMAT;
+  const { date } = parsed;
+
+  wa.machine.transition(SessionEvent.SELL);
+  const newSegs: AirSegment[] = [];
+  for (const c of cancelled) {
+    // Seed the new-date inventory if the agent hasn't browsed availability for
+    // that date — otherwise sell() returns false against an unseeded slot.
+    if (!ctx.inventory.seedSeats(date.raw, c.carrier, c.flightNumber)) return 'NO FLIGHTS';
+    if (!ctx.inventory.sell(date.raw, c.carrier, c.flightNumber, c.bookingClass, c.seats)) {
+      return 'CLASS NOT AVAILABLE';
+    }
+    newSegs.push(
+      withArrival({
+        segmentNumber: wa.pnr.segments.length + newSegs.length + 1,
+        carrier: c.carrier,
+        flightNumber: c.flightNumber,
+        bookingClass: c.bookingClass,
+        date: date.raw,
+        dayOfWeek: dayOfWeekLetter(date.month, date.day),
+        dayOfWeekNum: dayOfWeekNumber(date.month, date.day),
+        origin: c.origin,
+        destination: c.destination,
+        status: StatusCode.SS,
+        seats: c.seats,
+        departTime: c.departTime,
+        arriveTime: c.arriveTime,
+      })
+    );
+  }
+  for (const s of newSegs) wa.pnr.segments.push(s);
+  return newSegs.map(renderSoldSegment).join('\n');
 }
 
 /** Change or delete a PNR field via the '¤' key. Requires a PNR present. */

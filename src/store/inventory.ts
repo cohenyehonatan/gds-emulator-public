@@ -168,6 +168,20 @@ export class Inventory {
     if (seatsByClass) seatsByClass[bookingClass] = (seatsByClass[bookingClass] ?? 0) + seats;
   }
 
+  /**
+   * Initialize remaining seats for a (date, flight) pair from the static
+   * SCHEDULE so a subsequent `sell()` works without the agent first having
+   * browsed availability on that date. Used by cancel-and-rebook on a new
+   * date. Returns false if the flight isn't in the schedule.
+   */
+  seedSeats(date: string, carrier: string, flightNumber: string): boolean {
+    const f = this.scheduleFor(carrier, flightNumber);
+    if (!f) return false;
+    const k = this.key(date, carrier, flightNumber);
+    if (!this.remaining.has(k)) this.remaining.set(k, { ...f.classSeats });
+    return true;
+  }
+
   /** Decrement seats for a sold flight. Returns false if not enough seats. */
   sell(date: string, carrier: string, flightNumber: string, bookingClass: string, seats: number): boolean {
     const k = this.key(date, carrier, flightNumber);
