@@ -20,8 +20,31 @@ describe('ticketing parsing', () => {
     expect(parseEntry('WPNC').kind).toBe('pricing');
   });
 
-  it('rejects an unsupported ticket qualifier (until later commits)', () => {
-    expect(() => parseEntry('W¥KP10')).toThrow();
+  it('parses ¥-separated qualifiers (W¥PQ1¥KP0¥ALH from the source example)', () => {
+    const e = parseEntry('W¥PQ1¥KP0¥ALH');
+    expect(e.kind).toBe('ticket');
+    if (e.kind === 'ticket') {
+      expect(e).toMatchObject({
+        source: 'pq',
+        pqRecord: 1,
+        commissionPercent: 0,
+        validatingCarrier: 'LH',
+      });
+    }
+  });
+
+  it('parses a bare qualifier (W¥KP10) with no PQ/N base', () => {
+    const e = parseEntry('W¥KP10');
+    expect(e.kind).toBe('ticket');
+    if (e.kind === 'ticket') {
+      expect(e).toMatchObject({ source: 'pnr', commissionPercent: 10 });
+    }
+  });
+
+  it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
+    // Form of payment, segment selection, paper ticket, void/refund all
+    // need the Issue-Tickets QR which isn't in references/ yet.
+    expect(() => parseEntry('W¥FVISA')).toThrow();
   });
 });
 
@@ -109,5 +132,32 @@ describe('e-ticket issuance', () => {
     host.process('-SMITH/JOHN MR', wa);
     host.process('W¥', wa);
     expect(host.process('W¥', wa)).toBe('TICKETS ALREADY ISSUED');
+  });
+
+  it('A<carrier> overrides the validating carrier — ticket-number prefix changes', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa); // price (sets fq.validatingCarrier from the itinerary)
+    host.process('W¥ALH', wa); // override to Lufthansa
+    const ticket = wa.pnr.tickets[0];
+    expect(ticket.validatingCarrier).toBe('LH');
+    expect(ticket.number.startsWith('220')).toBe(true); // 220 is LH's airline code
+  });
+
+  it('KP<n> applies a commission percentage to the base fare', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    host.process('W¥KP10', wa);
+    const ticket = wa.pnr.tickets[0];
+    expect(ticket.commission).toBeCloseTo(ticket.base * 0.1, 2);
+  });
+
+  it('K<amount> applies a flat commission', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    host.process('W¥K12.50', wa);
+    expect(wa.pnr.tickets[0].commission).toBe(12.5);
   });
 });

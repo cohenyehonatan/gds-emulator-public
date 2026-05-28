@@ -6,10 +6,21 @@
  *   W¥N(item)      issue for one name field
  *
  * `¥` is the cross of Lorraine (typed as `'`, normalized by keyboard.ts).
+ * It's also the qualifier separator — additional qualifiers chain after
+ * the base entry, each separated by ¥, per the Basic Reservation Course
+ * example: `W¥PQ1¥KP0¥ALH` (PQ 1, commission 0%, validating airline LH).
  *
- * TODO (ROADMAP): qualifiers W¥A (validating carrier), W¥S (segment select),
- * W¥K/KP (commission), W¥F (form of payment), W¥DP (invoice), multiple-PQ
- * W¥PQ1/2, paper W¥XETR.
+ * Implemented qualifiers (source-grounded by the example above):
+ *   A<carrier>     validating carrier override        e.g. ALH
+ *   KP<n>          commission percentage              e.g. KP0
+ *   K<amount>      commission flat amount             e.g. K12.50
+ *   PQ<n>          stored PQ record reference          (still recognized
+ *                  as a base entry too, for W¥PQ1 alone)
+ *   N<item>        name-field selector
+ *
+ * TODO (ROADMAP, source not yet in references/): W¥S (segment select),
+ * W¥F (form of payment), W¥DP (invoice), multi-PQ W¥PQ1/2, paper W¥XETR,
+ * accounting-data line, void/refund. Each needs the Issue-Tickets QR.
  */
 
 import type { TicketEntry } from '../entry.js';
@@ -26,11 +37,51 @@ export function parseTicket(raw: string): TicketEntry {
 
   if (rest === '') return { ...base, source: 'pnr' };
 
-  const pq = /^PQ(\d+)$/.exec(rest);
-  if (pq) return { ...base, source: 'pq', pqRecord: parseInt(pq[1], 10) };
+  // Split on the cross of Lorraine: the first token is the base entry, the
+  // rest are qualifiers (any number, any order).
+  const tokens = rest.split('¥');
+  const head = tokens[0];
+  const qualifiers = tokens.slice(1);
 
-  const name = /^N(\d+)$/.exec(rest);
-  if (name) return { ...base, source: 'pnr', nameItem: parseInt(name[1], 10) };
+  // Base entry: PQ<n>, N<item>, or empty (issue all).
+  let entry: TicketEntry;
+  const pq = /^PQ(\d+)$/.exec(head);
+  const name = /^N(\d+)$/.exec(head);
+  if (pq) {
+    entry = { ...base, source: 'pq', pqRecord: parseInt(pq[1], 10) };
+  } else if (name) {
+    entry = { ...base, source: 'pnr', nameItem: parseInt(name[1], 10) };
+  } else if (isQualifier(head)) {
+    // Bare `W¥A...` / `W¥KP...` / `W¥K...` — no PQ or N; issue all with the qualifier.
+    entry = { ...base, source: 'pnr' };
+    applyQualifier(entry, head, raw);
+  } else {
+    throw new ParseError(`Ticket: unsupported qualifier "${head}" in "${raw}"`);
+  }
 
-  throw new ParseError(`Ticket: unsupported qualifier "${rest}" in "${raw}"`);
+  for (const q of qualifiers) applyQualifier(entry, q, raw);
+  return entry;
+}
+
+function isQualifier(t: string): boolean {
+  return /^A[A-Z0-9]{2}$/.test(t) || /^KP\d+$/.test(t) || /^K\d+(\.\d+)?$/.test(t);
+}
+
+function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
+  const carrier = /^A([A-Z0-9]{2})$/.exec(token);
+  if (carrier) {
+    entry.validatingCarrier = carrier[1];
+    return;
+  }
+  const kp = /^KP(\d+)$/.exec(token);
+  if (kp) {
+    entry.commissionPercent = parseInt(kp[1], 10);
+    return;
+  }
+  const k = /^K(\d+(?:\.\d+)?)$/.exec(token);
+  if (k) {
+    entry.commissionAmount = parseFloat(k[1]);
+    return;
+  }
+  throw new ParseError(`Ticket: unrecognized qualifier "${token}" in "${raw}"`);
 }

@@ -20,6 +20,8 @@ export interface TicketRecord {
   base: number;
   taxTotal: number;
   total: number;
+  /** Commission applied at issue (W¥KP<n> percent or W¥K<amount> flat). 0 / undefined = none. */
+  commission?: number;
 }
 
 /** Three-digit airline accounting codes used as the ticket-number prefix. */

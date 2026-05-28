@@ -74,10 +74,21 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
     ? 'I'
     : 'D';
 
+  // W¥A<carrier> overrides the validating carrier used for the ticket-number
+  // prefix and the *T display; otherwise inherit from the fare quote.
+  const validating = entry.validatingCarrier ?? fq.validatingCarrier;
+
   pax.forEach((passenger, i) => {
     const fare = fares[i] ?? fares[fares.length - 1] ?? zero;
+    // Commission: KP<n> = percent of base; K<amt> = flat amount. Both forms
+    // are mutually exclusive in the source's combined example (W¥PQ1¥KP0¥ALH);
+    // if both somehow appear we let the flat-amount form win deterministically.
+    let commission: number | undefined;
+    if (entry.commissionAmount != null) commission = entry.commissionAmount;
+    else if (entry.commissionPercent != null) commission = (fare.base * entry.commissionPercent) / 100;
+
     const record: TicketRecord = {
-      number: ticketNumber(fq.validatingCarrier, ctx.ticketSerial++),
+      number: ticketNumber(validating, ctx.ticketSerial++),
       type: 'TE',
       stock: 'AT',
       passenger,
@@ -85,10 +96,11 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
       agent: wa.agent,
       issuedAt: new Date(),
       tariff,
-      validatingCarrier: fq.validatingCarrier,
+      validatingCarrier: validating,
       base: fare.base,
       taxTotal: fare.taxTotal,
       total: fare.total,
+      commission,
     };
     pnr.tickets.push(record);
   });

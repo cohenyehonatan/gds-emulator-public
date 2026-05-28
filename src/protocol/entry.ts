@@ -292,13 +292,23 @@ export interface FileEntry extends BaseEntry {
 
 /**
  * Issue e-ticket(s): W¥ / TTP issue for the whole PNR, W¥PQ<n> from a stored
- * PQ record, W¥N<item> for one name field.
+ * PQ record, W¥N<item> for one name field. Optional ¥-separated qualifiers
+ * after the base entry: validating carrier (A<carrier>), commission
+ * percentage (KP<n>), commission flat amount (K<amount>). Source-grounded
+ * via the single Basic Reservation Course example `W¥PQ1¥KP0¥ALH` (p.6 ICK
+ * table footer, showing the cross-of-Lorraine as a qualifier separator).
  */
 export interface TicketEntry extends BaseEntry {
   kind: 'ticket';
   source: 'pnr' | 'pq'; // price-as-booked/last quote vs a stored PQ record
   pqRecord?: number; // W¥PQ<n>
   nameItem?: number; // W¥N<item>
+  /** `A<carrier>` (e.g. ALH → LH) — override the validating carrier for issue. */
+  validatingCarrier?: string;
+  /** `KP<n>` commission percentage (whole number, no decimal in source example). */
+  commissionPercent?: number;
+  /** `K<amount>` commission flat amount in the fare-quote currency. */
+  commissionAmount?: number;
 }
 
 export interface SignOutEntry extends BaseEntry {
