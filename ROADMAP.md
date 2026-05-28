@@ -203,8 +203,23 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       uses the `DISPLAYED → DISPLAYED` RETRIEVE self-loop. The queue
       prompt/confirmation strings are reconstructed (the course documents the
       entries, not the host responses).
-      - [ ] Branch-PCC general queues (`QP/2EA0G`), jump (`QJ`), skip
-            (`QBI‡n`/`QBI-n`), `QL`/`QU` re-queue, `QXIR`/`QXER` exit-and-redisplay.
+      - [x] Branch-PCC general queues (`QP/2EA0G`) — already worked transparently
+            (queue IDs are opaque alphanumeric); the explicit new piece was
+            **multi-target chained placement** (`QP/G¥S¥T`, `QP/2EA0G¥5OT0S¥A`,
+            up to 9 addresses per source).
+      - [x] **Exit-and-redisplay** — `QXIR` (ignore + exit + redisplay) and
+            `QXER` (end-tx + exit + redisplay). QXER returns control to the
+            agent inside the queue context if end-tx rejects on a missing field.
+      - [x] **Skip** — `QBI¥N` forward (drops N from the queue's front and
+            loads the new front). `QBI-N` backward is rejected with a
+            reconstructed string (real Sabre tracks a queue cursor we don't
+            model; faking it would misrepresent fidelity).
+      - [x] **Re-queue** — `QL` → LMTC, `QU` → UTR, each with an optional
+            ≤15-char message logged as a general remark on the PNR per Zenon
+            note 1. The source's auto-requeue-after-N-hours timer behavior
+            isn't modeled (no wall clock).
+      - [ ] **Jump** (`QJ`) — referenced in some queue summaries but not pinned
+            in either Sabre PDF; deferred until a source surfaces.
 - [x] **E-ticket issuance** — `W¥`/`TTP` issue one e-ticket per seat-occupying
       passenger (pricing as booked or off the last `WP` quote), `W¥PQ<n>` from a
       stored PQ record, `W¥N<item>` for one name field. Each ticket
