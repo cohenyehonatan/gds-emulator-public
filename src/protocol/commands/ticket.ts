@@ -67,11 +67,14 @@ export function parseTicket(raw: string): TicketEntry {
     throw new ParseError(`Ticket: ¥DP qualifier must be last in "${raw}"`);
   }
 
-  // Base entry: PQ<n>, N<item>, or empty (issue all).
+  // Base entry: PQ<n>, PQ<list/range>, N<item>, or empty (issue all).
   let entry: TicketEntry;
   const pq = /^PQ(\d+)$/.exec(head);
+  const pqMulti = /^PQ(\d+(?:[-\/]\d+)+)$/.exec(head);
   const name = /^N(\d+)$/.exec(head);
-  if (pq) {
+  if (pqMulti) {
+    entry = { ...base, source: 'pq', pqRecords: expandPqList(pqMulti[1], raw) };
+  } else if (pq) {
     entry = { ...base, source: 'pq', pqRecord: parseInt(pq[1], 10) };
   } else if (name) {
     entry = { ...base, source: 'pnr', nameItem: parseInt(name[1], 10) };
@@ -139,6 +142,30 @@ function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
     return;
   }
   throw new ParseError(`Ticket: unrecognized qualifier "${token}" in "${raw}"`);
+}
+
+/**
+ * Expand a multi-PQ list like `2-4/7` into the explicit ordered set
+ * `[2, 3, 4, 7]`. Source rules (Issue Tickets QR p.1): max 4 PQs total,
+ * ranges must be ascending; ticketing fulfills in sequential order
+ * regardless of typed order so we sort the final list.
+ */
+function expandPqList(body: string, raw: string): number[] {
+  const out = new Set<number>();
+  for (const part of body.split('/')) {
+    const range = /^(\d+)-(\d+)$/.exec(part);
+    if (range) {
+      const from = parseInt(range[1], 10);
+      const to = parseInt(range[2], 10);
+      if (to < from) throw new ParseError(`Ticket: PQ range must be ascending in "${raw}"`);
+      for (let n = from; n <= to; n++) out.add(n);
+      continue;
+    }
+    if (!/^\d+$/.test(part)) throw new ParseError(`Ticket: bad PQ list element "${part}" in "${raw}"`);
+    out.add(parseInt(part, 10));
+  }
+  if (out.size > 4) throw new ParseError(`Ticket: max 4 Enhanced PQ records in "${raw}"`);
+  return Array.from(out).sort((a, b) => a - b);
 }
 
 /** Parse the W¥F<fop> token into one of the four FOP shapes from Issue Tickets QR p.2-3. */

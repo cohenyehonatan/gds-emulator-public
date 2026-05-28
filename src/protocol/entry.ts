@@ -301,7 +301,15 @@ export interface FileEntry extends BaseEntry {
 export interface TicketEntry extends BaseEntry {
   kind: 'ticket';
   source: 'pnr' | 'pq'; // price-as-booked/last quote vs a stored PQ record
-  pqRecord?: number; // W¥PQ<n>
+  pqRecord?: number; // W¥PQ<n> — single PQ
+  /**
+   * `W¥PQ<n>-<m>` / `W¥PQ<n>/<m>` / `W¥PQ<n>-<m>/<o>` — multi-PQ list (Issue
+   * Tickets QR p.1, "Issue tickets for multiple Enhanced PQ records").
+   * Max 4 per QR source; ranges must be ascending; ticketing fulfills in
+   * sequential order regardless of how the agent typed them. Per-PQ name
+   * selection (`W¥PQ2N1.2¥PQ5N1.3-1.5`) is a separate form, not modeled here.
+   */
+  pqRecords?: number[];
   nameItem?: number; // W¥N<item>
   /** `A<carrier>` (e.g. ALH → LH) — override the validating carrier for issue. */
   validatingCarrier?: string;

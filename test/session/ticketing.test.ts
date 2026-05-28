@@ -106,6 +106,26 @@ describe('ticketing parsing', () => {
     expect(() => parseEntry('W¥DP¥KP5')).toThrow(/DP qualifier must be last/);
   });
 
+  it('parses multi-PQ ranges and lists (W¥PQ2-4, W¥PQ2/7, W¥PQ2-4/7)', () => {
+    const range = parseEntry('W¥PQ2-4');
+    if (range.kind === 'ticket') {
+      expect(range).toMatchObject({ source: 'pq', pqRecords: [2, 3, 4] });
+    }
+    const list = parseEntry('W¥PQ2/7');
+    if (list.kind === 'ticket') {
+      expect(list).toMatchObject({ source: 'pq', pqRecords: [2, 7] });
+    }
+    const both = parseEntry('W¥PQ2-4/7');
+    if (both.kind === 'ticket') {
+      expect(both).toMatchObject({ source: 'pq', pqRecords: [2, 3, 4, 7] });
+    }
+  });
+
+  it('enforces QR multi-PQ rules: ascending ranges, max 4 records', () => {
+    expect(() => parseEntry('W¥PQ5-2')).toThrow(/ascending/);
+    expect(() => parseEntry('W¥PQ1/2/3/4/5')).toThrow(/max 4 Enhanced PQ/);
+  });
+
   it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
     // Form of payment, segment selection, paper ticket, void/refund all
     // need the Issue-Tickets QR which isn't in references/ yet.
@@ -243,6 +263,16 @@ describe('e-ticket issuance', () => {
     // A valid segment number issues normally.
     host.process('W¥S1', wa);
     expect(wa.pnr.tickets).toHaveLength(1);
+  });
+
+  it('multi-PQ rejects missing PQ records (NO PQ RECORD)', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    host.process('PQ', wa); // store PQ1
+    // PQ2 doesn't exist; multi-PQ entry W¥PQ1-2 should refuse.
+    expect(host.process('W¥PQ1-2', wa)).toBe('NO PQ RECORD');
+    expect(wa.pnr.tickets).toHaveLength(0);
   });
 
   it('FOP propagates to the issued TicketRecord (cash + credit card cases)', () => {

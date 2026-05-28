@@ -54,19 +54,46 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
   if (pnr.names.length === 0) return Response.NEED_NAME;
   if (pnr.tickets.length > 0) return 'TICKETS ALREADY ISSUED'; // reconstructed
 
-  let fq: FareQuote | null;
-  if (entry.source === 'pq') {
-    fq = pnr.priceQuotes[(entry.pqRecord ?? 0) - 1] ?? null;
-    if (!fq) return 'NO PQ RECORD'; // reconstructed
+  // Resolve to one or more FareQuotes. Multi-PQ (W¥PQ2-4/7) expands into
+  // a list; ticketing draws fares from each PQ in ascending order per the
+  // Issue Tickets QR p.1 "ticketing fulfills the Enhanced PQ records in
+  // sequential order" rule.
+  let fqs: FareQuote[];
+  if (entry.pqRecords) {
+    fqs = [];
+    for (const n of entry.pqRecords) {
+      const q = pnr.priceQuotes[n - 1];
+      if (!q) return 'NO PQ RECORD'; // reconstructed
+      fqs.push(q);
+    }
+  } else if (entry.source === 'pq') {
+    const q = pnr.priceQuotes[(entry.pqRecord ?? 0) - 1];
+    if (!q) return 'NO PQ RECORD'; // reconstructed
+    fqs = [q];
   } else {
-    fq = wa.lastPricing ?? priceItinerary(pnr);
-    if (!fq) return Response.NO_ITINERARY;
+    const q = wa.lastPricing ?? priceItinerary(pnr);
+    if (!q) return Response.NO_ITINERARY;
+    fqs = [q];
   }
 
   const pax = ticketablePassengers(pnr, entry.nameItem);
   if (pax.length === 0) return Response.NEED_NAME;
 
-  const fares = expandFares(fq);
+  // The first PQ drives the "default" validating carrier (overridden below
+  // by W¥A<carrier> if present). For multi-PQ, each ticket then takes its
+  // own PQ's carrier — see the loop body.
+  const fq = fqs[0];
+  // Concatenate fare blocks across all selected PQs in order — the
+  // sequential-fulfillment rule means tickets pull from PQ1's blocks first,
+  // then PQ2's, etc. Build a parallel carriers array so multi-PQ tickets
+  // can use their own PQ's validating carrier.
+  const fares: { base: number; taxTotal: number; total: number }[] = [];
+  const fareCarriers: string[] = [];
+  for (const q of fqs) {
+    const block = expandFares(q);
+    fares.push(...block);
+    for (let i = 0; i < block.length; i++) fareCarriers.push(q.validatingCarrier);
+  }
   const zero = { base: 0, taxTotal: 0, total: 0 };
   const tariff: 'D' | 'I' = pnr.segments.some(
     (s) => INTL_AIRPORTS.has(s.origin) || INTL_AIRPORTS.has(s.destination)
@@ -74,9 +101,9 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
     ? 'I'
     : 'D';
 
-  // W¥A<carrier> overrides the validating carrier used for the ticket-number
-  // prefix and the *T display; otherwise inherit from the fare quote.
-  const validating = entry.validatingCarrier ?? fq.validatingCarrier;
+  // W¥A<carrier> overrides the validating carrier on every ticket; otherwise
+  // each ticket uses its source PQ's carrier (single-PQ → fq.validatingCarrier).
+  const overrideCarrier = entry.validatingCarrier;
 
   // W¥S<n> selects a specific segment for ticketing. Validate against the
   // itinerary; the *T render doesn't show segment-number directly, so this
@@ -100,6 +127,7 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
 
   pax.forEach((passenger, i) => {
     const fare = fares[i] ?? fares[fares.length - 1] ?? zero;
+    const validating = overrideCarrier ?? fareCarriers[i] ?? fq.validatingCarrier;
     // Commission: KP<n> = percent of base; K<amt> = flat amount. Both forms
     // are mutually exclusive in the source's combined example (W¥PQ1¥KP0¥ALH);
     // if both somehow appear we let the flat-amount form win deterministically.
