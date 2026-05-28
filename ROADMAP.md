@@ -264,12 +264,27 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
             here, not `*T` — Sabre's data model. Manual `AC/<…>` create,
             `AC¤<n>` delete, `AC<n>/<…>` modify, and `*HAC` history are
             still open.
+      - [x] **`DQB*` audit trail** (`98deed3`) — system-wide ticket-
+            issuance log iterating ctx.pnrStore. Six entry shapes
+            from the QR pinned (today / specific day / previous year /
+            branch / combined / two-step delete stub). Report layout
+            is reconstructed at the queue-prompt fidelity bar (QR
+            documents the entries but punts the layout to Format Finder).
+      - [x] **WFR / WFRT refund** (`6373c7f`) — full refund flips
+            ticket status REFUNDED so it moves *TA → *TI; tax-only
+            records the action but leaves the ticket active pending
+            per-coupon adjustments. First code drawn from the third-
+            party Zenon QREX manual.
+      - [x] **WTRX cancel refund** (`35418c2`) — two-step flow with
+            BOTH legs landed verbatim from QREX p.21 (the first
+            verbatim QREX strings in code). Pending-ticket state on
+            the work area; different-ticket on step 2 resets to step 1.
       - [ ] **Remaining unblocked work** — per-PQ named selection
             (needs dotted-name parser), manual accounting-line CRUD
             (AC/AC¤/AC<n>/), `WETR*` ETR display + `WTDB*` ticket-image
             (need a coupon/per-segment model the TicketRecord doesn't
-            carry yet), `DQB*` audit trail, and the third-party Zenon
-            QREX refund / exchange flow (WFR/WFRT/WTRX).
+            carry yet), `*HAC` history, refund extras
+            (WFR<tkt>¥N<name>, WFR<tkt>¥AGF, WFR*, WFR*L<n>).
       - [ ] **Void** stays the one permanent source gap — no first-party
             Sabre QR documents the standalone `WV` sigil with response
             screens; only third-party reseller cheat sheets do. Void
