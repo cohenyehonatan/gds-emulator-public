@@ -11,10 +11,12 @@
  *   QX / QXI / QXE      exit the queue without working the rest
  *   QXIR                ignore work-area changes, exit queue, redisplay PNR
  *   QXER                end-transact (commit), exit queue, redisplay PNR
+ *   QBI¥4               skip current + 4 PNRs ahead (Zenon course); forward only
+ *   QBI-3               backward skip — rejected, no queue-cursor history modeled
  *
  * `*Q` (queue status) is a display entry, parsed by commands/retrieve.ts.
  *
- * TODO (ROADMAP): jump (QJ), skip (QBI¥n/QBI-n), QL/QU re-queue.
+ * TODO (ROADMAP): jump (QJ), QL/QU re-queue.
  */
 
 import type { QueueEntry } from '../entry.js';
@@ -30,6 +32,12 @@ export function parseQueue(raw: string): QueueEntry {
   if (u === 'QX' || u === 'QXI' || u === 'QXE') return { ...base, op: 'exit' };
   if (u === 'QXIR') return { ...base, op: 'exit_ignore_redisplay' };
   if (u === 'QXER') return { ...base, op: 'exit_end_redisplay' };
+
+  // QBI¥<n> (forward) and QBI-<n> (backward). Source uses '¥' (keyboard alias ').
+  const skipFwd = /^QBI¥(\d+)$/.exec(u);
+  if (skipFwd) return { ...base, op: 'skip', skipCount: parseInt(skipFwd[1], 10) };
+  const skipBack = /^QBI-(\d+)$/.exec(u);
+  if (skipBack) return { ...base, op: 'skip', skipCount: -parseInt(skipBack[1], 10) };
 
   const place = /^QP\/(.+)$/.exec(u);
   if (place) {

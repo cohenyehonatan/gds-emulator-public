@@ -49,6 +49,7 @@ const ERROR_RESPONSES = new Set<string>([
   'NOT A CONNECTION',
   'OUT OF SEQUENCE',
   'NO FLIGHTS',
+  'BACKWARD SKIP NOT SUPPORTED', // reconstructed; emitted by QBI-N
 ]);
 
 export class SabreDialect implements Dialect {

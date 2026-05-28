@@ -102,6 +102,20 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       return renderPnr(pnr, { pcc: ctx.pcc, agent: wa.agent });
     }
 
+    case 'skip': {
+      // QBI¥N — drop N PNRs from the front of the current queue (including the
+      // on-screen one) and load the new front. QBI-N (backward) needs a queue-
+      // cursor history we don't keep; rejected with a reconstructed string.
+      if (!wa.currentQueue) return NO_QUEUE;
+      const n = entry.skipCount ?? 0;
+      if (n <= 0) return 'BACKWARD SKIP NOT SUPPORTED'; // reconstructed; not in any public source
+      const q = wa.currentQueue;
+      const list = ctx.queues.get(q) ?? [];
+      list.splice(0, n); // drop up to N (no-op past the end is fine)
+      ctx.queues.set(q, list);
+      return loadFront(wa, ctx, q);
+    }
+
     case 'exit_end_redisplay': {
       // QXER — end-transact (commits PNR), exit queue, redisplay PNR
       // (Zenon course p.54). If end-tx rejects (missing field, names mismatch),

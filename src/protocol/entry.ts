@@ -257,9 +257,17 @@ export interface QueueEntry extends BaseEntry {
     | 'remove'
     | 'exit'
     | 'exit_ignore_redisplay'
-    | 'exit_end_redisplay';
+    | 'exit_end_redisplay'
+    | 'skip';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (QP/100/75)
+  /**
+   * QBI skip (Zenon course): `QBI¥4` moves forward 4 PNRs; `QBI-3` moves
+   * backward 3 PNRs. Positive = forward (drops N from the queue front and
+   * loads the new front); negative = backward (rejected — backward
+   * navigation needs queue-cursor history we don't model).
+   */
+  skipCount?: number;
   /**
    * Multi-target chained placement (Zenon course): `QP/G¥S¥T` or
    * `QP/2EA0G¥5OT0S¥A`. The first target is in `queue`/`pic`; the rest

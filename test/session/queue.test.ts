@@ -165,4 +165,31 @@ describe('queue place / access / work', () => {
     expect(host.process('QXIR', wa)).toBe('NO QUEUE ACCESSED');
     expect(host.process('QXER', wa)).toBe('NO QUEUE ACCESSED');
   });
+
+  it('QBI¥N skips N PNRs forward in the current queue', () => {
+    const a = commit('ABLE');
+    host.process('IG', wa);
+    const b = commit('BAKER');
+    host.process('IG', wa);
+    const c = commit('CHARLIE');
+    host.context.queues.set('77', [a, b, c]);
+    host.process('Q/77', wa); // loads ABLE
+    expect(wa.pnr.locator).toBe(a);
+    // Skip 2: drops ABLE + BAKER from the queue, loads CHARLIE.
+    const resp = host.process('QBI¥2', wa);
+    expect(resp).toContain('CHARLIE');
+    expect(host.context.queues.get('77')).toEqual([c]);
+    expect(wa.pnr.locator).toBe(c);
+  });
+
+  it('QBI-N rejects backward skip (no queue-cursor history modeled)', () => {
+    const loc = commit('SMITH');
+    host.context.queues.set('77', [loc]);
+    host.process('Q/77', wa);
+    expect(host.process('QBI-1', wa)).toBe('BACKWARD SKIP NOT SUPPORTED');
+  });
+
+  it('QBI without a queue context returns NO QUEUE ACCESSED', () => {
+    expect(host.process('QBI¥3', wa)).toBe('NO QUEUE ACCESSED');
+  });
 });
