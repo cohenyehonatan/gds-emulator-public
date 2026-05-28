@@ -15,10 +15,11 @@
 
 import type { RefundEntry, CancelRefundEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
+import { parsePassengerSelection } from '../../utils/passenger-ref.js';
 
 const WTRX_RE = /^WTRX(\d{13})$/i;
-/** `WFR[T]<13-digit ticket>` with an optional `¥AGF` (or chained qualifiers we don't model yet). */
-const WFR_RE = /^WFR(T)?(\d{13})((?:¥[A-Z0-9.\-]+)*)$/i;
+/** `WFR[T]<13-digit ticket>` with any number of trailing `¥<token>` qualifiers. */
+const WFR_RE = /^WFR(T)?(\d{13})((?:¥[^¥]+)*)$/i;
 
 export function parseRefund(raw: string): RefundEntry {
   const base = { kind: 'refund' as const, raw, timestamp: new Date() };
@@ -33,6 +34,15 @@ export function parseRefund(raw: string): RefundEntry {
   for (const q of (m[3] ?? '').split('¥').filter(Boolean)) {
     if (q.toUpperCase() === 'AGF') {
       entry.agentFare = true;
+      continue;
+    }
+    const name = /^N(.+)$/i.exec(q);
+    if (name) {
+      try {
+        entry.nameRefs = parsePassengerSelection(name[1]);
+      } catch (err) {
+        throw new ParseError(`Refund: bad name selector "${q}" in "${raw}" — ${(err as Error).message}`);
+      }
       continue;
     }
     throw new ParseError(`Refund: unrecognized qualifier "${q}" in "${raw}"`);

@@ -36,6 +36,41 @@ describe('refund parsing (WFR / WFRT)', () => {
   it('rejects an unrecognized WFR qualifier', () => {
     expect(() => parseEntry('WFR0014692507094¥XYZ')).toThrow();
   });
+
+  it('parses WFR<tkt>¥N<dotted-name> with the verbatim QREX example shape', () => {
+    // QREX p.31: WFR0012324252627¥N2.1¥AGF — name-selected + agent-fare combined.
+    const e = parseEntry('WFR0012324252627¥N2.1¥AGF');
+    if (e.kind === 'refund') {
+      expect(e).toMatchObject({
+        mode: 'full',
+        ticketNumber: '0012324252627',
+        agentFare: true,
+        nameRefs: [{ item: 2, passenger: 1 }],
+      });
+    }
+  });
+
+  it('parses a range and a list in WFR ¥N<dotted>', () => {
+    const r = parseEntry('WFR0014692507094¥N1.2-1.4');
+    if (r.kind === 'refund') {
+      expect(r.nameRefs).toEqual([
+        { item: 1, passenger: 2 },
+        { item: 1, passenger: 3 },
+        { item: 1, passenger: 4 },
+      ]);
+    }
+    const l = parseEntry('WFR0014692507094¥N1.1,1.3');
+    if (l.kind === 'refund') {
+      expect(l.nameRefs).toEqual([
+        { item: 1, passenger: 1 },
+        { item: 1, passenger: 3 },
+      ]);
+    }
+  });
+
+  it('rejects WFR ¥N with a malformed selection', () => {
+    expect(() => parseEntry('WFR0014692507094¥N3')).toThrow(/bad name selector/);
+  });
 });
 
 describe('refund handling', () => {

@@ -463,6 +463,11 @@ export interface RefundEntry extends BaseEntry {
    * emulator records the flag but doesn't yet model fare-rule differences.
    */
   agentFare?: boolean;
+  /**
+   * `¥N<dotted-name>` — name-selected refund (QREX p.31 example
+   * `WFR0012324252627¥N2.1¥AAA`). Dotted refs are `<item>.<passenger>`.
+   */
+  nameRefs?: import('../utils/passenger-ref.js').PassengerRef[];
 }
 
 /**
