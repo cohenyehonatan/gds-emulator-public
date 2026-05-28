@@ -21,6 +21,21 @@ describe('refund parsing (WFR / WFRT)', () => {
   it('rejects a non-13-digit ticket number', () => {
     expect(() => parseEntry('WFR123')).toThrow();
   });
+
+  it('parses WFR<tkt>¥AGF as a full refund with the agent-fare flag', () => {
+    const e = parseEntry('WFR0014692507094¥AGF');
+    if (e.kind === 'refund') {
+      expect(e).toMatchObject({
+        mode: 'full',
+        ticketNumber: '0014692507094',
+        agentFare: true,
+      });
+    }
+  });
+
+  it('rejects an unrecognized WFR qualifier', () => {
+    expect(() => parseEntry('WFR0014692507094¥XYZ')).toThrow();
+  });
 });
 
 describe('refund handling', () => {

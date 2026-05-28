@@ -457,6 +457,12 @@ export interface RefundEntry extends BaseEntry {
   /** `'redisplay'` is the WFR* form; the others carry a ticket number. */
   mode: 'full' | 'tax_only' | 'redisplay';
   ticketNumber?: string;
+  /**
+   * `¥AGF` — "agent's fare" qualifier (QREX p.7). Flags that the refund
+   * uses the agent's filed fare rather than the published one; the
+   * emulator records the flag but doesn't yet model fare-rule differences.
+   */
+  agentFare?: boolean;
 }
 
 /**

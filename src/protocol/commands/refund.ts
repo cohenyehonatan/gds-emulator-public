@@ -16,19 +16,28 @@
 import type { RefundEntry, CancelRefundEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
 
-const RE = /^WFR(T)?(\d{13})$/i;
 const WTRX_RE = /^WTRX(\d{13})$/i;
+/** `WFR[T]<13-digit ticket>` with an optional `¥AGF` (or chained qualifiers we don't model yet). */
+const WFR_RE = /^WFR(T)?(\d{13})((?:¥[A-Z0-9.\-]+)*)$/i;
 
 export function parseRefund(raw: string): RefundEntry {
   const base = { kind: 'refund' as const, raw, timestamp: new Date() };
   if (raw.toUpperCase() === 'WFR*') return { ...base, mode: 'redisplay' };
-  const m = RE.exec(raw);
+  const m = WFR_RE.exec(raw);
   if (!m) throw new ParseError(`Refund: expected WFR[T]<13-digit ticket> or WFR* in "${raw}"`);
-  return {
+  const entry: RefundEntry = {
     ...base,
     mode: m[1] ? 'tax_only' : 'full',
     ticketNumber: m[2],
   };
+  for (const q of (m[3] ?? '').split('¥').filter(Boolean)) {
+    if (q.toUpperCase() === 'AGF') {
+      entry.agentFare = true;
+      continue;
+    }
+    throw new ParseError(`Refund: unrecognized qualifier "${q}" in "${raw}"`);
+  }
+  return entry;
 }
 
 export function parseCancelRefund(raw: string): CancelRefundEntry {
