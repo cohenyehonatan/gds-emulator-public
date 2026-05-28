@@ -3,10 +3,13 @@
  *
  *   *ABCDEF   → retrieve PNR by record locator (EMPTY → DISPLAYED)
  *   *-SMITH   → retrieve by surname; a numbered list when >1 matches
+ *   *<n>      → pick line N from the cached similar-name list (Sabre Basic
+ *               Reservation Course, "Display specific PNR from similar name
+ *               list" — format `*(PNR list number)`, e.g. `*3`)
  *   *A        → redisplay the whole work-area PNR
  *   *N *I/*IA *P *T → redisplay one section (no state change)
  *
- * TODO (ROADMAP): pick a line from the similar-name list; *H history.
+ * TODO (ROADMAP): *H history.
  */
 
 import type { DisplayEntry } from '../../protocol/entry.js';
@@ -65,11 +68,31 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
     return sectionKey === 'A' ? renderPnr(wa.pnr, sig) : SECTIONS[sectionKey](wa.pnr);
   }
 
+  // Pick from cached similar-name list: '*<n>' after a '*-SMITH' that
+  // matched >1 PNR. The list is consumed on selection so a stale '*1'
+  // doesn't grab from a no-longer-on-screen list.
+  if (/^\d+$/.test(arg) && wa.lastSimilarNameList) {
+    const matches = wa.lastSimilarNameList;
+    const idx = parseInt(arg, 10) - 1;
+    if (idx < 0 || idx >= matches.length) return Response.RECORD_LOCATOR_NOT_FOUND;
+    wa.lastSimilarNameList = undefined;
+    wa.pnr = matches[idx];
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    return renderPnr(wa.pnr, sig);
+  }
+
   // Retrieve by surname: '*-SMITH'
   if (arg.startsWith('-')) {
     const matches = ctx.pnrStore.findBySurname(arg.slice(1));
-    if (matches.length === 0) return Response.RECORD_LOCATOR_NOT_FOUND;
-    if (matches.length > 1) return renderSimilarNameList(matches); // list; selection deferred
+    if (matches.length === 0) {
+      wa.lastSimilarNameList = undefined;
+      return Response.RECORD_LOCATOR_NOT_FOUND;
+    }
+    if (matches.length > 1) {
+      wa.lastSimilarNameList = matches; // cache for '*<n>' selection
+      return renderSimilarNameList(matches);
+    }
+    wa.lastSimilarNameList = undefined;
     wa.pnr = matches[0];
     wa.machine.transition(SessionEvent.RETRIEVE);
     return renderPnr(wa.pnr, sig);

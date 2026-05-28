@@ -21,6 +21,13 @@ export class WorkArea {
   dividedOriginal?: Pnr;
   /** Queue currently being accessed in this area (Q/<n>); only one at a time. */
   currentQueue?: string;
+  /**
+   * Most recent similar-name list (from `*-SMITH` when surname matched >1
+   * PNR), cached so a subsequent `*<n>` selects line N. Cleared on the
+   * selection, on a new similar-name search, on a no-match search, or on
+   * any work-area reset (End Transaction / Ignore / sign-out).
+   */
+  lastSimilarNameList?: Pnr[];
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -36,5 +43,6 @@ export class WorkArea {
     this.lastPricing = undefined;
     this.dividedOriginal = undefined;
     this.currentQueue = undefined;
+    this.lastSimilarNameList = undefined;
   }
 }

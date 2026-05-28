@@ -82,4 +82,53 @@ describe('PNR lifecycle depth', () => {
     // A list display does not pull a PNR into the work area.
     expect(wa.pnr.hasContent()).toBe(false);
   });
+
+  it('selects a PNR from the similar-name list with *<n>', () => {
+    // Same two-SMITH setup, then exercise selection.
+    for (const first of ['JOHN', 'JANE']) {
+      const w = host.newWorkArea();
+      host.process('SI*4321', w);
+      host.process('115JUNJFKLAX', w);
+      host.process('01Y1', w);
+      host.process(`-SMITH/${first}`, w);
+      host.process('9305-555-1212-H', w);
+      host.process('7TAW15JUN/', w);
+      host.process('6P', w);
+      host.process('E', w);
+    }
+    host.process('*-SMITH', wa); // produces the list, caches it on the WA
+
+    // Capture the first line's surname/given to know the deterministic order.
+    const list = host.process('*-SMITH', wa);
+    const firstLine = list.split('\n')[0];
+    const expectedFirst = firstLine.includes('JOHN') ? 'JOHN' : 'JANE';
+
+    // *1 selects line 1 — same wire-format response as a record-locator retrieve.
+    const display1 = host.process('*1', wa);
+    expect(display1).toContain(`SMITH/${expectedFirst}`);
+    expect(wa.pnr.hasContent()).toBe(true);
+    expect(wa.state()).toBe('DISPLAYED');
+  });
+
+  it('rejects *<n> when the list has no entry at that position', () => {
+    for (const first of ['JOHN', 'JANE']) {
+      const w = host.newWorkArea();
+      host.process('SI*4321', w);
+      host.process('115JUNJFKLAX', w);
+      host.process('01Y1', w);
+      host.process(`-SMITH/${first}`, w);
+      host.process('9305-555-1212-H', w);
+      host.process('7TAW15JUN/', w);
+      host.process('6P', w);
+      host.process('E', w);
+    }
+    host.process('*-SMITH', wa);
+    expect(host.process('*3', wa)).toBe('RECORD LOCATOR NOT FOUND');
+    expect(wa.pnr.hasContent()).toBe(false); // unchanged on out-of-range
+  });
+
+  it('rejects *<n> when no similar-name list is on screen', () => {
+    // No prior *-SMITH; *2 is not a section code and not a locator → FORMAT.
+    expect(host.process('*2', wa)).toBe('FORMAT');
+  });
 });
