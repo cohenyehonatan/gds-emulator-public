@@ -27,10 +27,25 @@ Making the happy path feel like a real GDS, within the existing architecture.
       `91-3¤`, `91,3¤`, `7¤TAW17FEB/`, `6¤JENS`. Chains with `§`. Passenger-level
       refs (`-1.1¤`) and name-reference data (`¤*`) now supported (see SSR/OSI
       section for the reference number).
-- [ ] **Pick from similar-name list** — entry to select line N after `*-SMITH`.
+- [x] **Pick from similar-name list** — `*<n>` picks line N from the list
+      cached by a prior `*-SMITH` that matched >1 PNR. Source-grounded in the
+      Sabre Basic Reservation Course ("Display specific PNR from similar name
+      list" — format `*(PNR list number)`, example `*3`). Cache lives on the
+      work area, cleared on selection / reset / new search.
 - [x] **Infants** — done (see SSR / OSI section): `-I/` name field + `3INFT` SSR.
-- [ ] **Passive cancel** — `.(segment selection)XK`.
-- [ ] **Cancel & rebook in one entry** — `X1¥0(seats)(class)(line)`, `X1¥00(date)`.
+- [x] **Passive cancel** — `.(segment selection)XK` (e.g. `.1XK`, `.1-3XK`,
+      `.1/3XK`), source-grounded against the Sabre Basic Reservation Course
+      ("Passively cancel segments, no message sent to the airline"). Modeled
+      as a separate `PassiveCancelEntry` kind so XK doesn't have to masquerade
+      as a status code on `SegmentStatusEntry`. Whole-itinerary form (XI/XIA)
+      has no passive analog and isn't supported.
+- [x] **Cancel & rebook in one entry** — both source-grounded forms from
+      Sabre Basic Reservation Course: `X<sel>¥0<seats><class><line>` (cancel +
+      sell from CPA, e.g. `X3¥01F1`) and `X<sel>¥00<date>` (cancel + resell
+      same flight on new date, e.g. `X1¥0025APR`). On rebook failure the
+      cancel still stands (Zenon course note — agent recovers via `IR`).
+      Multi-segment date rebooks (`X1-3¥0024JUN`) and XIA delta forms
+      (Zenon-only) are open as a follow-up.
 
 ## Fidelity pass (done, except one item the source can't settle)
 
