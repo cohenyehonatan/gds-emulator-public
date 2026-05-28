@@ -1,14 +1,16 @@
 /**
- * Sabre-style GDS Host Emulator
+ * GDS Host Emulator
  *
  * CLI entry point. Run the host and an agent terminal in one process for a
  * demo, run them separately as services, or open an interactive REPL.
  *
  * Usage:
- *   npx tsx src/index.ts              # demo: host + terminal + scenario
- *   npx tsx src/index.ts server       # GDS host only (TCP)
- *   npx tsx src/index.ts terminal     # interactive green-screen REPL (in-process)
- *   npx tsx src/index.ts scenario     # run the booking scenario
+ *   npx tsx src/index.ts                       # demo: host + terminal + scenario
+ *   npx tsx src/index.ts server                # GDS host only (TCP)
+ *   npx tsx src/index.ts terminal              # interactive REPL (Sabre, default)
+ *   npx tsx src/index.ts terminal sabre        # explicit Sabre dialect
+ *   npx tsx src/index.ts terminal galileo      # Galileo (1G) — skeleton only
+ *   npx tsx src/index.ts scenario              # run the booking scenario
  */
 
 import { GdsHost } from './session/gds-host.js';
@@ -16,8 +18,27 @@ import { AgentTerminal } from './terminal/agent-terminal.js';
 import { ScenarioRunner } from './terminal/scenarios/scenario-runner.js';
 import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scenario.js';
 import { startRepl } from './terminal/repl.js';
+import type { Dialect } from './dialects/dialect.js';
+import { GalileoDialect } from './dialects/galileo/index.js';
 import { DEFAULT_PORT } from './protocol/constants.js';
 import { Logger } from './logging/logger.js';
+
+/**
+ * Resolve a CLI dialect name to a Dialect instance, or undefined for the host
+ * default (SabreDialect). Throws on an unknown name so a typo'd `terminal
+ * sabree` exits cleanly instead of silently falling back to Sabre.
+ */
+function pickDialect(name: string | undefined): Dialect | undefined {
+  switch (name) {
+    case undefined:
+    case 'sabre':
+      return undefined; // host default
+    case 'galileo':
+      return new GalileoDialect();
+    default:
+      throw new Error(`Unknown dialect: '${name}'. Known: sabre, galileo.`);
+  }
+}
 
 const logger = new Logger('MAIN', 'info');
 
@@ -72,12 +93,22 @@ switch (command) {
       process.exit(1);
     });
     break;
-  case 'terminal':
-    startRepl().catch((err) => {
+  case 'terminal': {
+    // pickDialect throws synchronously on an unknown name, so it can't be
+    // chained through .catch alone — wrap it explicitly.
+    let dialect: Dialect | undefined;
+    try {
+      dialect = pickDialect(process.argv[3]);
+    } catch (err) {
+      logger.error((err as Error).message);
+      process.exit(1);
+    }
+    startRepl(dialect).catch((err) => {
       logger.error(err.message);
       process.exit(1);
     });
     break;
+  }
   case 'scenario':
   default:
     runDemo().catch((err) => {

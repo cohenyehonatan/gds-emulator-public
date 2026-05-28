@@ -254,10 +254,12 @@ so it can grow into it without faking fidelity. The matrix:
       `galileo:live` is actually wired — pre-emptively going async pays the
       mechanical cost now for no behavioral win, and the change lands cleanly
       alongside the OAuth client + cryptic→REST mapping when those need it.
-- [ ] **CLI dispatch** — `index.ts` arg path that picks `{ dialect, backend }`
-      (e.g. `terminal sabre` / `terminal galileo:live`), with npm scripts
-      (`start:terminal:sabre`, …) falling out for free. The seam is now in
-      place to make this trivial; still the *last* step, not the first.
+- [x] **CLI dispatch** — `npx tsx src/index.ts terminal [sabre|galileo]`
+      resolves a name to a Dialect via `pickDialect()` in `src/index.ts`
+      (throws on unknown name, so typos exit cleanly). npm scripts
+      (`start:terminal:sabre`, `start:terminal:galileo`) added; bare
+      `start:terminal` still defaults to Sabre. Backend dispatch (`galileo:
+      live` etc.) lands with the async upgrade.
 
 ### Galileo (1G) — live backend
 

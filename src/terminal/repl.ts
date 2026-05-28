@@ -10,10 +10,11 @@
 import * as readline from 'readline';
 import { GdsHost } from '../session/gds-host.js';
 import { WorkArea } from '../session/work-area.js';
+import type { Dialect } from '../dialects/dialect.js';
 import { CrtScreen } from './crt-screen.js';
 
-export async function startRepl(): Promise<void> {
-  const host = new GdsHost({ port: 0, logLevel: 'warn' }); // in-process, port unused
+export async function startRepl(dialect?: Dialect): Promise<void> {
+  const host = new GdsHost({ port: 0, logLevel: 'warn', dialect }); // in-process, port unused
   const wa = host.newWorkArea();
   return process.stdout.isTTY ? startCrtMode(host, wa) : startLineMode(host, wa);
 }
