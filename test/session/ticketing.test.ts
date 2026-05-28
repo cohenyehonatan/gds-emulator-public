@@ -56,6 +56,47 @@ describe('ticketing parsing', () => {
     if (e.kind === 'ticket') expect(e).toMatchObject({ segment: 2, paperTicket: true });
   });
 
+  it('parses FCASH / FCHECK / FCHEQUE / FCK as cash and check FOPs', () => {
+    const cash = parseEntry('W¥FCASH');
+    if (cash.kind === 'ticket') expect(cash.formOfPayment).toEqual({ kind: 'cash' });
+    for (const t of ['W¥FCHECK', 'W¥FCHEQUE', 'W¥FCK']) {
+      const e = parseEntry(t);
+      if (e.kind === 'ticket') expect(e.formOfPayment).toEqual({ kind: 'check' });
+    }
+  });
+
+  it('parses a credit-card FOP with CVV (verbatim QR example shape)', () => {
+    // Card data here uses a PCI-DSS standard test number (NOT a real card).
+    const e = parseEntry('W¥F*VI4111111111111111/1204¥CVV225');
+    if (e.kind === 'ticket') {
+      expect(e.formOfPayment).toEqual({
+        kind: 'credit_card',
+        cardCode: 'VI',
+        cardNumber: '4111111111111111',
+        expiry: '1204',
+      });
+      expect(e.cvv).toBe('225');
+    }
+  });
+
+  it('parses credit-card FOP with inline *E extended-payment and *Z approval', () => {
+    const ext = parseEntry('W¥F*AX378282246310005/1212*E03');
+    if (ext.kind === 'ticket' && ext.formOfPayment?.kind === 'credit_card') {
+      expect(ext.formOfPayment.extendedMonths).toBe(3);
+    }
+    const approval = parseEntry('W¥F*AX378282246310005/1212*Z003492');
+    if (approval.kind === 'ticket' && approval.formOfPayment?.kind === 'credit_card') {
+      expect(approval.formOfPayment.approvalCode).toBe('003492');
+    }
+  });
+
+  it('parses pre-approved FOP without an inline CC (W¥F*Z003492)', () => {
+    const e = parseEntry('W¥F*Z003492');
+    if (e.kind === 'ticket') {
+      expect(e.formOfPayment).toEqual({ kind: 'preapproved', approvalCode: '003492' });
+    }
+  });
+
   it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
     // Form of payment, segment selection, paper ticket, void/refund all
     // need the Issue-Tickets QR which isn't in references/ yet.
@@ -193,5 +234,26 @@ describe('e-ticket issuance', () => {
     // A valid segment number issues normally.
     host.process('W¥S1', wa);
     expect(wa.pnr.tickets).toHaveLength(1);
+  });
+
+  it('FOP propagates to the issued TicketRecord (cash + credit card cases)', () => {
+    book();
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('WP', wa);
+    host.process('W¥FCASH', wa);
+    expect(wa.pnr.tickets[0].formOfPayment).toEqual({ kind: 'cash' });
+
+    // Reset and try a credit card issue path on a separate PNR.
+    host.process('IG', wa);
+    book();
+    host.process('-DOE/JANE MS', wa);
+    host.process('WP', wa);
+    host.process('W¥F*VI4111111111111111/1204', wa);
+    expect(wa.pnr.tickets[0].formOfPayment).toEqual({
+      kind: 'credit_card',
+      cardCode: 'VI',
+      cardNumber: '4111111111111111',
+      expiry: '1204',
+    });
   });
 });

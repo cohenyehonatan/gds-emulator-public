@@ -7,6 +7,9 @@
  * 10-digit serial), stock type, passenger, PCC*agent, time/date, tariff basis.
  */
 
+import type { FormOfPayment } from '../protocol/entry.js';
+export type { FormOfPayment };
+
 export interface TicketRecord {
   number: string; // 13-digit (3-digit airline code + 10-digit serial)
   type: 'TE' | 'TK'; // electronic / paper
@@ -22,7 +25,14 @@ export interface TicketRecord {
   total: number;
   /** Commission applied at issue (W¥KP<n> percent or W¥K<amount> flat). 0 / undefined = none. */
   commission?: number;
+  /**
+   * Form of payment, supplied via W¥F<fop>. Surfaces in the accounting line
+   * (`*PAC` display, when implemented); the `*T` field doesn't render FOP
+   * per the Sabre Ticket Display Tools QR.
+   */
+  formOfPayment?: FormOfPayment;
 }
+
 
 /** Three-digit airline accounting codes used as the ticket-number prefix. */
 const AIRLINE_NUMERIC: Record<string, string> = {

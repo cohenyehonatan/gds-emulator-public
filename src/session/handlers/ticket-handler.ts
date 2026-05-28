@@ -92,6 +92,12 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
   // ticket.
   const ticketType: 'TE' | 'TK' = entry.paperTicket ? 'TK' : 'TE';
 
+  // W¥F<fop> records the form of payment on each ticket. CVV (a separate
+  // ¥CVV<n> qualifier) only attaches to a credit-card FOP; if it appears
+  // without one, we ignore it rather than reject — real Sabre would format-
+  // reject but the cost of a stricter check exceeds the value for now.
+  const fop = entry.formOfPayment;
+
   pax.forEach((passenger, i) => {
     const fare = fares[i] ?? fares[fares.length - 1] ?? zero;
     // Commission: KP<n> = percent of base; K<amt> = flat amount. Both forms
@@ -115,6 +121,7 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
       taxTotal: fare.taxTotal,
       total: fare.total,
       commission,
+      formOfPayment: fop,
     };
     pnr.tickets.push(record);
   });

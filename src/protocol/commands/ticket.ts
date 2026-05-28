@@ -16,6 +16,13 @@
  *   K<amount>      commission flat amount             e.g. K12.50
  *   S<n>           single-segment selection           e.g. S2     (QR p.2)
  *   XETR           paper-ticket override (ARC only)   e.g. XETR   (QR p.3)
+ *   FCASH/FCHECK/  form of payment                    e.g. FCASH  (QR p.2-3)
+ *     FCHEQUE/FCK
+ *   F*<cc><nbr>/   credit card form of payment        e.g. F*VI4111…/1204
+ *     <MMYY>         (with optional *E<n> extended payment
+ *                    or *Z<n> approval code inline)   e.g. *E03  /  *Z003492
+ *   F*Z<n>         pre-approved (CC in PNR FOP field) e.g. F*Z003492
+ *   CVV<n>         credit-card security code (its own ¥-qualifier; pairs with F*)
  *   PQ<n>          stored PQ record reference          (still recognized
  *                  as a base entry too, for W¥PQ1 alone)
  *   N<item>        name-field selector
@@ -75,7 +82,9 @@ function isQualifier(t: string): boolean {
     /^KP\d+$/.test(t) ||
     /^K\d+(\.\d+)?$/.test(t) ||
     /^S\d+$/.test(t) ||
-    t === 'XETR'
+    t === 'XETR' ||
+    /^F/.test(t) || // FCASH / FCHECK / FCK / F*… — let applyQualifier do the precise routing
+    /^CVV\d+$/.test(t)
   );
 }
 
@@ -104,5 +113,41 @@ function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
     entry.paperTicket = true;
     return;
   }
+  const cvv = /^CVV(\d+)$/.exec(token);
+  if (cvv) {
+    entry.cvv = cvv[1];
+    return;
+  }
+  if (token.startsWith('F')) {
+    entry.formOfPayment = parseFop(token, raw);
+    return;
+  }
   throw new ParseError(`Ticket: unrecognized qualifier "${token}" in "${raw}"`);
+}
+
+/** Parse the W¥F<fop> token into one of the four FOP shapes from Issue Tickets QR p.2-3. */
+function parseFop(token: string, raw: string): NonNullable<TicketEntry['formOfPayment']> {
+  if (token === 'FCASH') return { kind: 'cash' };
+  if (token === 'FCHECK' || token === 'FCHEQUE' || token === 'FCK') return { kind: 'check' };
+
+  // Pre-approved without an inline CC: F*Z<digits>.
+  const pre = /^F\*Z(\d+)$/.exec(token);
+  if (pre) return { kind: 'preapproved', approvalCode: pre[1] };
+
+  // Credit card with optional inline extended-payment or approval-code suffix.
+  // F*<cc><number>/<MMYY>(*E<months>|*Z<approval>)?
+  const cc = /^F\*([A-Z]{2})(\d+)\/(\d{4})(?:\*([EZ])(\d+))?$/.exec(token);
+  if (cc) {
+    const fop: NonNullable<TicketEntry['formOfPayment']> = {
+      kind: 'credit_card',
+      cardCode: cc[1],
+      cardNumber: cc[2],
+      expiry: cc[3],
+    };
+    if (cc[4] === 'E') fop.extendedMonths = parseInt(cc[5], 10);
+    if (cc[4] === 'Z') fop.approvalCode = cc[5];
+    return fop;
+  }
+
+  throw new ParseError(`Ticket: unrecognized FOP qualifier "${token}" in "${raw}"`);
 }

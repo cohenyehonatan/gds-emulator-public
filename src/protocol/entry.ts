@@ -313,7 +313,35 @@ export interface TicketEntry extends BaseEntry {
   segment?: number;
   /** `XETR` — issue a paper ticket overriding the default electronic ticketing (ARC only, p.3). */
   paperTicket?: boolean;
+  /** `F<fop>` — form of payment (Issue Tickets QR p.2-3, four shapes). */
+  formOfPayment?: FormOfPayment;
+  /** `CVV<n>` — credit-card security code (separate ¥-qualifier alongside the F*<cc>/<exp> token). */
+  cvv?: string;
 }
+
+/**
+ * Form of payment for the W¥F qualifier. Source: Issue Tickets QR p.2-3
+ * verbatim formats:
+ *   W¥FCASH                                              kind: 'cash'
+ *   W¥FCHECK | W¥FCHEQUE | W¥FCK                          kind: 'check'
+ *   W¥F*<cc><number>/<MMYY>(¥CVV<n>)                     kind: 'credit_card'
+ *   W¥F*<cc><number>/<MMYY>*E<months>                    + extendedMonths
+ *   W¥F*<cc><number>/<MMYY>*Z<approval>                  + approvalCode
+ *   W¥F*Z<approval>                                      kind: 'preapproved'
+ *                                                        (CC sits in PNR FOP field)
+ */
+export type FormOfPayment =
+  | { kind: 'cash' }
+  | { kind: 'check' }
+  | {
+      kind: 'credit_card';
+      cardCode: string; // two-letter card code (VI/AX/MC/DC/CB/JC)
+      cardNumber: string;
+      expiry: string; // MMYY
+      extendedMonths?: number;
+      approvalCode?: string;
+    }
+  | { kind: 'preapproved'; approvalCode: string };
 
 export interface SignOutEntry extends BaseEntry {
   kind: 'sign_out';
