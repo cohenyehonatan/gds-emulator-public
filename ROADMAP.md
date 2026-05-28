@@ -229,9 +229,17 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       (`*T`), per the Issue-Tickets QR's `*T` display
       (`TE <number>-AT <pax> <pcc>*<agent> <hhmm>/<date> D|I`). Re-issue is
       blocked once tickets exist. No-PQ / already-issued strings reconstructed.
-      - [ ] Qualifiers `W¥A` (validating carrier), `W¥S` (segment), `W¥K`/`KP`
-            (commission), `W¥F` (form of payment), `W¥DP` (invoice), multi-PQ
-            `W¥PQ1/2`, paper `W¥XETR`; accounting-data line; void/refund.
+      - [x] **Source-grounded qualifiers** — `W¥A<carrier>` (validating-
+            carrier override → changes the ticket-number prefix), `W¥KP<n>`
+            (commission percentage), `W¥K<amount>` (commission flat amount).
+            Source: the Basic Reservation Course example `W¥PQ1¥KP0¥ALH`
+            (p.6 ICK table footer). All three are ¥-separated qualifiers
+            that combine with the existing PQ / N base entries.
+      - [ ] **Open until the Issue-Tickets QR lands in references/** —
+            `W¥S` (segment select), `W¥F` (form of payment), `W¥DP` (invoice),
+            multi-PQ `W¥PQ1/2`, paper `W¥XETR`, accounting-data line,
+            void / refund. None of these appear in any of the five Sabre
+            PDFs we have; the deferral is source-coverage, not effort.
 
 ## v4 — Aviation-suite integration (optional)
 
