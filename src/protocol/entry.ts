@@ -258,9 +258,18 @@ export interface QueueEntry extends BaseEntry {
     | 'exit'
     | 'exit_ignore_redisplay'
     | 'exit_end_redisplay'
-    | 'skip';
+    | 'skip'
+    | 'requeue';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (QP/100/75)
+  /** QL → 'LMTC'; QU → 'UTR'. Re-queue op only. */
+  requeueTarget?: 'LMTC' | 'UTR';
+  /**
+   * Short message (≤15 chars per Zenon source) attached to a QL/QU. Logged
+   * as a general remark on the PNR — Zenon note 1: "Entry logged in
+   * Remarks Field of PNR if message added".
+   */
+  requeueMessage?: string;
   /**
    * QBI skip (Zenon course): `QBI¥4` moves forward 4 PNRs; `QBI-3` moves
    * backward 3 PNRs. Positive = forward (drops N from the queue front and

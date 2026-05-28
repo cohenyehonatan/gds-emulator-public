@@ -102,6 +102,35 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       return renderPnr(pnr, { pcc: ctx.pcc, agent: wa.agent });
     }
 
+    case 'requeue': {
+      // QL → LMTC (Left Message to Contact), QU → UTR (Under Reservation).
+      // Removes the on-screen PNR from the current queue (like QR) and places
+      // it on the follow-up queue. Optional message gets logged as a general
+      // remark on the PNR (Zenon note 1: "Entry logged in Remarks Field of
+      // PNR if message added"). The source's auto-requeue-after-24h (LMTC) /
+      // 15min-4h (UTR) timer behavior isn't modeled — no wall clock.
+      if (!wa.currentQueue) return NO_QUEUE;
+      const list = ctx.queues.get(wa.currentQueue) ?? [];
+      if (list.length === 0) return `QUEUE ${wa.currentQueue} EMPTY`;
+      const loc = list[0];
+      // Append message to PNR's remarks if provided.
+      if (entry.requeueMessage) {
+        const pnr = ctx.pnrStore.get(loc);
+        if (pnr) {
+          pnr.remarks.push({
+            type: 'general',
+            text: `Q${entry.requeueTarget === 'LMTC' ? 'L' : 'U'}-${entry.requeueMessage}`,
+          });
+        }
+      }
+      list.shift();
+      ctx.queues.set(wa.currentQueue, list);
+      const followUp = ctx.queues.get(entry.requeueTarget!) ?? [];
+      if (!followUp.includes(loc)) followUp.push(loc);
+      ctx.queues.set(entry.requeueTarget!, followUp);
+      return loadFront(wa, ctx, wa.currentQueue);
+    }
+
     case 'skip': {
       // QBI¥N — drop N PNRs from the front of the current queue (including the
       // on-screen one) and load the new front. QBI-N (backward) needs a queue-

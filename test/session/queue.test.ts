@@ -192,4 +192,34 @@ describe('queue place / access / work', () => {
   it('QBI without a queue context returns NO QUEUE ACCESSED', () => {
     expect(host.process('QBI¥3', wa)).toBe('NO QUEUE ACCESSED');
   });
+
+  it('QL re-queues the current PNR onto LMTC and advances the working queue', () => {
+    const a = commit('ABLE');
+    host.process('IG', wa);
+    const b = commit('BAKER');
+    host.context.queues.set('100', [a, b]);
+    host.process('Q/100', wa); // loads ABLE
+    expect(wa.pnr.locator).toBe(a);
+    const resp = host.process('QL', wa);
+    // ABLE moves from 100 to LMTC; BAKER becomes the on-screen queue front.
+    expect(host.context.queues.get('100')).toEqual([b]);
+    expect(host.context.queues.get('LMTC')).toContain(a);
+    expect(resp).toContain('BAKER');
+    expect(wa.pnr.locator).toBe(b);
+  });
+
+  it('QU-MSG logs the message as a general remark on the PNR', () => {
+    const loc = commit('SMITH');
+    host.context.queues.set('77', [loc]);
+    host.process('Q/77', wa);
+    host.process('QU-LINE ENGAGED', wa);
+    const pnr = host.context.pnrStore.get(loc)!;
+    expect(pnr.remarks.some((r) => r.text.includes('LINE ENGAGED'))).toBe(true);
+    expect(host.context.queues.get('UTR')).toContain(loc);
+  });
+
+  it('QL/QU without a queue context return NO QUEUE ACCESSED', () => {
+    expect(host.process('QL', wa)).toBe('NO QUEUE ACCESSED');
+    expect(host.process('QU', wa)).toBe('NO QUEUE ACCESSED');
+  });
 });

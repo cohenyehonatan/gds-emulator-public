@@ -13,10 +13,12 @@
  *   QXER                end-transact (commit), exit queue, redisplay PNR
  *   QBI¥4               skip current + 4 PNRs ahead (Zenon course); forward only
  *   QBI-3               backward skip — rejected, no queue-cursor history modeled
+ *   QL / QL-MSG         re-queue to LMTC (Left Message to Contact); message logged
+ *   QU / QU-MSG         re-queue to UTR (Under Reservation); message logged
  *
  * `*Q` (queue status) is a display entry, parsed by commands/retrieve.ts.
  *
- * TODO (ROADMAP): jump (QJ), QL/QU re-queue.
+ * TODO (ROADMAP): jump (QJ).
  */
 
 import type { QueueEntry } from '../entry.js';
@@ -38,6 +40,17 @@ export function parseQueue(raw: string): QueueEntry {
   if (skipFwd) return { ...base, op: 'skip', skipCount: parseInt(skipFwd[1], 10) };
   const skipBack = /^QBI-(\d+)$/.exec(u);
   if (skipBack) return { ...base, op: 'skip', skipCount: -parseInt(skipBack[1], 10) };
+
+  // QL / QU re-queue with optional dash-prefixed message (≤15 chars per source).
+  const requeue = /^Q([LU])(?:-(.{1,15}))?$/.exec(u);
+  if (requeue) {
+    return {
+      ...base,
+      op: 'requeue',
+      requeueTarget: requeue[1] === 'L' ? 'LMTC' : 'UTR',
+      requeueMessage: requeue[2],
+    };
+  }
 
   const place = /^QP\/(.+)$/.exec(u);
   if (place) {
