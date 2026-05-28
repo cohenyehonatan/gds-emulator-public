@@ -210,10 +210,11 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       - [x] **Exit-and-redisplay** — `QXIR` (ignore + exit + redisplay) and
             `QXER` (end-tx + exit + redisplay). QXER returns control to the
             agent inside the queue context if end-tx rejects on a missing field.
-      - [x] **Skip** — `QBI¥N` forward (drops N from the queue's front and
-            loads the new front). `QBI-N` backward is rejected with a
-            reconstructed string (real Sabre tracks a queue cursor we don't
-            model; faking it would misrepresent fidelity).
+      - [x] **Skip** — `QBI¥N` and `QBI-N` move a per-WorkArea queue cursor
+            without mutating the list, matching the source's "ignores" (vs
+            "removes") wording. Backward navigation goes back to PNRs that
+            were previously skipped. Implemented via a cursor refactor of the
+            queue handler: QR/QL/QU splice at cursor, QBI moves cursor.
       - [x] **Re-queue** — `QL` → LMTC, `QU` → UTR, each with an optional
             ≤15-char message logged as a general remark on the PNR per Zenon
             note 1. The source's auto-requeue-after-N-hours timer behavior
