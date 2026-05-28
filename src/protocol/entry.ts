@@ -435,8 +435,9 @@ export interface CancelRefundEntry extends BaseEntry {
  */
 export interface RefundEntry extends BaseEntry {
   kind: 'refund';
-  ticketNumber: string;
-  mode: 'full' | 'tax_only';
+  /** `'redisplay'` is the WFR* form; the others carry a ticket number. */
+  mode: 'full' | 'tax_only' | 'redisplay';
+  ticketNumber?: string;
 }
 
 /**

@@ -42,6 +42,8 @@ export class WorkArea {
    * Cleared on confirmation, on a different ticket WTRX, or on reset.
    */
   pendingCancelRefundTicket?: string;
+  /** Last refund-response string; redisplayed by `WFR*`. */
+  lastRefundResponse?: string;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -60,5 +62,6 @@ export class WorkArea {
     this.queueCursor = undefined;
     this.lastSimilarNameList = undefined;
     this.pendingCancelRefundTicket = undefined;
+    this.lastRefundResponse = undefined;
   }
 }

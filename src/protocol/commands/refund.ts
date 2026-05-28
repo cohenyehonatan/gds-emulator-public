@@ -20,12 +20,12 @@ const RE = /^WFR(T)?(\d{13})$/i;
 const WTRX_RE = /^WTRX(\d{13})$/i;
 
 export function parseRefund(raw: string): RefundEntry {
+  const base = { kind: 'refund' as const, raw, timestamp: new Date() };
+  if (raw.toUpperCase() === 'WFR*') return { ...base, mode: 'redisplay' };
   const m = RE.exec(raw);
-  if (!m) throw new ParseError(`Refund: expected WFR[T]<13-digit ticket> in "${raw}"`);
+  if (!m) throw new ParseError(`Refund: expected WFR[T]<13-digit ticket> or WFR* in "${raw}"`);
   return {
-    kind: 'refund',
-    raw,
-    timestamp: new Date(),
+    ...base,
     mode: m[1] ? 'tax_only' : 'full',
     ticketNumber: m[2],
   };

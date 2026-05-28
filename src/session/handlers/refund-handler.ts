@@ -26,9 +26,14 @@ import type { HandlerContext } from './context.js';
 
 export function handleRefund(
   entry: RefundEntry,
-  _wa: WorkArea,
+  wa: WorkArea,
   ctx: HandlerContext
 ): string {
+  // WFR* — redisplay the work area's last refund response.
+  if (entry.mode === 'redisplay') {
+    return wa.lastRefundResponse ?? 'NO PREVIOUS REFUND'; // reconstructed empty state
+  }
+
   for (const pnr of ctx.pnrStore.values()) {
     const ticket = pnr.tickets.find((t) => t.number === entry.ticketNumber);
     if (!ticket) continue;
@@ -37,7 +42,9 @@ export function handleRefund(
     // Tax-only leaves status active for now; surfaces via *TA per the QR
     // partition. Future per-coupon extension will adjust totals.
     const label = entry.mode === 'tax_only' ? 'TAX REFUND' : 'REFUND';
-    return `OK-${label} TKT ${entry.ticketNumber}`;
+    const resp = `OK-${label} TKT ${entry.ticketNumber}`;
+    wa.lastRefundResponse = resp;
+    return resp;
   }
   return 'TKT NOT FOUND'; // reconstructed
 }

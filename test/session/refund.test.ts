@@ -81,6 +81,13 @@ describe('refund handling', () => {
     expect(resp).toContain('OK-TAX REFUND');
     expect(host.process('*TA', wa)).toContain(tkt); // still active
   });
+
+  it('WFR* redisplays the last refund response (QREX p.7)', () => {
+    expect(host.process('WFR*', wa)).toBe('NO PREVIOUS REFUND');
+    const tkt = bookAndIssue();
+    const refund = host.process(`WFR${tkt}`, wa);
+    expect(host.process('WFR*', wa)).toBe(refund);
+  });
 });
 
 describe('WTRX cancel refund (QREX p.21 two-step flow)', () => {
