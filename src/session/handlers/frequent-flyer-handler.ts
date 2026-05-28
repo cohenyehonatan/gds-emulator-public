@@ -8,7 +8,7 @@ import type { FrequentFlyerEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderFrequentFlyers } from '../../protocol/serializer.js';
 
 function nameRefValid(pnr: Pnr, ref?: { item: number; passenger?: number }): boolean {

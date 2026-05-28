@@ -12,7 +12,7 @@
 import type { DisplayEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import {
   renderPnr,

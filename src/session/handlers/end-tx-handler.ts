@@ -14,7 +14,8 @@
 import type { EndTransactionEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
-import { MandatoryField, Response, type MandatoryFieldKey } from '../../protocol/constants.js';
+import { MandatoryField, type MandatoryFieldKey } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderPnr } from '../../protocol/serializer.js';
 import type { HandlerContext } from './context.js';
 

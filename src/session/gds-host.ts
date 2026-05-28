@@ -16,7 +16,7 @@ import { WorkArea } from './work-area.js';
 import { dispatch, type HandlerContext } from './handlers/index.js';
 import { parseEntry } from '../protocol/parser.js';
 import { ParseError } from '../protocol/errors.js';
-import { Response } from '../protocol/constants.js';
+import { Response } from '../dialects/sabre/responses.js';
 import { normalizeKeyboard, splitEndItems } from '../protocol/keyboard.js';
 import { Inventory } from '../store/inventory.js';
 import { PnrStore } from '../store/pnr-store.js';

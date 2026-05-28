@@ -7,7 +7,7 @@
 import type { SsrEntry, OsiEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderSsrs, renderOsis } from '../../protocol/serializer.js';
 
 export function handleSsr(entry: SsrEntry, wa: WorkArea): string {

@@ -20,7 +20,7 @@ import type { Pnr } from '../../models/pnr.js';
 import type { FareQuote } from '../../models/fare.js';
 import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderTicketing } from '../../protocol/serializer.js';
 import { priceItinerary } from './pricing-handler.js';
 import type { HandlerContext } from './context.js';

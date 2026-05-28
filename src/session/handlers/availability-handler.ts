@@ -8,7 +8,7 @@ import type { AvailabilityEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { renderAvailability } from '../../protocol/serializer.js';
 import { parseClockToMinutes } from '../../utils/validation.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { dayOfWeekLetter, dayOfWeekNumber, shiftDate, type HandlerContext } from './context.js';
 
 export function handleAvailability(

@@ -7,7 +7,7 @@ import type { ParsedEntry } from '../../protocol/entry.js';
 import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
 import { InvalidTransitionError } from '../session-machine.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderSignInResponse } from '../../protocol/serializer.js';
 import type { HandlerContext } from './context.js';
 import { handleAvailability } from './availability-handler.js';

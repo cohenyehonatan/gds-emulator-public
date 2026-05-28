@@ -19,7 +19,7 @@ import { parseNameText } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
 import { renderSoldSegment, renderRemarks } from '../../protocol/serializer.js';
 import { StatusCode } from '../../protocol/constants.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import type { AirSegment } from '../../models/segment.js';
 import { parseClockToMinutes } from '../../utils/validation.js';
 import { dayOfWeekLetter, dayOfWeekNumber, nextDay, type HandlerContext } from './context.js';

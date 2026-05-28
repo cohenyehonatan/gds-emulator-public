@@ -18,7 +18,7 @@ import type { AirSegment } from '../../models/segment.js';
 import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { Inventory } from '../../store/inventory.js';
 import { fareFor, round2, BOOKING_CLASSES, classMultiplier } from '../../store/tariff.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderFareQuote, renderBargain, renderFareCalc } from '../../protocol/serializer.js';
 import { SessionEvent } from '../session-state.js';
 import type { HandlerContext } from './context.js';

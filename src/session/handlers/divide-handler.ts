@@ -13,7 +13,7 @@ import type { WorkArea } from '../work-area.js';
 import { Pnr } from '../../models/pnr.js';
 import type { NameItem } from '../../models/name-element.js';
 import { SessionEvent } from '../session-state.js';
-import { Response } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderPnr } from '../../protocol/serializer.js';
 import type { HandlerContext } from './context.js';
 

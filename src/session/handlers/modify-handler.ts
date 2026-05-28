@@ -10,7 +10,8 @@ import type { CancelEntry, SegmentStatusEntry, ModifyEntry, MoveEntry } from '..
 import type { WorkArea } from '../work-area.js';
 import type { Pnr } from '../../models/pnr.js';
 import { SessionEvent } from '../session-state.js';
-import { Response, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
+import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
+import { Response } from '../../dialects/sabre/responses.js';
 import { renderItinerary, renderNames, renderPhones, renderTicketing, renderRemarks } from '../../protocol/serializer.js';
 import { parseNameText, parsePassenger } from '../../models/name-element.js';
 import { parsePhoneText } from '../../models/phone-element.js';
