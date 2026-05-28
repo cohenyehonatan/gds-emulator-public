@@ -235,18 +235,29 @@ so it can grow into it without faking fidelity. The matrix:
       `TVP-PCC-CORE: 7K9S_1G` returns a real `CatalogProductOfferingsResponse`
       (10 offers, `DEN→FRA`, sandbox synthetic). `validate-travelport-creds.ts`
       at the repo root is the re-runnable gate.
-- [ ] **`Dialect` seam** — extract today's `protocol/{parser,serializer,
-      constants,keyboard}` + Sabre FSM rules behind a `Dialect` interface,
-      `GdsHost` becomes dialect-agnostic, banner sourced from the dialect (not
-      the `'SABRE GDS terminal'` constant in `terminal/repl.ts:15`). All 175
-      existing tests must pass unchanged — that's the refactor's correctness gate.
-- [ ] **`Backend` seam + async** — `process(entry, wa): Promise<string>`. Today
-      it's synchronous (`session/gds-host.ts:68`); live REST calls force the
-      change. Localized to `GdsHost.process` + the REPL's `rl.on('line')`. Do it
-      when the seam is cut, not after.
-- [ ] **CLI dispatch** — `start:terminal:sabre` (the explicit default) and the
-      `index.ts` arg path that picks `{ dialect, backend }`. npm scripts fall out
-      for free once the seam exists; they are the *last* commit, not the first.
+- [x] **`Dialect` seam** — Sabre's cryptic surface (parser, keyboard, end-item
+      splitter, Response constants, error-set) is now behind a `Dialect`
+      interface (`src/dialects/dialect.ts`) with `SabreDialect` as the first
+      and only implementation (`src/dialects/sabre/`). `GdsHost` owns a
+      `readonly dialect: Dialect` and delegates `normalizeKeyboard` /
+      `splitChain` / `processEntry` / `isErrorResponse` to it; banner and CRT
+      status-bar label both source from `host.dialect`. No SABRE/sabre strings
+      remain in `src/` outside `dialects/sabre/`. Landed across three
+      atomic-and-reviewable commits, each leaving all 175 tests green:
+      `9cb83fa` (relocate Sabre `Response.*` into `dialects/sabre/responses.ts`),
+      `d426b86` (`Dialect` interface + `SabreDialect`, unused), `dd257f8`
+      (`GdsHost` dispatches via Dialect, banner sourced from dialect).
+- [ ] **`Backend` seam + async** — widen `Dialect.processEntry` /
+      `GdsHost.process` to `string | Promise<string>` for live REST backends.
+      The interface change is one line; the cost is `await` on ~400 test call
+      sites across 16 files (mechanical, but voluminous). Deferred until
+      `galileo:live` is actually wired — pre-emptively going async pays the
+      mechanical cost now for no behavioral win, and the change lands cleanly
+      alongside the OAuth client + cryptic→REST mapping when those need it.
+- [ ] **CLI dispatch** — `index.ts` arg path that picks `{ dialect, backend }`
+      (e.g. `terminal sabre` / `terminal galileo:live`), with npm scripts
+      (`start:terminal:sabre`, …) falling out for free. The seam is now in
+      place to make this trivial; still the *last* step, not the first.
 
 ### Galileo (1G) — live backend
 
