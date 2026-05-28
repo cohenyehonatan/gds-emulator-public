@@ -97,6 +97,15 @@ describe('ticketing parsing', () => {
     }
   });
 
+  it('parses W¥DP invoice qualifier', () => {
+    const e = parseEntry('W¥KP5¥DP');
+    if (e.kind === 'ticket') expect(e).toMatchObject({ commissionPercent: 5, invoice: true });
+  });
+
+  it('enforces the QR p.1 ordering rule: ¥DP must be last', () => {
+    expect(() => parseEntry('W¥DP¥KP5')).toThrow(/DP qualifier must be last/);
+  });
+
   it('rejects a qualifier whose source still isn’t pinned (e.g. W¥F<fop>)', () => {
     // Form of payment, segment selection, paper ticket, void/refund all
     // need the Issue-Tickets QR which isn't in references/ yet.

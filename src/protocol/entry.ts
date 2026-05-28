@@ -317,6 +317,8 @@ export interface TicketEntry extends BaseEntry {
   formOfPayment?: FormOfPayment;
   /** `CVV<n>` — credit-card security code (separate ¥-qualifier alongside the F*<cc>/<exp> token). */
   cvv?: string;
+  /** `DP` — issue ticket and invoice/itinerary document together (QR p.2; must appear last). */
+  invoice?: boolean;
 }
 
 /**

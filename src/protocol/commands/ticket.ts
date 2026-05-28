@@ -23,9 +23,14 @@
  *                    or *Z<n> approval code inline)   e.g. *E03  /  *Z003492
  *   F*Z<n>         pre-approved (CC in PNR FOP field) e.g. F*Z003492
  *   CVV<n>         credit-card security code (its own ¥-qualifier; pairs with F*)
+ *   DP             issue ticket + invoice/itinerary document (QR p.2; must be last)
  *   PQ<n>          stored PQ record reference          (still recognized
  *                  as a base entry too, for W¥PQ1 alone)
  *   N<item>        name-field selector
+ *
+ * Ordering rules from QR p.1: `¥PQ` qualifier must be first (enforced by
+ * making PQ a base-entry-only token), `¥DP` qualifier must be last
+ * (enforced explicitly during parse).
  *
  * TODO (ROADMAP, now source-grounded in references/Sabre-Issue-Tickets-QR.pdf
  * + sibling Ticket-Display-Tools / Accounting-Lines QRs and Zenon QREX manual):
@@ -51,10 +56,16 @@ export function parseTicket(raw: string): TicketEntry {
   if (rest === '') return { ...base, source: 'pnr' };
 
   // Split on the cross of Lorraine: the first token is the base entry, the
-  // rest are qualifiers (any number, any order).
+  // rest are qualifiers (any number, any order — except DP must be last
+  // per QR p.1: "¥DP qualifier must be last").
   const tokens = rest.split('¥');
   const head = tokens[0];
   const qualifiers = tokens.slice(1);
+  // QR p.1 ordering rule: ¥DP must be last across the whole token list.
+  const dpAt = tokens.indexOf('DP');
+  if (dpAt !== -1 && dpAt !== tokens.length - 1) {
+    throw new ParseError(`Ticket: ¥DP qualifier must be last in "${raw}"`);
+  }
 
   // Base entry: PQ<n>, N<item>, or empty (issue all).
   let entry: TicketEntry;
@@ -83,6 +94,7 @@ function isQualifier(t: string): boolean {
     /^K\d+(\.\d+)?$/.test(t) ||
     /^S\d+$/.test(t) ||
     t === 'XETR' ||
+    t === 'DP' ||
     /^F/.test(t) || // FCASH / FCHECK / FCK / F*… — let applyQualifier do the precise routing
     /^CVV\d+$/.test(t)
   );
@@ -111,6 +123,10 @@ function applyQualifier(entry: TicketEntry, token: string, raw: string): void {
   }
   if (token === 'XETR') {
     entry.paperTicket = true;
+    return;
+  }
+  if (token === 'DP') {
+    entry.invoice = true;
     return;
   }
   const cvv = /^CVV(\d+)$/.exec(token);
