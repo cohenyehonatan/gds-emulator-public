@@ -49,6 +49,7 @@ import { Pnr } from '../models/pnr.js';
 import type { AirSegment } from '../models/segment.js';
 import type { NameItem } from '../models/name-element.js';
 import type { PhoneElement } from '../models/phone-element.js';
+import type { FareQuote, PassengerFare, TaxItem } from '../models/fare.js';
 import { StatusCode } from '../protocol/constants.js';
 
 export interface MapOptions {
@@ -355,4 +356,119 @@ function extractDateToken(iso: unknown): string {
   const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const month = months[parseInt(m[2], 10) - 1];
   return month ? `${day}${month}` : '';
+}
+
+/**
+ * Priced-offer response → FareQuote. Used by Galileo's live `FQ` path.
+ *
+ * The response (from POST /11/air/price/offers/buildfromcatalogproduct
+ * offerings) returns a priced product offering containing per-passenger
+ * pricing blocks and per-segment fare basis codes. The exact JSON shape
+ * isn't pinned in the spec list we fetched; this walks defensively
+ * across the documented `CatalogProductOfferingsResponse.CatalogProduct
+ * Offerings.CatalogProductOffering[].ProductBrandOptions[].Product
+ * BrandOffering[].Price` shape with `.passengerType.Tax[]` and a flat
+ * `Price` fallback.
+ *
+ * If extraction yields no passenger blocks, returns null — Galileo's
+ * handler converts that to FARE QUOTE NOT AVAILABLE.
+ */
+export function mapPricedOffer(response: unknown, opts: { departureDate?: string } = {}): FareQuote | null {
+  const r = response as any;
+  const env = r?.CatalogProductOfferingsResponse ?? r;
+  const offerings = arrayish(
+    env?.CatalogProductOfferings?.CatalogProductOffering ?? env?.CatalogProductOfferings
+  );
+  if (offerings.length === 0) return null;
+  const firstOffering = offerings[0];
+  const brandOptions = arrayish(firstOffering?.ProductBrandOptions);
+  if (brandOptions.length === 0) return null;
+  const firstBrand = brandOptions[0];
+  const brandOfferings = arrayish(firstBrand?.ProductBrandOffering);
+  if (brandOfferings.length === 0) return null;
+  const firstBrandOffering = brandOfferings[0];
+
+  const passengers = extractPassengerFares(firstBrandOffering);
+  if (passengers.length === 0) return null;
+
+  // Pull fare basis codes from the FareDetail of each priced segment.
+  const fareBasis: string[] = [];
+  for (const fd of arrayish(firstBrandOffering?.FareDetail)) {
+    const code = fd?.FareBasis ?? fd?.fareBasis;
+    if (typeof code === 'string' && code.length > 0) fareBasis.push(code);
+  }
+
+  // Validating carrier: look on the brand offering, then on the offering.
+  const validatingCarrier =
+    firstBrandOffering?.validatingCarrier ??
+    firstOffering?.validatingCarrier ??
+    arrayish(firstBrand?.Flight)[0]?.carrier ??
+    '';
+
+  // Currency: usually on Price.currencyCode; fall back to first passenger block.
+  const currency =
+    firstBrandOffering?.Price?.currencyCode ??
+    firstBrandOffering?.Price?.currency ??
+    passengers[0]?.passengerType ? undefined : undefined;
+
+  return {
+    departureDate: opts.departureDate ?? '',
+    validatingCarrier: String(validatingCarrier),
+    currency: typeof currency === 'string' ? currency : 'USD',
+    fareBasis,
+    passengers,
+  };
+}
+
+/**
+ * Extract per-passenger pricing blocks from a ProductBrandOffering.
+ * Travelport's response can present these as either an array of
+ * `Price[].passengerType` entries or a flat `Price.passengerType[]`
+ * collection; we try both shapes.
+ */
+function extractPassengerFares(brandOffering: any): PassengerFare[] {
+  const out: PassengerFare[] = [];
+  // Try the per-passenger-priced-offer shape:
+  const priceItems = arrayish(brandOffering?.Price ?? brandOffering?.price);
+  for (const p of priceItems) {
+    const pt = p?.passengerType ?? p?.passengerTypeCode;
+    if (pt) {
+      const fare = mapOnePassengerFare(p, String(pt));
+      if (fare) out.push(fare);
+    }
+  }
+  if (out.length > 0) return out;
+
+  // Fallback: single flat Price with passengerType[] inside.
+  const flat = brandOffering?.Price ?? brandOffering?.price;
+  if (flat?.passengerType) {
+    for (const pt of arrayish(flat.passengerType)) {
+      const fare = mapOnePassengerFare(flat, String(pt?.code ?? pt));
+      if (fare) out.push(fare);
+    }
+  }
+  return out;
+}
+
+function mapOnePassengerFare(priceNode: any, passengerType: string): PassengerFare | null {
+  const base = Number(priceNode?.Base?.value ?? priceNode?.base ?? priceNode?.BasePrice ?? 0);
+  const totalRaw = Number(priceNode?.TotalPrice?.value ?? priceNode?.total ?? priceNode?.Total ?? 0);
+  if (!Number.isFinite(base) && !Number.isFinite(totalRaw)) return null;
+  const taxes: TaxItem[] = [];
+  for (const tx of arrayish(priceNode?.Tax ?? priceNode?.taxes ?? priceNode?.Taxes)) {
+    const code = tx?.code ?? tx?.Code;
+    const amount = Number(tx?.value ?? tx?.amount ?? tx?.Amount ?? 0);
+    if (typeof code === 'string' && Number.isFinite(amount)) taxes.push({ code, amount });
+  }
+  const taxTotal = taxes.reduce((sum, t) => sum + t.amount, 0);
+  const total = totalRaw || base + taxTotal;
+  return {
+    passengerType,
+    count: Number(priceNode?.numberOfPassengers ?? priceNode?.number ?? 1) || 1,
+    base,
+    taxes,
+    taxTotal,
+    total,
+    fareCalc: String(priceNode?.fareCalculation ?? priceNode?.FareCalculation ?? ''),
+  };
 }

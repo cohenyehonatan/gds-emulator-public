@@ -38,7 +38,7 @@ import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
-import { mapCatalogProductOfferings, mapReservation } from '../../backends/travelport-mapper.js';
+import { mapCatalogProductOfferings, mapReservation, mapPricedOffer } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -127,7 +127,7 @@ export function dispatchGalileo(
         return handleGalileoPassiveCancel(entry, wa);
 
       case 'pricing':
-        return handleGalileoPricing(entry, wa);
+        return handleGalileoPricing(entry, wa, ctx);
 
       case 'ticket':
         return handleGalileoTicket(entry, wa, ctx);
@@ -754,19 +754,69 @@ function handleGalileoPassiveCancel(entry: PassiveCancelEntry, wa: WorkArea): st
 }
 
 /**
- * `FQ` — Fare Quote. Source: Mini Format Guide v2 p.27. The Sabre
- * pricing engine (priceItinerary) is reused — it's tariff-driven and
- * dialect-agnostic. FQ always stores the resulting quote on the PNR
- * so a later `TKP<n>` can issue from it.
+ * `FQ` — Fare Quote. Source: Mini Format Guide v2 p.27. Always stores
+ * the resulting quote on the PNR so a later `TKP<n>` can issue from it.
+ *
+ * Live path: look up the `vendorRef.offerId` for the first segment by
+ * matching against cached availability, POST to /price/offers/
+ * buildfromcatalogproductofferings, and map the response to FareQuote.
+ * Falls back to emulated `priceItinerary` when no offerId is reachable
+ * (e.g. retrieved committed BF with no recent availability cache, or
+ * line dropped its vendorRef).
+ *
+ * Multi-offer FQ (each segment from a different offer) deferred — the
+ * common case is single-offer, and the emulated path handles the rest.
  */
-function handleGalileoPricing(_entry: PricingEntry, wa: WorkArea): string {
+async function handleGalileoPricing(
+  _entry: PricingEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
   if (wa.pnr.names.length === 0) return GalileoResponse.NEED_NAME;
+
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const offerId = findOfferIdForFirstSegment(wa);
+    if (offerId) {
+      try {
+        const response = await ctx.backend.priceOffer(offerId, wa.pnr.passengerCount() || 1);
+        const fq = mapPricedOffer(response, {
+          departureDate: wa.pnr.segments[0]?.date ?? '',
+        });
+        if (fq) {
+          wa.pnr.priceQuotes.push(fq);
+          wa.lastPricing = fq;
+          return renderGalileoFareQuote(fq, wa.pnr.priceQuotes.length);
+        }
+        // Mapper returned null — fall through to emulated.
+      } catch (err) {
+        return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+      }
+    }
+    // No offerId reachable → fall through to emulated below.
+  }
+
   const fq = priceItinerary(wa.pnr, {});
   if (!fq) return 'FARE QUOTE NOT AVAILABLE'; // reconstructed
   wa.pnr.priceQuotes.push(fq);
   wa.lastPricing = fq;
   return renderGalileoFareQuote(fq, wa.pnr.priceQuotes.length);
+}
+
+/**
+ * Pull the Travelport offerId for the work area's first segment by
+ * matching against the cached availability's line vendorRefs. Returns
+ * undefined if there's no availability cache, no matching line, or no
+ * vendorRef on the matched line — caller falls back to emulated.
+ */
+function findOfferIdForFirstSegment(wa: WorkArea): string | undefined {
+  const seg = wa.pnr.segments[0];
+  const avail = wa.lastAvailability;
+  if (!seg || !avail) return undefined;
+  const line = avail.lines.find(
+    (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
+  );
+  return line?.vendorRef?.offerId;
 }
 
 /**

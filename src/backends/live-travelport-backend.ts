@@ -305,6 +305,30 @@ export class LiveTravelportBackend implements Backend {
    * sold-segment echo. Multi-pax sells are supported by passing
    * `adults > 1` (matches `N<seats>...` cryptic semantics).
    */
+  /**
+   * Standalone price-an-offer call (no workbench needed).
+   *
+   * Source: POST /11/air/price/offers/buildfromcatalogproductofferings —
+   * "Price offers using reference payload". Used by Galileo `FQ`'s
+   * live path: pull a `vendorRef.offerId` from cached availability,
+   * post it, get back a priced offer that maps to FareQuote.
+   *
+   * The body shape mirrors addOffer's `OfferQueryRef` form (the
+   * reference-payload pattern is documented as shared across endpoints
+   * that accept catalog offer IDs).
+   */
+  async priceOffer(offerId: string, adults = 1): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/price/offers/buildfromcatalogproductofferings`;
+    const body = {
+      OfferQueryRef: {
+        SearchOfferId: offerId,
+        PassengerCriteria: [{ number: adults, passengerTypeCode: 'ADT' }],
+      },
+    };
+    return this.postJson(url, body, 'priceOffer');
+  }
+
   async addOffer(
     workbenchId: string,
     offerId: string,
