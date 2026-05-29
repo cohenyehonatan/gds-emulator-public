@@ -45,6 +45,11 @@
  */
 
 import type { AvailabilityLine, VendorRef } from '../models/availability-result.js';
+import { Pnr } from '../models/pnr.js';
+import type { AirSegment } from '../models/segment.js';
+import type { NameItem } from '../models/name-element.js';
+import type { PhoneElement } from '../models/phone-element.js';
+import { StatusCode } from '../protocol/constants.js';
 
 export interface MapOptions {
   /** Sabre-style day-of-week letter ("S","M","T","W","Q","F","J"); falls back to "?". */
@@ -212,4 +217,142 @@ function extractClock(iso: unknown): string {
 function arrayish<T>(x: T | T[] | null | undefined): T[] {
   if (x == null) return [];
   return Array.isArray(x) ? x : [x];
+}
+
+/**
+ * Reservation → Pnr mapper. Translates a TripServices reservation
+ * response (typically returned by `GET /11/air/book/reservation/
+ * reservations/{LocatorCode}`) into the dialect-shared Pnr model so
+ * the same Galileo serializer renders a live retrieve identically to
+ * an emulated one.
+ *
+ * The exact response shape isn't precisely documented in the spec
+ * fetch we have. This mapper walks defensively at every level — the
+ * documented `Reservation` wrapper, a flat shape some pre-prod tenants
+ * return, and a fallback shape some access groups use. A `locator`
+ * input takes precedence over whatever the response carries (the
+ * caller knows what it asked for).
+ *
+ * What's mapped today: locator, names, segments, phones. Ticketing
+ * field / received-from / SSRs / OSIs / remarks / frequent flyers /
+ * tickets / pricing all stay default — they have natural REST
+ * equivalents (`/accountings`, `/specialservices`, `/receipts`) that
+ * a follow-up commit can wire in.
+ */
+export function mapReservation(response: unknown, locator: string): Pnr {
+  const pnr = new Pnr();
+  pnr.locator = locator;
+  const r = response as any;
+  const root = r?.Reservation ?? r?.OrderReservationResponse?.Reservation ?? r;
+  if (root == null) return pnr;
+
+  pnr.names = mapReservationTravelers(root);
+  pnr.segments = mapReservationSegments(root);
+  pnr.phones = mapReservationPhones(root);
+  return pnr;
+}
+
+/** Travelers — one NameItem per Traveler element. */
+function mapReservationTravelers(root: any): NameItem[] {
+  const travelers = arrayish(root?.Traveler ?? root?.Travelers ?? root?.travelers);
+  const out: NameItem[] = [];
+  for (const t of travelers) {
+    const pn = t?.PersonName ?? t?.personName ?? t;
+    const surname = pn?.Surname ?? pn?.surname ?? pn?.lastName;
+    const given = pn?.Given ?? pn?.given ?? pn?.firstName;
+    if (!surname || !given) continue;
+    out.push({
+      surname: String(surname).trim(),
+      passengers: [{ firstName: String(given).trim() }],
+      count: 1,
+      infant: false,
+    });
+  }
+  return out;
+}
+
+/**
+ * Segments. The reservation response groups flights either under
+ * `AirReservation.Flights` (older shape) or as flat `BookingSegment`
+ * entries (newer shape with explicit booking class / status).
+ */
+function mapReservationSegments(root: any): AirSegment[] {
+  // Try the documented `AirReservation.Flights[]` shape first; fall back
+  // to the flat `BookingSegment[]` newer access groups return. `??`
+  // would NOT trigger on an empty array, so we explicitly check length.
+  let flights = arrayish(root?.AirReservation?.Flights ?? root?.AirReservation?.Flight);
+  if (flights.length === 0) {
+    flights = arrayish(root?.BookingSegment ?? root?.Segments ?? root?.segments);
+  }
+  const out: AirSegment[] = [];
+  flights.forEach((flight: any, idx: number) => {
+    const seg = flightToSegment(flight, idx + 1);
+    if (seg) out.push(seg);
+  });
+  return out;
+}
+
+function flightToSegment(flight: any, segmentNumber: number): AirSegment | null {
+  const carrier = flight?.carrier ?? flight?.Carrier;
+  const flightNumber = String(flight?.number ?? flight?.Number ?? '');
+  const dep = flight?.Departure ?? {};
+  const arr = flight?.Arrival ?? {};
+  const origin = dep?.location ?? dep?.Location;
+  const destination = arr?.location ?? arr?.Location;
+  if (!carrier || !flightNumber || !origin || !destination) return null;
+  const status = (flight?.status ?? flight?.Status ?? StatusCode.HK) as string;
+  const seats = Number(flight?.seats ?? flight?.numberOfStops ?? flight?.seatCount ?? 1) || 1;
+  return {
+    segmentNumber,
+    carrier,
+    flightNumber,
+    bookingClass: flight?.cabin ?? flight?.bookingClass ?? flight?.classOfService ?? 'Y',
+    date: extractDateToken(dep?.time ?? dep?.Time),
+    dayOfWeek: '?',
+    dayOfWeekNum: 0,
+    origin,
+    destination,
+    status,
+    seats,
+    departTime: extractClock(dep?.time ?? dep?.Time),
+    arriveTime: extractClock(arr?.time ?? arr?.Time),
+  };
+}
+
+/**
+ * Phones — collected from every Traveler.Telephone in the reservation
+ * AND any top-level PrimaryContact telephones. The Galileo phone field
+ * carries the raw text, so we don't split city/number/type.
+ */
+function mapReservationPhones(root: any): PhoneElement[] {
+  const out: PhoneElement[] = [];
+  const travelers = arrayish(root?.Traveler ?? root?.Travelers ?? root?.travelers);
+  for (const t of travelers) {
+    for (const tel of arrayish(t?.Telephone ?? t?.telephone)) {
+      const num = tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number;
+      if (typeof num === 'string' && num.length > 0) out.push({ number: num });
+    }
+  }
+  for (const pc of arrayish(root?.PrimaryContact ?? root?.primaryContact)) {
+    for (const tel of arrayish(pc?.Telephone ?? pc?.telephone)) {
+      const num = tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number;
+      if (typeof num === 'string' && num.length > 0) out.push({ number: num });
+    }
+  }
+  return out;
+}
+
+/**
+ * Convert a TripServices ISO timestamp into the Sabre date token
+ * (`DDMMM`). Returns "" if input isn't ISO — leaves the segment
+ * date blank rather than guessing.
+ */
+function extractDateToken(iso: unknown): string {
+  if (typeof iso !== 'string') return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return '';
+  const day = parseInt(m[3], 10);
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const month = months[parseInt(m[2], 10) - 1];
+  return month ? `${day}${month}` : '';
 }

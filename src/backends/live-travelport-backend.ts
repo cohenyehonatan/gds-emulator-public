@@ -211,6 +211,19 @@ export class LiveTravelportBackend implements Backend {
     return JSON.parse(text);
   }
 
+  /** Shared GET helper with the same header/error treatment as postJson. */
+  private async getJson(url: string, label: string): Promise<unknown> {
+    const headers = await this.tripServicesHeaders();
+    const res = await fetch(url, { method: 'GET', headers });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
+      );
+    }
+    return JSON.parse(text);
+  }
+
   /**
    * Air search against TripServices CatalogProductOfferings. Returns the
    * raw JSON response; the Galileo `availability` handler maps
@@ -361,6 +374,20 @@ export class LiveTravelportBackend implements Backend {
    * Throws if the server's response is missing a locator entirely —
    * we'd rather the agent see a clear error than a fake commit.
    */
+  /**
+   * Retrieve a reservation by record locator.
+   *
+   * Source: GET /11/air/book/reservation/reservations/{LocatorCode}.
+   * Returns the raw JSON; the dispatch handler maps it to the
+   * dialect-shared Pnr model via `mapReservation`. Throws on a
+   * 404 / 410 so the dialect can surface NO BOOKING FILE.
+   */
+  async retrieveReservation(locator: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/reservation/reservations/${encodeURIComponent(locator)}`;
+    return this.getJson(url, 'retrieveReservation');
+  }
+
   async commitWorkbench(
     workbenchId: string,
     opts?: { autoDeleteDate?: string }

@@ -38,7 +38,7 @@ import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
-import { mapCatalogProductOfferings } from '../../backends/travelport-mapper.js';
+import { mapCatalogProductOfferings, mapReservation } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -493,7 +493,11 @@ async function commitGalileoLive(
  * Multi-match surname results return the locators on one line each
  * for now — the `*<n>` selection-from-list flow is deferred.
  */
-function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerContext): string {
+function handleGalileoDisplay(
+  entry: DisplayEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string | Promise<string> {
   const arg = entry.argument;
   const sig = { pcc: ctx.pcc, agent: wa.agent };
 
@@ -507,9 +511,11 @@ function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCon
     return renderGalileoItinerary(wa.pnr);
   }
 
-  // Surname retrieve — `*-SMITH`. For >1 match, list locators; the agent
-  // re-issues against a specific locator. (The `*<n>` similar-name-list
-  // selection is a Sabre-only convention not documented for Galileo.)
+  // Surname retrieve — `*-SMITH`. No documented REST equivalent in
+  // TripServices (the spec calls surname search "GDS-host-only"), so
+  // this stays local-only even when the backend is live. The local
+  // pnrStore was populated as a pragmatic shadow by the live commit
+  // path, so committed live PNRs are findable by name here too.
   if (arg.startsWith('-')) {
     const surname = arg.slice(1).trim().split('/')[0]; // strip any "/GIVEN"
     const matches = ctx.backend.pnrs.findBySurname(surname);
@@ -524,8 +530,12 @@ function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCon
     return renderGalileoPnr(matches[0], sig);
   }
 
-  // Record locator (6-char alphanumeric per generateRecordLocator).
+  // Record locator (6-char alphanumeric). Live path GETs the reservation
+  // from TripServices and maps it; emulated path reads from pnrStore.
   if (isRecordLocator(arg)) {
+    if (ctx.backend instanceof LiveTravelportBackend) {
+      return retrieveGalileoLive(arg, wa, ctx, ctx.backend, sig);
+    }
     const pnr = ctx.backend.pnrs.get(arg);
     if (!pnr) return GalileoResponse.NO_PNR;
     wa.pnr = pnr;
@@ -534,6 +544,32 @@ function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCon
   }
 
   return GalileoResponse.FORMAT;
+}
+
+async function retrieveGalileoLive(
+  locator: string,
+  wa: WorkArea,
+  ctx: HandlerContext,
+  backend: LiveTravelportBackend,
+  sig: { pcc: string; agent?: string }
+): Promise<string> {
+  let response;
+  try {
+    response = await backend.retrieveReservation(locator);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // 404 / 410 → reservation doesn't exist; surface the Galileo
+    // dialect's NO BOOKING FILE rather than the raw upstream error.
+    if (/HTTP 40[4]|HTTP 410/.test(msg)) return GalileoResponse.NO_PNR;
+    return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
+  }
+  const pnr = mapReservation(response, locator);
+  wa.pnr = pnr;
+  // Mirror to local pnrStore so a subsequent surname search finds it,
+  // matching the pragmatic shadow the commit path already uses.
+  ctx.backend.pnrs.commit(pnr);
+  wa.machine.transition(SessionEvent.RETRIEVE);
+  return renderGalileoPnr(pnr, sig);
 }
 
 /**

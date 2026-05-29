@@ -155,14 +155,36 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     expect(resp).toContain('UA');         // segment from live availability
   });
 
-  it('after commit, *<locator> retrieve still finds the BF locally (pragmatic shadow)', async () => {
+  it('after commit, *<locator> retrieve goes live (TripServices GET) and renders the BF', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResponse())
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))
       .mockResolvedValueOnce(addOfferResponse())
       .mockResolvedValueOnce(addTravelerResponse())
-      .mockResolvedValueOnce(commitResponse('GHI789'));
+      .mockResolvedValueOnce(commitResponse('GHI789'))
+      // Live retrieve response — minimal but mappable:
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            Reservation: {
+              Identifier: { value: 'GHI789' },
+              Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+              AirReservation: {
+                Flights: [
+                  {
+                    carrier: 'UA',
+                    number: '1234',
+                    Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                    Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
@@ -173,11 +195,13 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     await host.process('E', wa);
     expect(wa.liveWorkbenchId).toBeUndefined();  // workbench consumed
 
-    // Retrieve goes against the local pnrStore — the live retrieve is
-    // a future commit; until then this is the only working retrieve.
     const resp = await host.process('*GHI789', wa);
     expect(resp).toContain('GHI789');
     expect(resp).toContain('SMITH/JOHN');
+    // Verify the live retrieve URL was hit:
+    expect(fetchSpy).toHaveBeenCalledTimes(7);
+    const [retrieveUrl] = fetchSpy.mock.calls[6];
+    expect(retrieveUrl).toContain('/air/book/reservation/reservations/GHI789');
   });
 
   it('name without prior sell still works — workbench is created on first name', async () => {
