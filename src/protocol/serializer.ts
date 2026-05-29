@@ -300,6 +300,34 @@ export function renderEtrHistory(pnr: Pnr): string {
 }
 
 /**
+ * Render the void list (`WV * `, `WV *DT<date>`, `WV *DT<from>-<to>`).
+ * Source: Sabre Travel Network Middle East QR p.13 documents the entries
+ * verbatim but no response layout — this rendering is reconstructed at
+ * the queue-prompt fidelity bar.
+ *
+ * Inputs come pre-filtered to the requested window; this just sorts and
+ * formats. Asterisk-slash in JSDoc would close the block; examples in
+ * the docstring are spaced.
+ */
+export function renderVoidList(
+  voided: { pnr: Pnr; ticket: TicketRecord }[],
+  windowToken: string
+): string {
+  if (voided.length === 0) return 'NO VOIDS'; // reconstructed
+  const sorted = [...voided].sort((a, b) => {
+    const ta = a.ticket.voidedAt?.getTime() ?? 0;
+    const tb = b.ticket.voidedAt?.getTime() ?? 0;
+    return ta - tb;
+  });
+  const lines = sorted.map((v, i) => {
+    const t = v.ticket;
+    const when = t.voidedAt ? `${sabreTime(t.voidedAt)}/${sabreDayMon(t.voidedAt)}` : '----/-----';
+    return `  ${i + 1}. ${t.number} ${t.passenger}  ${when}  ${t.pcc}`;
+  });
+  return [`VOID LIST ${windowToken}`, ...lines].join('\n');
+}
+
+/**
  * Render the accounting-field history (`*HAC`). Source: Sabre Accounting
  * Lines QR p.1 ("Display history of accounting field data"). The QR
  * documents the entry but not the response layout; this rendering is

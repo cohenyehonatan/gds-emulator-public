@@ -101,3 +101,77 @@ describe('WV void handling — two-step confirmation', () => {
     expect(wa.pendingVoid).toBeUndefined();
   });
 });
+
+describe('WV list display (WV* / WV*DT)', () => {
+  let host: GdsHost;
+  let wa: WorkArea;
+
+  beforeEach(() => {
+    host = new GdsHost({ port: 0, logLevel: 'error' });
+    wa = host.newWorkArea();
+    host.process('SI*4321', wa);
+  });
+
+  function issue(): string {
+    host.process('IG', wa);
+    host.process('115JUNJFKLAX', wa);
+    host.process('01Y1', wa);
+    host.process('-SMITH/JOHN MR', wa);
+    host.process('9305-555-1212-H', wa);
+    host.process('7TAW15JUN/', wa);
+    host.process('6P', wa);
+    const locator = host.process('E', wa);
+    host.process(`*${locator}`, wa);
+    host.process('W¥', wa);
+    return wa.pnr.tickets[0].number;
+  }
+
+  it('WV* with no voided tickets returns NO VOIDS', () => {
+    expect(host.process('WV*', wa)).toBe('NO VOIDS');
+  });
+
+  it('WV* lists tickets voided in the current month', () => {
+    const tkt = issue();
+    host.process('WV1', wa);
+    host.process('WV1', wa);
+    const resp = host.process('WV*', wa);
+    expect(resp).toContain('VOID LIST');
+    expect(resp).toContain(tkt);
+    expect(resp).toContain('SMITH/J');
+  });
+
+  it('WV*DT<today> lists today\'s voids', () => {
+    const tkt = issue();
+    host.process('WV1', wa);
+    host.process('WV1', wa);
+    const t = wa.pnr.tickets[0];
+    const today = `${String(t.voidedAt!.getDate()).padStart(2, '0')}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][t.voidedAt!.getMonth()]}`;
+    const resp = host.process(`WV*DT${today}`, wa);
+    expect(resp).toContain('VOID LIST');
+    expect(resp).toContain(tkt);
+  });
+
+  it('WV*DT<some-other-day> returns NO VOIDS', () => {
+    issue();
+    host.process('WV1', wa);
+    host.process('WV1', wa);
+    // Pick a date guaranteed-different: voidedAt + 30 days has a different DDMMM.
+    const t = wa.pnr.tickets[0];
+    const other = new Date(t.voidedAt!.getTime() + 30 * 86_400_000);
+    const otherTok = `${String(other.getDate()).padStart(2, '0')}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][other.getMonth()]}`;
+    expect(host.process(`WV*DT${otherTok}`, wa)).toBe('NO VOIDS');
+  });
+
+  it('WV*DT<from>-<to> filters by inclusive date window', () => {
+    const tkt = issue();
+    host.process('WV1', wa);
+    host.process('WV1', wa);
+    const t = wa.pnr.tickets[0];
+    const fmt = (d: Date) =>
+      `${String(d.getDate()).padStart(2, '0')}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()]}`;
+    const before = new Date(t.voidedAt!.getTime() - 86_400_000);
+    const after = new Date(t.voidedAt!.getTime() + 86_400_000);
+    const resp = host.process(`WV*DT${fmt(before)}-${fmt(after)}`, wa);
+    expect(resp).toContain(tkt);
+  });
+});
