@@ -74,6 +74,12 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     });
   }
 
+  function addPrimaryContactResponse(): Response {
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   function commitResponse(locator: string): Response {
     return new Response(
       JSON.stringify({
@@ -106,7 +112,8 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))  // 3. N1Y1 → createWorkbench
       .mockResolvedValueOnce(addOfferResponse())               // 4. N1Y1 → addOffer
       .mockResolvedValueOnce(addTravelerResponse())            // 5. N.SMITH/JOHN MR
-      .mockResolvedValueOnce(commitResponse('ABC123'));        // 6. E → commit
+      .mockResolvedValueOnce(addPrimaryContactResponse())      // 6. P.LON*...
+      .mockResolvedValueOnce(commitResponse('ABC123'));        // 7. E → commit
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
@@ -117,7 +124,7 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     const resp = await host.process('E', wa);
     expect(resp).toBe('ABC123');
 
-    expect(fetchSpy).toHaveBeenCalledTimes(6);
+    expect(fetchSpy).toHaveBeenCalledTimes(7);
 
     // Verify the addTraveler call's URL + body:
     const [travelerUrl, travelerInit] = fetchSpy.mock.calls[4];
@@ -127,8 +134,14 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     expect(tbody.Traveler?.[0]?.PersonName?.Given).toContain('JOHN');
     expect(tbody.Traveler?.[0]?.passengerTypeCode).toBe('ADT');
 
+    // Verify the addPrimaryContact call's URL + body:
+    const [pcUrl, pcInit] = fetchSpy.mock.calls[5];
+    expect(pcUrl).toContain('/primarycontact/reservationworkbench/WB-X/primarycontacts');
+    const pcBody = JSON.parse((pcInit?.body as string) ?? '{}');
+    expect(pcBody.PrimaryContact?.[0]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
+
     // Verify the commit call's URL + body:
-    const [commitUrl, commitInit] = fetchSpy.mock.calls[5];
+    const [commitUrl, commitInit] = fetchSpy.mock.calls[6];
     expect(commitUrl).toContain('/air/book/reservation/reservations/WB-X');
     const cbody = JSON.parse((commitInit?.body as string) ?? '{}');
     expect(cbody.ReservationQueryCommitReservation?.enableTwoStepCommitInd).toBe(false);
@@ -141,6 +154,7 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))
       .mockResolvedValueOnce(addOfferResponse())
       .mockResolvedValueOnce(addTravelerResponse())
+      .mockResolvedValueOnce(addPrimaryContactResponse())
       .mockResolvedValueOnce(commitResponse('DEF456'));
 
     await host.process('A27JUNDENFRA', wa);
@@ -162,6 +176,7 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))
       .mockResolvedValueOnce(addOfferResponse())
       .mockResolvedValueOnce(addTravelerResponse())
+      .mockResolvedValueOnce(addPrimaryContactResponse())
       .mockResolvedValueOnce(commitResponse('GHI789'))
       // Live retrieve response — minimal but mappable:
       .mockResolvedValueOnce(
@@ -199,8 +214,8 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     expect(resp).toContain('GHI789');
     expect(resp).toContain('SMITH/JOHN');
     // Verify the live retrieve URL was hit:
-    expect(fetchSpy).toHaveBeenCalledTimes(7);
-    const [retrieveUrl] = fetchSpy.mock.calls[6];
+    expect(fetchSpy).toHaveBeenCalledTimes(8);
+    const [retrieveUrl] = fetchSpy.mock.calls[7];
     expect(retrieveUrl).toContain('/air/book/reservation/reservations/GHI789');
   });
 
@@ -222,6 +237,7 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))
       .mockResolvedValueOnce(addOfferResponse())
       .mockResolvedValueOnce(addTravelerResponse())
+      .mockResolvedValueOnce(addPrimaryContactResponse())
       .mockResolvedValueOnce(new Response('"workbench expired"', {
         status: 410, statusText: 'Gone',
       }));
@@ -247,6 +263,7 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
       .mockResolvedValueOnce(createWorkbenchResponse('WB-X'))
       .mockResolvedValueOnce(addOfferResponse())
       .mockResolvedValueOnce(addTravelerResponse())
+      .mockResolvedValueOnce(addPrimaryContactResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({ noLocatorHere: true }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));

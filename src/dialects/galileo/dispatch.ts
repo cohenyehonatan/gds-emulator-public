@@ -98,7 +98,7 @@ export function dispatchGalileo(
         return handleGalileoName(entry, wa, ctx);
 
       case 'phone':
-        return handleGalileoPhone(entry, wa);
+        return handleGalileoPhone(entry, wa, ctx);
 
       case 'ticketing':
         return handleGalileoTicketing(entry, wa);
@@ -361,8 +361,28 @@ async function handleGalileoName(
  * the agency-T* / hotel-A* forms documented at Mini Guide v2 p.16). The
  * raw text rides through in PhoneElement.number; a Galileo PNR
  * renderer can format it back out unchanged when that lands.
+ *
+ * Live path: ensure workbench (creating one if P. comes before sell /
+ * name), POST to /primarycontacts. The local PhoneElement still gets
+ * pushed so *R renders the BF correctly.
  */
-function handleGalileoPhone(entry: PhoneEntry, wa: WorkArea): string {
+async function handleGalileoPhone(
+  entry: PhoneEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const liveBackend = ctx.backend;
+    try {
+      if (!wa.liveWorkbenchId) {
+        wa.liveWorkbenchId = await liveBackend.createWorkbench();
+      }
+      await liveBackend.addPrimaryContact(wa.liveWorkbenchId, entry.text);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
   wa.machine.transition(SessionEvent.ADD_FIELD);
   wa.pnr.phones.push({ number: entry.text });
   return GalileoResponse.OK;

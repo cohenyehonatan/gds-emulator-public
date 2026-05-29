@@ -335,6 +335,29 @@ export class LiveTravelportBackend implements Backend {
    * Travelport batching deferred (the multi-traveler endpoint is
    * `/travelers/list`).
    */
+  /**
+   * Add a primary-contact phone to a workbench.
+   *
+   * Source: POST /11/air/book/primarycontact/reservationworkbench/{wbID}
+   * /primarycontacts. The exact body shape isn't pinned down in the
+   * spec endpoint list; we use the documented `PrimaryContact.Telephone`
+   * shape (mirrors what `addTraveler` posts for inline telephones).
+   *
+   * The Galileo P. field carries broader payloads than a phone number
+   * (agency T*, hotel A*, business B*, email E*). We pass `phone` as
+   * the raw text and let TripServices validate it server-side — the
+   * cryptic surface doesn't pre-parse the role.
+   */
+  async addPrimaryContact(workbenchId: string, phone: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/primarycontact/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/primarycontacts`;
+    const body = {
+      PrimaryContact: [{ Telephone: [{ phoneNumber: phone, role: 'Mobile' }] }],
+    };
+    return this.postJson(url, body, 'addPrimaryContact');
+  }
+
   async addTraveler(
     workbenchId: string,
     traveler: { givenName: string; surname: string; phone?: string; email?: string }
