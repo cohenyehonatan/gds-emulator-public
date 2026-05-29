@@ -25,8 +25,16 @@
  * `ParseError` which the dialect surfaces as `FORMAT` until they're wired.
  */
 
-import type { ParsedEntry, SignInEntry, SignOutEntry } from '../../protocol/entry.js';
+import type {
+  ParsedEntry,
+  SignInEntry,
+  SignOutEntry,
+  SwitchAreaEntry,
+} from '../../protocol/entry.js';
 import { ParseError } from '../../protocol/errors.js';
+
+/** Galileo's documented area letters (Mini Guide v2 p.5: A-E). */
+const GALILEO_AREA_LETTERS = new Set(['A', 'B', 'C', 'D', 'E']);
 
 export function parseGalileoEntry(raw: string): ParsedEntry {
   const trimmed = raw.trim();
@@ -40,6 +48,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
 
   if (u.startsWith('SON/Z')) return parseSignOn(trimmed, u);
   if (u === 'SOF' || u.startsWith('SOF/Z')) return parseSignOff(trimmed, u);
+  if (isAreaSwitch(u)) return parseAreaSwitch(trimmed, u);
 
   throw new ParseError(`Galileo: unrecognized entry "${trimmed}"`);
 }
@@ -64,4 +73,28 @@ function parseSignOff(raw: string, u: string): SignOutEntry {
     throw new ParseError(`Galileo SOF: bad form "${raw}"`);
   }
   return { kind: 'sign_out', raw, timestamp: new Date(), allAreas: false };
+}
+
+/**
+ * `SA`/`SB`/`SC`/`SD`/`SE` work-area switch (Mini Format Guide v2 p.5:
+ * "SB — Change to work area B"). Galileo configures 5 areas, so `SF` is
+ * an invalid letter and rejected here even though the WorkArea data
+ * structure has a slot for it.
+ *
+ * `SO` would collide with Sabre's sign-out-all sigil and Galileo's
+ * sign-off uses `SOF`, so we explicitly exclude `SO` from the area-
+ * switch matcher to keep the surface unambiguous.
+ */
+function isAreaSwitch(u: string): boolean {
+  if (u.length !== 2 || u[0] !== 'S') return false;
+  return GALILEO_AREA_LETTERS.has(u[1]);
+}
+
+function parseAreaSwitch(raw: string, u: string): SwitchAreaEntry {
+  return {
+    kind: 'switch_area',
+    raw,
+    timestamp: new Date(),
+    targetArea: u[1],
+  };
 }

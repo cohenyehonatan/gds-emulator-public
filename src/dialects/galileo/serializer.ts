@@ -37,3 +37,16 @@ export function renderGalileoSignOffResponse(sig: GalileoSignature): string {
   const code = sig.agent ?? 'AGT';
   return `${code} SIGNED OFF AT ${sig.pcc}`; // reconstructed
 }
+
+/**
+ * Render the area-switch response (`SA`/`SB`/`SC`/`SD`/`SE`).
+ * Reconstructed — the Mini Format Guide v2 documents the entry but not
+ * the response. The shape mirrors Sabre's `<PCC>.<PCC>*<agent>..<area>`
+ * convention, which is consistent enough across mainframe GDS systems
+ * to be a reasonable placeholder until a live-1G capture surfaces the
+ * real host text.
+ */
+export function renderGalileoSwitchAreaResponse(sig: GalileoSignature, area: string): string {
+  const code = sig.agent ?? 'AGT';
+  return `${sig.pcc}.${sig.pcc}*${code}..${area}`; // reconstructed
+}

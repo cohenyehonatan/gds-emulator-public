@@ -21,7 +21,12 @@ import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
 import { SessionEvent } from '../../session/session-state.js';
 import { InvalidTransitionError } from '../../session/session-machine.js';
-import { renderGalileoSignInResponse, renderGalileoSignOffResponse } from './serializer.js';
+import {
+  renderGalileoSignInResponse,
+  renderGalileoSignOffResponse,
+  renderGalileoSwitchAreaResponse,
+} from './serializer.js';
+import { GalileoResponse } from './responses.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
 
@@ -43,6 +48,10 @@ export function dispatchGalileo(
         wa.reset();
         return renderGalileoSignOffResponse({ pcc: ctx.pcc, agent });
       }
+
+      case 'switch_area':
+        if (!wa.switchTo(entry.targetArea)) return GalileoResponse.FORMAT;
+        return renderGalileoSwitchAreaResponse({ pcc: ctx.pcc, agent: wa.agent }, wa.area);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
