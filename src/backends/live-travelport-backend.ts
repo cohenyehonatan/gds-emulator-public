@@ -175,13 +175,49 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * The full TripServices header set, verbatim from
+   * references/galileo/Travelport-JSON-Air-v11-API-Spec.md. Required
+   * on every endpoint; centralized so each new live-op method just
+   * spreads it. gzip/deflate + no-cache are not optional — without
+   * them the server sporadically returns 415 instead of 200.
+   */
+  private async tripServicesHeaders(): Promise<Record<string, string>> {
+    const token = await this.ensureToken();
+    return {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Cache-Control': 'no-cache',
+      'Accept-Version': this.opts.acceptVersion,
+      'TVP-PCC-CORE': `${this.opts.pcc}_${this.opts.gds}`,
+    };
+  }
+
+  /**
+   * Shared POST helper: same headers, same error handling. `label` is
+   * surfaced in the error message so call sites get clear failure
+   * attribution without each having to redo the boilerplate.
+   */
+  private async postJson(url: string, body: unknown, label: string): Promise<unknown> {
+    const headers = await this.tripServicesHeaders();
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
+      );
+    }
+    return JSON.parse(text);
+  }
+
+  /**
    * Air search against TripServices CatalogProductOfferings. Returns the
-   * raw JSON response; the Galileo `availability` handler (future
-   * commit) maps `CatalogProductOfferingsResponse` to the dialect-shared
-   * AvailabilityLine[] shape.
+   * raw JSON response; the Galileo `availability` handler maps
+   * `CatalogProductOfferingsResponse` to the dialect-shared
+   * AvailabilityLine[] shape via `mapCatalogProductOfferings`.
    */
   async airSearch(req: AirSearchRequest): Promise<unknown> {
-    const token = await this.ensureToken();
     const url = `${this.opts.apiBase}/air/catalog/search/catalogproductofferings`;
     const adults = req.adults ?? 1;
     // Payload structure sourced verbatim from validate-travelport-creds.ts
@@ -205,29 +241,72 @@ export class LiveTravelportBackend implements Backend {
         },
       },
     };
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        // gzip/deflate + no-cache are required by Travelport docs on
-        // CatalogProductOfferings — without them the call sporadically
-        // returns 415 instead of a 200.
-        'Accept-Encoding': 'gzip, deflate',
-        'Cache-Control': 'no-cache',
-        'Accept-Version': this.opts.acceptVersion,
-        'TVP-PCC-CORE': `${this.opts.pcc}_${this.opts.gds}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(
-        `LiveTravelportBackend airSearch failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
-      );
+    return this.postJson(url, body, 'airSearch');
+  }
+
+  /**
+   * Create a new Travelport reservation workbench. Returns the
+   * workbenchID; callers stash it on `wa.liveWorkbenchId` so subsequent
+   * cryptic entries (sell of another offer, add traveler, commit) all
+   * target the same workspace.
+   *
+   * Source: references/galileo/Travelport-JSON-Air-v11-API-Spec.md
+   * (POST /11/air/book/session/reservationworkbench).
+   *
+   * Workbench TTL is 30 minutes server-side; we don't track expiry
+   * locally — if a follow-on call comes back with a 404/410, the
+   * Galileo handler treats it as "workbench gone" and creates a fresh
+   * one. (Not implemented in this commit; for now the agent has to
+   * IG to clear state.)
+   */
+  async createWorkbench(): Promise<string> {
+    const url = `${this.opts.apiBase}/air/book/session/reservationworkbench`;
+    // Minimal payload per the spec; the workbench is created empty and
+    // populated via subsequent endpoints.
+    const json = (await this.postJson(url, {}, 'createWorkbench')) as any;
+    // The response shape isn't precisely documented in the spec —
+    // defensive extraction tries the documented Identifier path plus
+    // a flat `workbenchID` fallback some pre-prod tenants return.
+    const id =
+      json?.ReservationWorkbench?.Identifier?.value ??
+      json?.Workbench?.Identifier?.value ??
+      json?.Identifier?.value ??
+      json?.workbenchID ??
+      json?.workbenchId;
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error('LiveTravelportBackend createWorkbench: response missing workbenchID');
     }
-    return JSON.parse(text);
+    return id;
+  }
+
+  /**
+   * Add a CatalogProductOffering to an existing workbench by reference.
+   * `offerId` is the `Identifier.value` captured by the mapper as
+   * `AvailabilityLine.vendorRef.offerId` during the preceding search.
+   *
+   * Source: POST /11/air/book/airoffer/reservationworkbench/{workbenchID}
+   * /offers/buildfromcatalogofferings — request shape `OfferQueryRef`
+   * with `SearchOfferId` and `PassengerCriteria`.
+   *
+   * Returns the raw response so a Galileo serializer can map it to a
+   * sold-segment echo. Multi-pax sells are supported by passing
+   * `adults > 1` (matches `N<seats>...` cryptic semantics).
+   */
+  async addOffer(
+    workbenchId: string,
+    offerId: string,
+    adults = 1
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/airoffer/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/offers/buildfromcatalogofferings`;
+    const body = {
+      OfferQueryRef: {
+        SearchOfferId: offerId,
+        PassengerCriteria: [{ number: adults, passengerTypeCode: 'ADT' }],
+      },
+    };
+    return this.postJson(url, body, 'addOffer');
   }
 }
 

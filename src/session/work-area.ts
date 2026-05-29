@@ -42,6 +42,17 @@ export class WorkAreaSlot {
   pendingVoid?:
     | { kind: 'by_item'; itemNumber: number }
     | { kind: 'manual'; ticketNumber: string };
+  /**
+   * In-flight Travelport workbenchID for LiveTravelportBackend builds.
+   * Populated on the first live sell (which creates the workbench);
+   * reused for follow-on entries (name, ER) so the whole cryptic build
+   * targets one workbench. Consumed on commit (E / ER) and cleared on
+   * reset, matching the workbench's 30-minute server-side TTL.
+   * Undefined for EmulatedBackend slots and for live slots that haven't
+   * started a build yet. See references/galileo/Travelport-JSON-Air-v11-
+   * API-Spec.md "Workbench → WorkArea mapping".
+   */
+  liveWorkbenchId?: string;
 
   /**
    * Clear the per-PNR scratch state — invoked by IG / E / a sign-out
@@ -63,6 +74,7 @@ export class WorkAreaSlot {
     this.lastRefundResponse = undefined;
     this.lastTicketDocument = undefined;
     this.pendingVoid = undefined;
+    this.liveWorkbenchId = undefined;
   }
 }
 
@@ -200,5 +212,11 @@ export class WorkArea {
   }
   set pendingVoid(v: WorkAreaSlot['pendingVoid']) {
     this.s.pendingVoid = v;
+  }
+  get liveWorkbenchId(): string | undefined {
+    return this.s.liveWorkbenchId;
+  }
+  set liveWorkbenchId(v: string | undefined) {
+    this.s.liveWorkbenchId = v;
   }
 }

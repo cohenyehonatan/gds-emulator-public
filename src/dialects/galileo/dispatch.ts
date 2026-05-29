@@ -223,14 +223,21 @@ function toIsoDate(_token: string, month: number, day: number): string {
 }
 
 /**
- * `N<seats><class><line>` — single-segment sell from the cached
- * availability. Decrements inventory and appends an AirSegment to
- * the slot's PNR; returns the sold-segment echo (Module-2 style).
+ * `N<seats><class><line>` — single- or multi-leg sell from cached
+ * availability. EmulatedBackend: decrement local inventory + push
+ * AirSegment to slot PNR. LiveTravelportBackend: ensure a workbench
+ * (creating one on the slot if needed), POST each chosen line's
+ * `vendorRef.offerId` via addOffer, then mirror the segment locally
+ * so downstream cryptic entries (`N.<name>`, `ER`) still operate on
+ * a coherent in-memory PNR.
  *
- * Multi-leg (`N2F1F2Y3`) and star-connection (`N1C5*`) deferred to a
- * follow-up commit.
+ * Star-connection (`N1C5*`) deferred to a follow-up commit.
  */
-function handleGalileoSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
+async function handleGalileoSell(
+  entry: SellEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   const avail = wa.lastAvailability;
   if (!avail) return 'NO AVAILABILITY DISPLAYED'; // reconstructed
 
@@ -248,11 +255,40 @@ function handleGalileoSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext):
     }
   }
 
+  // Live path: ensure a workbench, then POST one offer per leg.
+  // Each leg's vendorRef.offerId must have been captured by the
+  // availability mapper; absent it, we can't address the offer on
+  // the live side and refuse rather than silently fall back.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const liveBackend = ctx.backend;
+    for (const leg of legs) {
+      const line = avail.lines.find((l) => l.line === leg.line)!;
+      if (!line.vendorRef?.offerId) return 'LIVE OFFER ID MISSING'; // reconstructed
+    }
+    try {
+      if (!wa.liveWorkbenchId) {
+        wa.liveWorkbenchId = await liveBackend.createWorkbench();
+      }
+      for (const leg of legs) {
+        const line = avail.lines.find((l) => l.line === leg.line)!;
+        await liveBackend.addOffer(wa.liveWorkbenchId, line.vendorRef!.offerId!, entry.seats);
+      }
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
   wa.machine.transition(SessionEvent.SELL);
   const added: AirSegment[] = [];
   for (const leg of legs) {
     const line = avail.lines.find((l) => l.line === leg.line)!;
-    ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, leg.bookingClass, entry.seats);
+    // Emulated path: decrement inventory. Live path: the live backend
+    // owns its own seat counts on the vendor side, so we skip the
+    // local Inventory.sell — the EmulatedBackend's Inventory wouldn't
+    // know anything about the live-search lines anyway.
+    if (!(ctx.backend instanceof LiveTravelportBackend)) {
+      ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, leg.bookingClass, entry.seats);
+    }
     const seg: AirSegment = {
       segmentNumber: wa.pnr.segments.length + added.length + 1,
       carrier: line.carrier,
