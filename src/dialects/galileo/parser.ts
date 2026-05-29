@@ -39,6 +39,9 @@ import type {
   EndTransactionEntry,
   IgnoreEntry,
   DisplayEntry,
+  CancelEntry,
+  SegmentStatusEntry,
+  PassiveCancelEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -69,12 +72,22 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // capture from `trimmed` rather than the whitespace-stripped form.
   if (upper.startsWith('*')) return parseDisplay(trimmed);
 
+  // `@`-prefixed modify family (Mini Guide p.17). Single-token forms in
+  // this commit: @<n>XK passive cancel, @<n>HK status change. Other
+  // @-modifies (class rebook, date change, pax-count change) are
+  // deferred and will trip the catch-all below.
+  if (upper.startsWith('@')) return parseModify(trimmed, upper);
+
   // No-whitespace verbs: strip internal whitespace (`SON / ZHA` →
   // `SON/ZHA`) before sigil dispatch.
   const u = trimmed.replace(/\s+/g, '').toUpperCase();
   if (u.startsWith('SON/Z')) return parseSignOn(trimmed, u);
   if (u === 'SOF' || u.startsWith('SOF/Z')) return parseSignOff(trimmed, u);
   if (isAreaSwitch(u)) return parseAreaSwitch(trimmed, u);
+  // X-family cancel — checked BEFORE availability so XI / XA aren't read
+  // as availability-without-date (they wouldn't match the AVAIL_RE
+  // anyway, but ordering keeps the intent explicit).
+  if (u.startsWith('X')) return parseCancel(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
 
@@ -317,4 +330,89 @@ function parseIgnore(raw: string): IgnoreEntry {
 function parseDisplay(raw: string): DisplayEntry {
   const argument = raw.slice(1).trim();
   return { kind: 'display', raw, timestamp: new Date(), argument };
+}
+
+/**
+ * `X<sel>` — cancel segments. Source: Travelport+ Mini Format Guide v2
+ * p.17. Documented forms in this commit:
+ *
+ *   X<n>          single segment (e.g. X2)
+ *   X<n>-<m>      range (e.g. X9-11)
+ *   X<n>.<m>.<p>  list, period-separated (Galileo uses `.`; Sabre uses `/`)
+ *   X<n>.<m>-<p>  combined list + range (e.g. X2.5-7 = segments 2, 5, 6, 7)
+ *   XI            entire itinerary
+ *   XA            all air segments (Galileo uses `XA`; Sabre uses `XIA`)
+ *
+ * Deferred:
+ *   - XH / XC (cancel all hotel / car segments — hotel/car not modeled)
+ *   - cancel-and-rebook combined forms (Mini Guide doesn't document a
+ *     single-entry combined form like Sabre's X3¥01F1)
+ */
+function parseCancel(raw: string, u: string): CancelEntry {
+  const body = u.slice(1); // drop the leading 'X'
+  if (body === 'I') {
+    return { kind: 'cancel', mode: 'itinerary', segments: [], raw, timestamp: new Date() };
+  }
+  if (body === 'A') {
+    return { kind: 'cancel', mode: 'all_air', segments: [], raw, timestamp: new Date() };
+  }
+  // Period-separated tokens; each token is either a single number or a
+  // range. Empty body, trailing dots, or zero/non-number tokens reject.
+  if (body.length === 0) throw new ParseError(`Galileo X: missing selection in "${raw}"`);
+  const tokens = body.split('.');
+  const segments: number[] = [];
+  for (const tok of tokens) {
+    const range = /^(\d+)-(\d+)$/.exec(tok);
+    if (range) {
+      const from = parseInt(range[1], 10);
+      const to = parseInt(range[2], 10);
+      if (from === 0 || to === 0) throw new ParseError(`Galileo X: zero segment in "${raw}"`);
+      if (to < from) throw new ParseError(`Galileo X: descending range in "${raw}"`);
+      for (let i = from; i <= to; i++) segments.push(i);
+      continue;
+    }
+    if (!/^\d+$/.test(tok)) throw new ParseError(`Galileo X: bad token "${tok}" in "${raw}"`);
+    const n = parseInt(tok, 10);
+    if (n === 0) throw new ParseError(`Galileo X: zero segment in "${raw}"`);
+    segments.push(n);
+  }
+  // Mode: 'segment' for one number, 'range' for one range, 'multiple' otherwise.
+  const mode: CancelEntry['mode'] =
+    tokens.length === 1
+      ? /^\d+-\d+$/.test(tokens[0])
+        ? 'range'
+        : 'segment'
+      : 'multiple';
+  return { kind: 'cancel', mode, segments, raw, timestamp: new Date() };
+}
+
+/**
+ * `@<n>HK` / `@<n>XK` — modify family, status-change subset. Source:
+ * Galileo Pocket Guide p.3 (`@1HK` → SegmentStatusEntry) and Mini Guide
+ * v2 p.17 (`@<n>XK` → PassiveCancelEntry: "Remove a HX segment passively
+ * (for all airlines except EK)").
+ *
+ * Other documented @-modify forms in Mini Guide v2 p.17 are deferred and
+ * trip the catch-all in this parser (→ FORMAT):
+ *   @<n>/<class>        rebook in different class (needs fare lookup)
+ *   @<n>/<DDMMM>        date change
+ *   @<n>/<DDMMM>/<cls>  date + class change
+ *   @A/<class>          change all segments to class
+ *   @<n>/<seats>        change pax count
+ *   @A/<seats>          change pax count all segments
+ */
+function parseModify(
+  raw: string,
+  u: string
+): SegmentStatusEntry | PassiveCancelEntry {
+  const m = /^@(\d+)([A-Z]{2})$/.exec(u);
+  if (!m) throw new ParseError(`Galileo @: only @<n>HK and @<n>XK supported in v1 (got "${raw}")`);
+  const segment = parseInt(m[1], 10);
+  const status = m[2];
+  if (segment === 0) throw new ParseError(`Galileo @: zero segment in "${raw}"`);
+  if (status === 'XK') {
+    return { kind: 'passive_cancel', raw, timestamp: new Date(), segments: [segment] };
+  }
+  // Default: status change. The handler validates against a known-status set.
+  return { kind: 'segment_status', raw, timestamp: new Date(), segment, status };
 }

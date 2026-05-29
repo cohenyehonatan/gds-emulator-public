@@ -26,7 +26,11 @@ import type {
   ReceivedFromEntry,
   EndTransactionEntry,
   DisplayEntry,
+  CancelEntry,
+  SegmentStatusEntry,
+  PassiveCancelEntry,
 } from '../../protocol/entry.js';
+import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -101,6 +105,15 @@ export function dispatchGalileo(
 
       case 'display':
         return handleGalileoDisplay(entry, wa, ctx);
+
+      case 'cancel':
+        return handleGalileoCancel(entry, wa);
+
+      case 'segment_status':
+        return handleGalileoSegmentStatus(entry, wa);
+
+      case 'passive_cancel':
+        return handleGalileoPassiveCancel(entry, wa);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -337,4 +350,73 @@ function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCon
   }
 
   return GalileoResponse.FORMAT;
+}
+
+/**
+ * `X<sel>`, `XI`, `XA` — cancel segments. Source: Mini Format Guide v2
+ * p.17. Behavior parallels Sabre's handleCancel: validate segments,
+ * remove, renumber, transition MODIFY. Response shape uses Galileo's
+ * itinerary renderer when segments remain, an `ITINERARY CANCELLED`
+ * placeholder otherwise (reconstructed — Mini Guide doesn't quote the
+ * empty-itinerary wording).
+ */
+function handleGalileoCancel(entry: CancelEntry, wa: WorkArea): string {
+  if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+
+  if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
+    wa.machine.transition(SessionEvent.MODIFY);
+    wa.pnr.segments = [];
+    return 'ITINERARY CANCELLED'; // reconstructed
+  }
+
+  const max = wa.pnr.segments.length;
+  for (const n of entry.segments) {
+    if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+  }
+
+  wa.machine.transition(SessionEvent.MODIFY);
+  const remove = new Set(entry.segments);
+  wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  wa.pnr.renumberSegments();
+
+  return wa.pnr.segments.length > 0
+    ? renderGalileoItinerary(wa.pnr)
+    : 'ITINERARY CANCELLED'; // reconstructed
+}
+
+/**
+ * `@<n>HK` — change a segment's status code. Source: Galileo Pocket
+ * Guide p.3. Status code is validated against the Sabre-shared
+ * MANUAL_STATUS_CODES set since manual-entry codes (HK, HL, NN, GK,
+ * BK, etc.) are industry-standard rather than dialect-specific.
+ */
+function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): string {
+  if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+  if (!MANUAL_STATUS_CODES.has(entry.status)) return 'INVALID STATUS CODE'; // reconstructed
+  const seg = wa.pnr.segments.find((s) => s.segmentNumber === entry.segment);
+  if (!seg) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+  wa.machine.transition(SessionEvent.MODIFY);
+  seg.status = entry.status;
+  return renderGalileoItinerary(wa.pnr);
+}
+
+/**
+ * `@<n>XK` — passive cancel. Mini Guide v2 p.17: "Remove a HX segment
+ * passively (for all airlines except EK)". Same observable behavior as
+ * a normal cancel in this emulator (we don't model an airline party);
+ * dispatch is separate to honor the wire-format distinction.
+ */
+function handleGalileoPassiveCancel(entry: PassiveCancelEntry, wa: WorkArea): string {
+  if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+  const max = wa.pnr.segments.length;
+  for (const n of entry.segments) {
+    if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+  }
+  wa.machine.transition(SessionEvent.MODIFY);
+  const remove = new Set(entry.segments);
+  wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  wa.pnr.renumberSegments();
+  return wa.pnr.segments.length > 0
+    ? renderGalileoItinerary(wa.pnr)
+    : 'ITINERARY CANCELLED'; // reconstructed
 }
