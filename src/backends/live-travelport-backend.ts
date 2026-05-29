@@ -184,21 +184,24 @@ export class LiveTravelportBackend implements Backend {
     const token = await this.ensureToken();
     const url = `${this.opts.apiBase}/air/catalog/search/catalogproductofferings`;
     const adults = req.adults ?? 1;
+    // Payload structure sourced verbatim from validate-travelport-creds.ts
+    // (proven against 7K9S pre-prod 2026-05-27 — returned 10 offers DEN→FRA).
     const body = {
-      CatalogProductOfferingsRequest: {
-        CatalogProductOfferingsQueryRequest: {
-          CatalogProductOfferingsRequestAir: {
-            offersPerPage: 10,
-            maxNumberOfUpsellsToReturn: 0,
-            SearchCriteriaFlight: [
-              {
-                From: { value: req.origin },
-                To: { value: req.destination },
-                departureDate: req.departureDate,
-              },
-            ],
-            PassengerCriteria: [{ value: adults, passengerTypeCode: 'ADT' }],
-          },
+      CatalogProductOfferingsQueryRequest: {
+        CatalogProductOfferingsRequest: {
+          '@type': 'CatalogProductOfferingsRequestAir',
+          offersPerPage: 10,
+          PassengerCriteria: [
+            { '@type': 'PassengerCriteria', passengerTypeCode: 'ADT', number: adults },
+          ],
+          SearchCriteriaFlight: [
+            {
+              '@type': 'SearchCriteriaFlight',
+              departureDate: req.departureDate,
+              From: { value: req.origin },
+              To: { value: req.destination },
+            },
+          ],
         },
       },
     };
@@ -208,6 +211,11 @@ export class LiveTravelportBackend implements Backend {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        // gzip/deflate + no-cache are required by Travelport docs on
+        // CatalogProductOfferings — without them the call sporadically
+        // returns 415 instead of a 200.
+        'Accept-Encoding': 'gzip, deflate',
+        'Cache-Control': 'no-cache',
         'Accept-Version': this.opts.acceptVersion,
         'TVP-PCC-CORE': `${this.opts.pcc}_${this.opts.gds}`,
       },

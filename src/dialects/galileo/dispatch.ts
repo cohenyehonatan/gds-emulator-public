@@ -36,6 +36,8 @@ import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
+import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
+import { mapCatalogProductOfferings } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -65,7 +67,7 @@ export function dispatchGalileo(
   entry: ParsedEntry,
   wa: WorkArea,
   ctx: HandlerContext
-): string {
+): string | Promise<string> {
   try {
     switch (entry.kind) {
       case 'sign_in':
@@ -150,21 +152,44 @@ export function dispatchGalileo(
  * orders by departure time. AF (7-day window) would require ranged
  * queries — deferred. Flagged in the parser docstring.
  */
-function handleGalileoAvailability(
+async function handleGalileoAvailability(
   entry: AvailabilityEntry,
   wa: WorkArea,
   ctx: HandlerContext
-): string {
+): Promise<string> {
   if (entry.mode !== 'display') return GALILEO_NOT_IMPLEMENTED;
   const date = entry.date!;
   const dow = {
     letter: dayOfWeekLetter(date.month, date.day),
     num: dayOfWeekNumber(date.month, date.day),
   };
-  const lines = ctx.backend.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
-    carriers: entry.carriers,
-    connectingCity: entry.connectingCity,
-  });
+
+  // LiveTravelportBackend path: dispatch to the TripServices REST API
+  // (CatalogProductOfferings), then run the response through the mapper.
+  // Emulated path: the existing dialect-shared Inventory.availability.
+  let lines;
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      const response = await ctx.backend.airSearch({
+        origin: entry.origin!,
+        destination: entry.destination!,
+        departureDate: toIsoDate(date.raw, date.month, date.day),
+      });
+      lines = mapCatalogProductOfferings(response, {
+        date: date.raw,
+        dayOfWeekLetter: dow.letter,
+        dayOfWeekNum: dow.num,
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  } else {
+    lines = ctx.backend.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
+      carriers: entry.carriers,
+      connectingCity: entry.connectingCity,
+    });
+  }
+
   const result = {
     date: date.raw,
     origin: entry.origin!,
@@ -174,6 +199,22 @@ function handleGalileoAvailability(
   wa.lastAvailability = result;
   if (lines.length === 0) return 'NO FLIGHTS'; // reconstructed
   return renderGalileoAvailability(result);
+}
+
+/**
+ * Convert a Sabre date token + month/day pair into the ISO `YYYY-MM-DD`
+ * shape Travelport expects in CatalogProductOfferingsRequest. Year is
+ * inferred forward — if the requested month/day is already past in the
+ * current year, roll to next year, matching the GDS convention.
+ */
+function toIsoDate(_token: string, month: number, day: number): string {
+  const now = new Date();
+  let year = now.getFullYear();
+  const candidate = new Date(year, month, day);
+  if (candidate < now) year += 1;
+  const mm = String(month + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
 }
 
 /**

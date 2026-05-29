@@ -67,7 +67,7 @@ export class GalileoDialect implements Dialect {
       .filter((s) => s.length > 0);
   }
 
-  processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string {
+  processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
     let entry;
     try {
       entry = parseGalileoEntry(raw);
