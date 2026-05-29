@@ -262,6 +262,12 @@ export interface QueueEntry extends BaseEntry {
     | 'requeue';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (QP/100/75)
+  /**
+   * Set by Galileo `QEB/<queue>` (combined end-transaction + place); absent
+   * for plain `QP/<queue>` which requires the BF to be already committed
+   * (no embedded commit phase).
+   */
+  endTransaction?: boolean;
   /** QL → 'LMTC'; QU → 'UTR'. Re-queue op only. */
   requeueTarget?: 'LMTC' | 'UTR';
   /**

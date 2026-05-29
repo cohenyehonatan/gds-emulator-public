@@ -1153,11 +1153,16 @@ async function handleGalileoQueue(
   if (entry.op !== 'place' || !entry.queue) return GalileoResponse.FORMAT;
   const queue = entry.queue;
 
-  // Need a locator to place on a queue. If we're mid-build (workbench
-  // in-flight, no locator yet), commit first to get one. The commit
-  // semantics mirror E: enforce mandatory fields, run the commit, stamp
-  // locator on PNR.
+  // QEB embeds an end-transaction: commit first if no locator. QP
+  // requires the BF to be already committed — no implicit commit.
   if (!wa.pnr.locator) {
+    if (!entry.endTransaction) {
+      // Match the Sabre analog: QP against an in-flight build is rejected
+      // until the agent ends or ignores the transaction. The exact
+      // Galileo wording isn't in our sources; reuse the reconstructed
+      // FINISH OR IGNORE marker the QP cryptic shares with Sabre.
+      return 'FINISH OR IGNORE'; // reconstructed
+    }
     const commitResp = await commitForQueueEnd(wa, ctx);
     if (commitResp.error) return commitResp.error;
   }
