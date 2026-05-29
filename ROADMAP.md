@@ -279,12 +279,44 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
             BOTH legs landed verbatim from QREX p.21 (the first
             verbatim QREX strings in code). Pending-ticket state on
             the work area; different-ticket on step 2 resets to step 1.
-      - [ ] **Remaining unblocked work** — per-PQ named selection
-            (needs dotted-name parser), manual accounting-line CRUD
-            (AC/AC¤/AC<n>/), `WETR*` ETR display + `WTDB*` ticket-image
-            (need a coupon/per-segment model the TicketRecord doesn't
-            carry yet), `*HAC` history, refund extras
-            (WFR<tkt>¥N<name>, WFR<tkt>¥AGF, WFR*, WFR*L<n>).
+      - [x] **Refund extras**: `WFR<tkt>¥AGF` agent-fare flag
+            (`fb90904`), `WFR<tkt>¥N<dotted-name>` name-selected
+            (`4639d41` — pairs with the dotted-name parser also added
+            there). `WFR*L<n>` deferred: not actually in QREX, the
+            hunter's note appears to have come from a different source
+            we can't verify.
+      - [x] **Dotted-name parser utility** (`4639d41`) — Sabre's
+            `<item>.<passenger>` addressing, supporting single / range /
+            list / mixed forms with cross-item rejection. Lives in
+            `src/utils/passenger-ref.ts`; unblocks per-PQ named + WFR ¥N
+            + future SSR dotted refs.
+      - [x] **Per-PQ named selection** (`c4500f5`) — `W¥PQ2N1.2¥PQ5N1.3-1.5`
+            verbatim from QR p.1. Detects multi-PQ-with-names by
+            "every token matches PQ\d+N…", routes through dotted-name
+            parser, enforces max 4 PQs. Handler issues one ticket per
+            named ref in two-pass atomic style.
+      - [x] **Manual AC create + modify + history**: `AC/<carrier>/<tkt>/…`
+            create (`b6a3393`), `AC<n>/<carrier>[/comm]` modify
+            (`beb6b83`), `*HAC` history (`12cd250`). Manual lines live
+            alongside auto-from-tickets in *PAC numbering; modify
+            updates either the TicketRecord or ManualAccountingLine
+            depending on which range the line number falls into.
+      - [x] **`WETR*` / `WTDB*` document display** (`e09740d`) — all
+            eight QR variants (redisplay / by-item / by-ticket /
+            enhanced / history × ETR or image family). Coupon lines
+            derived from the on-screen PNR's segments; flagged as the
+            documented approximation until per-coupon ticket modeling
+            lands.
+      - [ ] **Void (`WV`)** — last remaining v3 ticketing item; pause
+            here per user request to re-evaluate. The standalone `WV`
+            sigil isn't in any first-party Sabre QR in `references/`;
+            only third-party reseller cheat sheets (EmQuest) document
+            it, and we deliberately didn't import those. Three options
+            on the table: (a) import the third-party doc and implement
+            with "verbatim-third-party" caveat alongside QREX's
+            existing third-party status; (b) implement with fully-
+            reconstructed strings flagged as such; (c) leave WV
+            permanently deferred as a known fidelity gap.
       - [ ] **Void** stays the one permanent source gap — no first-party
             Sabre QR documents the standalone `WV` sigil with response
             screens; only third-party reseller cheat sheets do. Void
