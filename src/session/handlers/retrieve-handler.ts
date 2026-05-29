@@ -53,7 +53,7 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
   // Queue status: *Q shows the queue currently being accessed and its depth.
   if (arg === 'Q') {
     if (!wa.currentQueue) return 'NO QUEUE ACCESSED';
-    const n = (ctx.queues.get(wa.currentQueue) ?? []).length;
+    const n = (ctx.backend.queues.get(wa.currentQueue) ?? []).length;
     return `QUEUE ${wa.currentQueue} - ${n} PNR${n === 1 ? '' : 'S'}`;
   }
 
@@ -115,7 +115,7 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
 
   // Retrieve by surname: '*-SMITH'
   if (arg.startsWith('-')) {
-    const matches = ctx.pnrStore.findBySurname(arg.slice(1));
+    const matches = ctx.backend.pnrs.findBySurname(arg.slice(1));
     if (matches.length === 0) {
       wa.lastSimilarNameList = undefined;
       return Response.RECORD_LOCATOR_NOT_FOUND;
@@ -132,7 +132,7 @@ export function handleRetrieve(entry: DisplayEntry, wa: WorkArea, ctx: HandlerCo
 
   // Retrieve by record locator: '*ABCDEF'
   if (isRecordLocator(arg)) {
-    const pnr = ctx.pnrStore.get(arg);
+    const pnr = ctx.backend.pnrs.get(arg);
     if (!pnr) return Response.RECORD_LOCATOR_NOT_FOUND;
     wa.pnr = pnr;
     wa.machine.transition(SessionEvent.RETRIEVE);

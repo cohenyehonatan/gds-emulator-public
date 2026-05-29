@@ -49,7 +49,7 @@ export function handleEndTransaction(
     if (s.status === 'LL') s.status = 'HL';
   });
 
-  const locator = ctx.pnrStore.commit(wa.pnr);
+  const locator = ctx.backend.pnrs.commit(wa.pnr);
   const committed = wa.pnr;
   const agent = wa.agent;
   wa.machine.transition(SessionEvent.END_TX);

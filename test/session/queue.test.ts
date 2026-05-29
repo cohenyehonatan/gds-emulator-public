@@ -47,7 +47,7 @@ describe('queue place / access / work', () => {
     const loc = commit('SMITH');
     host.process(`*${loc}`, wa); // bring it back on screen
     expect(host.process('QP/100', wa)).toBe('QUEUED 100');
-    expect(host.context.queues.get('100')).toEqual([loc]);
+    expect(host.context.backend.queues.get('100')).toEqual([loc]);
 
     const w2 = host.newWorkArea();
     host.process('SI*9999', w2);
@@ -62,7 +62,7 @@ describe('queue place / access / work', () => {
     // QR removes the on-screen PNR and the queue is now empty.
     expect(host.process('QR', w2)).toBe('QUEUE 100 EMPTY');
     expect(w2.currentQueue).toBeUndefined();
-    expect(host.context.queues.get('100')).toEqual([]);
+    expect(host.context.backend.queues.get('100')).toEqual([]);
   });
 
   it('works through multiple PNRs in placement order', () => {
@@ -85,7 +85,7 @@ describe('queue place / access / work', () => {
     host.process(`*${loc}`, wa);
     host.process('QP/100', wa);
     host.process('QP/100', wa);
-    expect(host.context.queues.get('100')).toEqual([loc]);
+    expect(host.context.backend.queues.get('100')).toEqual([loc]);
   });
 
   it('refuses to place a PNR that has not been committed', () => {
@@ -104,8 +104,8 @@ describe('queue place / access / work', () => {
 
   it('exits a queue with QX', () => {
     commit('SMITH');
-    const loc = host.context.pnrStore.findBySurname('SMITH')[0].locator!;
-    host.context.queues.set('100', [loc]);
+    const loc = host.context.backend.pnrs.findBySurname('SMITH')[0].locator!;
+    host.context.backend.queues.set('100', [loc]);
     host.process('Q/100', wa);
     expect(wa.currentQueue).toBe('100');
     expect(host.process('QX', wa)).toBe('QUEUE 100 EXITED');
@@ -118,18 +118,18 @@ describe('queue place / access / work', () => {
     host.process(`*${loc}`, wa); // bring committed PNR back to the work area
     // Cross of Lorraine separates targets; first target = primary, rest = additional.
     expect(host.process('QP/G¥S¥T', wa)).toBe('QUEUED G S T');
-    expect(host.context.queues.get('G')).toContain(loc);
-    expect(host.context.queues.get('S')).toContain(loc);
-    expect(host.context.queues.get('T')).toContain(loc);
+    expect(host.context.backend.queues.get('G')).toContain(loc);
+    expect(host.context.backend.queues.get('S')).toContain(loc);
+    expect(host.context.backend.queues.get('T')).toContain(loc);
   });
 
   it('supports branch-PCC placement (QP/2EA0G) and chained branch placements', () => {
     const loc = commit('SMITH');
     host.process(`*${loc}`, wa);
     expect(host.process('QP/2EA0G¥5OT0S¥A', wa)).toBe('QUEUED 2EA0G 5OT0S A');
-    expect(host.context.queues.get('2EA0G')).toContain(loc);
-    expect(host.context.queues.get('5OT0S')).toContain(loc);
-    expect(host.context.queues.get('A')).toContain(loc);
+    expect(host.context.backend.queues.get('2EA0G')).toContain(loc);
+    expect(host.context.backend.queues.get('5OT0S')).toContain(loc);
+    expect(host.context.backend.queues.get('A')).toContain(loc);
   });
 
   it('rejects more than 9 placement targets', () => {
@@ -142,7 +142,7 @@ describe('queue place / access / work', () => {
 
   it('QXIR exits the queue and redisplays the on-screen PNR', () => {
     const loc = commit('SMITH');
-    host.context.queues.set('100', [loc]);
+    host.context.backend.queues.set('100', [loc]);
     host.process('Q/100', wa); // PNR now on screen via queue access
     const resp = host.process('QXIR', wa);
     expect(resp).toContain('SMITH/JOHN'); // PNR redisplayed
@@ -152,7 +152,7 @@ describe('queue place / access / work', () => {
 
   it('QXER ends the transaction, exits the queue, and redisplays the PNR', () => {
     const loc = commit('SMITH');
-    host.context.queues.set('100', [loc]);
+    host.context.backend.queues.set('100', [loc]);
     host.process('Q/100', wa);
     // Add a remark (legal modify on a retrieved PNR), then QXER commits.
     host.process('5GENERAL REMARK', wa);
@@ -173,13 +173,13 @@ describe('queue place / access / work', () => {
     const b = commit('BAKER');
     host.process('IG', wa);
     const c = commit('CHARLIE');
-    host.context.queues.set('77', [a, b, c]);
+    host.context.backend.queues.set('77', [a, b, c]);
     host.process('Q/77', wa); // loads ABLE; cursor=0
     expect(wa.pnr.locator).toBe(a);
     // Cursor advances 2 → on CHARLIE; queue list unchanged ("ignores", not "removes").
     const resp = host.process('QBI¥2', wa);
     expect(resp).toContain('CHARLIE');
-    expect(host.context.queues.get('77')).toEqual([a, b, c]); // intact
+    expect(host.context.backend.queues.get('77')).toEqual([a, b, c]); // intact
     expect(wa.pnr.locator).toBe(c);
     expect(wa.queueCursor).toBe(2);
   });
@@ -190,19 +190,19 @@ describe('queue place / access / work', () => {
     const b = commit('BAKER');
     host.process('IG', wa);
     const c = commit('CHARLIE');
-    host.context.queues.set('77', [a, b, c]);
+    host.context.backend.queues.set('77', [a, b, c]);
     host.process('Q/77', wa); // ABLE, cursor=0
     host.process('QBI¥2', wa); // forward 2 → CHARLIE, cursor=2
     const back = host.process('QBI-2', wa); // back 2 → ABLE, cursor=0
     expect(back).toContain('ABLE');
     expect(wa.pnr.locator).toBe(a);
     expect(wa.queueCursor).toBe(0);
-    expect(host.context.queues.get('77')).toEqual([a, b, c]); // still intact
+    expect(host.context.backend.queues.get('77')).toEqual([a, b, c]); // still intact
   });
 
   it('QBI-N clamps to the start of the queue (no underflow)', () => {
     const loc = commit('SMITH');
-    host.context.queues.set('77', [loc]);
+    host.context.backend.queues.set('77', [loc]);
     host.process('Q/77', wa);
     expect(wa.queueCursor).toBe(0);
     host.process('QBI-9', wa);
@@ -214,7 +214,7 @@ describe('queue place / access / work', () => {
     const a = commit('ABLE');
     host.process('IG', wa);
     const b = commit('BAKER');
-    host.context.queues.set('77', [a, b]);
+    host.context.backend.queues.set('77', [a, b]);
     host.process('Q/77', wa);
     expect(host.process('QBI¥9', wa)).toBe('QUEUE 77 EMPTY');
     expect(wa.currentQueue).toBeUndefined();
@@ -228,25 +228,25 @@ describe('queue place / access / work', () => {
     const a = commit('ABLE');
     host.process('IG', wa);
     const b = commit('BAKER');
-    host.context.queues.set('100', [a, b]);
+    host.context.backend.queues.set('100', [a, b]);
     host.process('Q/100', wa); // loads ABLE
     expect(wa.pnr.locator).toBe(a);
     const resp = host.process('QL', wa);
     // ABLE moves from 100 to LMTC; BAKER becomes the on-screen queue front.
-    expect(host.context.queues.get('100')).toEqual([b]);
-    expect(host.context.queues.get('LMTC')).toContain(a);
+    expect(host.context.backend.queues.get('100')).toEqual([b]);
+    expect(host.context.backend.queues.get('LMTC')).toContain(a);
     expect(resp).toContain('BAKER');
     expect(wa.pnr.locator).toBe(b);
   });
 
   it('QU-MSG logs the message as a general remark on the PNR', () => {
     const loc = commit('SMITH');
-    host.context.queues.set('77', [loc]);
+    host.context.backend.queues.set('77', [loc]);
     host.process('Q/77', wa);
     host.process('QU-LINE ENGAGED', wa);
-    const pnr = host.context.pnrStore.get(loc)!;
+    const pnr = host.context.backend.pnrs.get(loc)!;
     expect(pnr.remarks.some((r) => r.text.includes('LINE ENGAGED'))).toBe(true);
-    expect(host.context.queues.get('UTR')).toContain(loc);
+    expect(host.context.backend.queues.get('UTR')).toContain(loc);
   });
 
   it('QL/QU without a queue context return NO QUEUE ACCESSED', () => {

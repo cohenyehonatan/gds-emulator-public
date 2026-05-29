@@ -34,7 +34,7 @@ export function handleFlightInfo(entry: FlightInfoEntry, wa: WorkArea, ctx: Hand
   if (entry.source === 'connect') return verifyConnections(wa);
 
   if (entry.source === 'flight') {
-    const f = ctx.inventory.scheduleFor(entry.carrier!, entry.flightNumber!);
+    const f = ctx.backend.inventory.scheduleFor(entry.carrier!, entry.flightNumber!);
     if (!f) return 'FLIGHT NOT FOUND'; // TODO: confirm wording
     return renderFlightInfo([
       {
@@ -76,7 +76,7 @@ export function handleFlightInfo(entry: FlightInfoEntry, wa: WorkArea, ctx: Hand
     destination: s.destination,
     departTime: s.departTime,
     arriveTime: s.arriveTime,
-    equipment: ctx.inventory.scheduleFor(s.carrier, s.flightNumber)?.equipment ?? '',
+    equipment: ctx.backend.inventory.scheduleFor(s.carrier, s.flightNumber)?.equipment ?? '',
   }));
   return renderFlightInfo(items);
 }

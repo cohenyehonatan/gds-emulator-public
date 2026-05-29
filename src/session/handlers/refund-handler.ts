@@ -3,7 +3,7 @@
  * (third-party verbatim transcription of Sabre's refund flow).
  *
  * Looks up the target ticket across all stored PNRs (the system-wide
- * ticket index is implicit in ctx.pnrStore — Sabre's "TKT NOT FOUND"
+ * ticket index is implicit in ctx.backend.pnrs — Sabre's "TKT NOT FOUND"
  * response is keyed by ticket number, not by which PNR carries it).
  * Marks the ticket status REFUNDED so it moves from `*TA` (active) to
  * `*TI` (inactive) per the Ticket Display Tools QR partition.
@@ -34,7 +34,7 @@ export function handleRefund(
     return wa.lastRefundResponse ?? 'NO PREVIOUS REFUND'; // reconstructed empty state
   }
 
-  for (const pnr of ctx.pnrStore.values()) {
+  for (const pnr of ctx.backend.pnrs.values()) {
     const ticket = pnr.tickets.find((t) => t.number === entry.ticketNumber);
     if (!ticket) continue;
     if (ticket.status === 'REFUNDED') return 'TKT ALREADY REFUNDED'; // reconstructed
@@ -80,7 +80,7 @@ export function handleCancelRefund(
 
 /** Find a ticket by number across all stored PNRs. */
 function findTicket(ctx: HandlerContext, number: string): TicketRecord | undefined {
-  for (const pnr of ctx.pnrStore.values()) {
+  for (const pnr of ctx.backend.pnrs.values()) {
     const t = pnr.tickets.find((tk) => tk.number === number);
     if (t) return t;
   }

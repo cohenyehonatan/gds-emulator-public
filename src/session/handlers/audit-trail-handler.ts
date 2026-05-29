@@ -33,5 +33,5 @@ export function handleAuditTrail(
   if (entry.branch && entry.branch.toUpperCase() !== ctx.pcc.toUpperCase()) {
     return 'BRANCH NOT AUTHORIZED'; // reconstructed
   }
-  return renderAuditTrail(ctx.pnrStore.values(), { date: entry.date, branch: entry.branch ?? ctx.pcc });
+  return renderAuditTrail(ctx.backend.pnrs.values(), { date: entry.date, branch: entry.branch ?? ctx.pcc });
 }

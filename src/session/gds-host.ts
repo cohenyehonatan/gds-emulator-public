@@ -43,16 +43,9 @@ export class GdsHost {
     this.logger = new Logger('GDS', options.logLevel ?? 'info');
     this.dialect = options.dialect ?? new SabreDialect();
     this.backend = options.backend ?? new EmulatedBackend();
-    // During step-1 of the v5 backend migration, both the new `backend`
-    // field and the duplicated inventory/pnrStore/queues fields point at
-    // the same in-memory objects so unmigrated handlers keep working.
-    // Step 2 removes the duplicated fields.
     this.context = {
       backend: this.backend,
-      inventory: this.backend.inventory,
-      pnrStore: this.backend.pnrs,
       pcc: options.pcc ?? 'A0UC',
-      queues: this.backend.queues,
     };
     this.server = new TcpServer(options.port, options.framing);
 

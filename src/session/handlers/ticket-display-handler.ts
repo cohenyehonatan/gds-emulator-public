@@ -64,7 +64,7 @@ function findByNumber(
   ctx: HandlerContext,
   number: string
 ): { pnr: Pnr; ticket: TicketRecord } | undefined {
-  for (const pnr of ctx.pnrStore.values()) {
+  for (const pnr of ctx.backend.pnrs.values()) {
     const ticket = pnr.tickets.find((t) => t.number === number);
     if (ticket) return { pnr, ticket };
   }

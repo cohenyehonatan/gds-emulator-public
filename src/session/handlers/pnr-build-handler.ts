@@ -91,7 +91,7 @@ function buildAvailabilitySegments(
   for (const t of targets) {
     const line = avail.lines.find((l) => l.line === t.line)!;
     if (!entry.waitlist) {
-      ctx.inventory.sell(avail.date, line.carrier, line.flightNumber, t.bookingClass, entry.seats);
+      ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, t.bookingClass, entry.seats);
     }
     segs.push(
       withArrival({
@@ -117,7 +117,7 @@ function buildAvailabilitySegments(
 /** Long sell / passive / open: trust the typed data; don't draw inventory. */
 function buildDirectSegment(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): AirSegment {
   const sched = !entry.open && entry.flightNumber
-    ? ctx.inventory.scheduleFor(entry.carrier!, entry.flightNumber)
+    ? ctx.backend.inventory.scheduleFor(entry.carrier!, entry.flightNumber)
     : undefined;
   return withArrival({
     segmentNumber: wa.pnr.segments.length + 1,

@@ -80,7 +80,7 @@ export function handleDivide(entry: DivideEntry, wa: WorkArea): string {
 export function handleFile(_entry: FileEntry, wa: WorkArea, ctx: HandlerContext): string {
   if (!wa.dividedOriginal) return 'NO DIVIDED PNR TO FILE'; // TODO: confirm wording
 
-  const newLocator = ctx.pnrStore.commit(wa.pnr); // "file" = persist the new PNR
+  const newLocator = ctx.backend.pnrs.commit(wa.pnr); // "file" = persist the new PNR
   wa.dividedOriginal.remarks.push({ type: 'general', text: `DIVIDED TO ${newLocator}` });
 
   wa.pnr = wa.dividedOriginal;

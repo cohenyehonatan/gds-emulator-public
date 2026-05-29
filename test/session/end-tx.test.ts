@@ -45,7 +45,7 @@ describe('end transaction — PRINT mandatory fields', () => {
     host.process('6P', wa);
     const resp = host.process('E', wa);
     expect(resp).toMatch(/^[A-Z]{6}$/);
-    expect(host.context.pnrStore.has(resp)).toBe(true);
+    expect(host.context.backend.pnrs.has(resp)).toBe(true);
   });
 
   it('round-trips: commit then retrieve by locator', () => {

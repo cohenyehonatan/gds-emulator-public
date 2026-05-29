@@ -104,7 +104,7 @@ function handleList(entry: VoidEntry, ctx: HandlerContext): string {
 
 function collectVoids(ctx: HandlerContext): { pnr: Pnr; ticket: TicketRecord }[] {
   const out: { pnr: Pnr; ticket: TicketRecord }[] = [];
-  for (const pnr of ctx.pnrStore.values()) {
+  for (const pnr of ctx.backend.pnrs.values()) {
     for (const t of pnr.tickets) {
       if (t.status === 'VOIDED') out.push({ pnr, ticket: t });
     }
@@ -163,7 +163,7 @@ function findByNumber(
   ctx: HandlerContext,
   number: string
 ): { pnr: Pnr; ticket: TicketRecord } | undefined {
-  for (const pnr of ctx.pnrStore.values()) {
+  for (const pnr of ctx.backend.pnrs.values()) {
     const t = pnr.tickets.find((tk) => tk.number === number);
     if (t) return { pnr, ticket: t };
   }

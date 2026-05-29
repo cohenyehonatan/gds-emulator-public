@@ -95,8 +95,8 @@ function rebookAfterCancel(
   for (const c of cancelled) {
     // Seed the new-date inventory if the agent hasn't browsed availability for
     // that date — otherwise sell() returns false against an unseeded slot.
-    if (!ctx.inventory.seedSeats(date.raw, c.carrier, c.flightNumber)) return 'NO FLIGHTS';
-    if (!ctx.inventory.sell(date.raw, c.carrier, c.flightNumber, c.bookingClass, c.seats)) {
+    if (!ctx.backend.inventory.seedSeats(date.raw, c.carrier, c.flightNumber)) return 'NO FLIGHTS';
+    if (!ctx.backend.inventory.sell(date.raw, c.carrier, c.flightNumber, c.bookingClass, c.seats)) {
       return 'CLASS NOT AVAILABLE';
     }
     newSegs.push(

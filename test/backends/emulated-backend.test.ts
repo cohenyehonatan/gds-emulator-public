@@ -28,10 +28,9 @@ describe('EmulatedBackend — Backend interface', () => {
     const host = new GdsHost({ port: 0, logLevel: 'error' });
     expect(host.backend.id).toBe('emulated');
     expect(host.context.backend).toBe(host.backend);
-    // step-1 duplicated fields share the same objects:
-    expect(host.context.inventory).toBe(host.backend.inventory);
-    expect(host.context.pnrStore).toBe(host.backend.pnrs);
-    expect(host.context.queues).toBe(host.backend.queues);
+    expect(host.context.backend.inventory).toBe(host.backend.inventory);
+    expect(host.context.backend.pnrs).toBe(host.backend.pnrs);
+    expect(host.context.backend.queues).toBe(host.backend.queues);
   });
 
   it('GdsHost accepts an injected backend (initialTicketSerial flows through)', () => {

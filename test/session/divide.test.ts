@@ -38,7 +38,7 @@ describe('divide / file a PNR', () => {
     const filed = host.process('F', wa);
     const m = /PNR FILED ([A-Z]{6})/.exec(filed);
     expect(m).not.toBeNull();
-    expect(host.context.pnrStore.has(m![1])).toBe(true); // new PNR committed
+    expect(host.context.backend.pnrs.has(m![1])).toBe(true); // new PNR committed
     expect(wa.pnr.names.map((n) => n.surname)).toEqual(['SMITH']); // original restored
     expect(filed).toContain(`DIVIDED TO ${m![1]}`);
     expect(wa.dividedOriginal).toBeUndefined();

@@ -2,7 +2,7 @@
  * Queue handler (Zenon "QUEUES").
  *
  * A queue is an ordered list of committed-PNR locators held at the PCC level
- * (ctx.queues), so it survives end-transaction and is shared across work areas.
+ * (ctx.backend.queues), so it survives end-transaction and is shared across work areas.
  *
  *   QP/<q>[/<pic>]  place the on-screen (committed) PNR on queue <q>
  *   Q/<q>           access queue <q> — pull the first PNR onto the screen
@@ -44,13 +44,13 @@ const pnrCount = (n: number): string => `${n} PNR${n === 1 ? '' : 'S'}`;
  * past the end of the queue, exit the queue and return "QUEUE X EMPTY".
  */
 function loadAtCursor(wa: WorkArea, ctx: HandlerContext, q: string): string {
-  const list = ctx.queues.get(q) ?? [];
+  const list = ctx.backend.queues.get(q) ?? [];
   while ((wa.queueCursor ?? 0) < list.length) {
     const cursor = wa.queueCursor!;
-    const pnr = ctx.pnrStore.get(list[cursor]);
+    const pnr = ctx.backend.pnrs.get(list[cursor]);
     if (!pnr) {
       list.splice(cursor, 1); // stale locator — housekeeping, cursor stays
-      ctx.queues.set(q, list);
+      ctx.backend.queues.set(q, list);
       continue;
     }
     wa.pnr = pnr;
@@ -67,15 +67,15 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
   switch (entry.op) {
     case 'place': {
       const loc = wa.pnr.locator;
-      if (!loc || !ctx.pnrStore.has(loc)) return 'FINISH OR IGNORE'; // must be committed first
+      if (!loc || !ctx.backend.pnrs.has(loc)) return 'FINISH OR IGNORE'; // must be committed first
       const targets = [
         { queue: entry.queue!, pic: entry.pic },
         ...(entry.additionalTargets ?? []),
       ];
       for (const t of targets) {
-        const list = ctx.queues.get(t.queue) ?? [];
+        const list = ctx.backend.queues.get(t.queue) ?? [];
         if (!list.includes(loc)) list.push(loc); // idempotent: no duplicate placement
-        ctx.queues.set(t.queue, list);
+        ctx.backend.queues.set(t.queue, list);
       }
       return `QUEUED ${targets.map((t) => t.queue).join(' ')}`;
     }
@@ -84,7 +84,7 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       const q = entry.queue!;
       wa.currentQueue = q;
       wa.queueCursor = 0;
-      const list = ctx.queues.get(q) ?? [];
+      const list = ctx.backend.queues.get(q) ?? [];
       if (list.length === 0) {
         wa.currentQueue = undefined;
         wa.queueCursor = undefined;
@@ -96,9 +96,9 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
     case 'remove': {
       const q = wa.currentQueue;
       if (q == null || wa.queueCursor == null) return NO_QUEUE;
-      const list = ctx.queues.get(q) ?? [];
+      const list = ctx.backend.queues.get(q) ?? [];
       list.splice(wa.queueCursor, 1); // remove the on-screen PNR at the cursor
-      ctx.queues.set(q, list);
+      ctx.backend.queues.set(q, list);
       // Cursor stays — now points at whoever moved into the vacated slot.
       return loadAtCursor(wa, ctx, q);
     }
@@ -119,7 +119,7 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       if (!loc) return 'NO PNR IN AAA'; // no on-screen PNR to redisplay
       wa.machine.transition(SessionEvent.IGNORE);
       wa.reset();
-      const pnr = ctx.pnrStore.get(loc);
+      const pnr = ctx.backend.pnrs.get(loc);
       if (!pnr) return 'IGNORED'; // committed locator vanished — degenerate but possible
       wa.pnr = pnr;
       wa.machine.transition(SessionEvent.RETRIEVE);
@@ -135,11 +135,11 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       // (LMTC) / 15min-4h (UTR) timer behavior isn't modeled — no wall clock.
       const q = wa.currentQueue;
       if (q == null || wa.queueCursor == null) return NO_QUEUE;
-      const list = ctx.queues.get(q) ?? [];
+      const list = ctx.backend.queues.get(q) ?? [];
       if (list.length === 0 || wa.queueCursor >= list.length) return `QUEUE ${q} EMPTY`;
       const loc = list[wa.queueCursor];
       if (entry.requeueMessage) {
-        const pnr = ctx.pnrStore.get(loc);
+        const pnr = ctx.backend.pnrs.get(loc);
         if (pnr) {
           pnr.remarks.push({
             type: 'general',
@@ -148,10 +148,10 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
         }
       }
       list.splice(wa.queueCursor, 1);
-      ctx.queues.set(q, list);
-      const followUp = ctx.queues.get(entry.requeueTarget!) ?? [];
+      ctx.backend.queues.set(q, list);
+      const followUp = ctx.backend.queues.get(entry.requeueTarget!) ?? [];
       if (!followUp.includes(loc)) followUp.push(loc);
-      ctx.queues.set(entry.requeueTarget!, followUp);
+      ctx.backend.queues.set(entry.requeueTarget!, followUp);
       return loadAtCursor(wa, ctx, q);
     }
 
@@ -162,7 +162,7 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       // clamp at 0.
       const q = wa.currentQueue;
       if (q == null || wa.queueCursor == null) return NO_QUEUE;
-      const list = ctx.queues.get(q) ?? [];
+      const list = ctx.backend.queues.get(q) ?? [];
       const n = entry.skipCount ?? 0;
       const next = wa.queueCursor + n;
       if (next >= list.length) {

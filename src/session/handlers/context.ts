@@ -1,25 +1,18 @@
 /** Shared dependencies passed to every handler. */
 
-import type { Inventory } from '../../store/inventory.js';
-import type { PnrStore } from '../../store/pnr-store.js';
 import type { Backend } from '../../backends/backend.js';
 import { MONTHS, parseSabreDate } from '../../utils/validation.js';
 
 export interface HandlerContext {
   /**
-   * v5 backend (the where-answers-come-from axis). For now both `backend`
-   * and the duplicated `inventory`/`pnrStore`/`queues`/`ticketSerial`
-   * fields below point at the same data — handlers can read either
-   * during the in-progress step-1 migration. Step 2 removes the
-   * duplicated fields and routes every consumer through `backend`.
+   * v5 backend — the where-answers-come-from axis. Inventory, PNR store,
+   * queues, and ticket-serial allocation all live behind this single
+   * seam. Default is EmulatedBackend; v5 step 3 will add LiveTravelport-
+   * Backend wrapping the 7K9S Travelport TripServices REST flow.
    */
   backend: Backend;
-  inventory: Inventory;
-  pnrStore: PnrStore;
   /** Pseudo City Code used in signature lines (e.g. "A0UC"). */
   pcc: string;
-  /** Work queues for this PCC: queue id → ordered list of PNR locators. */
-  queues: Map<string, string[]>;
 }
 
 /**

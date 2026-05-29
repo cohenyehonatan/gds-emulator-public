@@ -228,15 +228,15 @@ export function handlePricing(entry: PricingEntry, wa: WorkArea, ctx: HandlerCon
   };
 
   if (entry.mode === 'bargain') {
-    const result = bargainFind(wa.pnr, ctx.inventory, entry.ignoreAvailability ?? false, common);
+    const result = bargainFind(wa.pnr, ctx.backend.inventory, entry.ignoreAvailability ?? false, common);
     if (!result) return 'UNABLE TO PRICE - NO ITINERARY'; // TODO: confirm wording
 
     if (entry.rebook && result.rebooks.length > 0) {
       wa.machine.transition(SessionEvent.MODIFY);
       for (const r of result.rebooks) {
         const seg = wa.pnr.segments[r.segment - 1];
-        ctx.inventory.release(seg.date, seg.carrier, seg.flightNumber, r.from, seg.seats);
-        ctx.inventory.sell(seg.date, seg.carrier, seg.flightNumber, r.to, seg.seats);
+        ctx.backend.inventory.release(seg.date, seg.carrier, seg.flightNumber, r.from, seg.seats);
+        ctx.backend.inventory.sell(seg.date, seg.carrier, seg.flightNumber, r.to, seg.seats);
         seg.bookingClass = r.to;
       }
     }

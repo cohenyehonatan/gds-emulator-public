@@ -38,7 +38,7 @@ export function handleAvailability(
       if (!s) return Response.FORMAT;
       ({ raw: dateRaw, month, day } = s);
     }
-    const lines = ctx.inventory.availability(
+    const lines = ctx.backend.inventory.availability(
       dateRaw,
       { letter: dayOfWeekLetter(month, day), num: dayOfWeekNumber(month, day) },
       last.destination,
@@ -57,7 +57,7 @@ export function handleAvailability(
   };
   const afterMinutes = entry.time ? parseClockToMinutes(entry.time) ?? undefined : undefined;
 
-  const lines = ctx.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
+  const lines = ctx.backend.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
     afterMinutes,
     bookingClass: entry.bookingClass,
     carriers: entry.carriers,
