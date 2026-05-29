@@ -253,6 +253,24 @@ function matchesSabreDate(tok: string): (d: Date) => boolean {
   };
 }
 
+/**
+ * Render the accounting-field history (`*HAC`). Source: Sabre Accounting
+ * Lines QR p.1 ("Display history of accounting field data"). The QR
+ * documents the entry but not the response layout; this rendering is
+ * reconstructed at the queue-prompt fidelity bar: one line per logged
+ * change with timestamp / agent / action summary. Mark if/when a
+ * verbatim sample surfaces.
+ */
+export function renderAccountingHistory(pnr: Pnr): string {
+  if (pnr.accountingHistory.length === 0) return 'NO ACCOUNTING HISTORY';
+  const lines = pnr.accountingHistory.map((h, i) => {
+    const stamp = `${sabreTime(h.timestamp)}/${sabreDayMon(h.timestamp)}`;
+    const agent = h.agent ?? 'AGT';
+    return `  ${i + 1}. ${stamp} ${agent} ${h.detail}`;
+  });
+  return ['ACCOUNTING HISTORY', ...lines].join('\n');
+}
+
 /** Map TicketRecord.formOfPayment to its Accounting-Lines-QR code (CA/CC). */
 function fopCode(t: TicketRecord): string {
   const fop = t.formOfPayment;

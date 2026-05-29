@@ -21,6 +21,13 @@ export function handleAccountingDelete(entry: AccountingDeleteEntry, wa: WorkAre
 
   if (entry.mode === 'all') {
     for (let n = 1; n <= totalLines; n++) pnr.accountingLinesHidden.add(n);
+    pnr.accountingHistory.push({
+      timestamp: new Date(),
+      agent: wa.agent,
+      action: 'delete',
+      lineRef: 'ALL',
+      detail: 'DELETE ALL',
+    });
     return 'OK'; // reconstructed; QR doesn't quote a success string
   }
 
@@ -28,13 +35,30 @@ export function handleAccountingDelete(entry: AccountingDeleteEntry, wa: WorkAre
   for (const n of entry.lines) {
     if (n < 1 || n > totalLines) return 'ACCOUNTING LINE NOT FOUND'; // reconstructed
   }
-  for (const n of entry.lines) pnr.accountingLinesHidden.add(n);
+  for (const n of entry.lines) {
+    pnr.accountingLinesHidden.add(n);
+    pnr.accountingHistory.push({
+      timestamp: new Date(),
+      agent: wa.agent,
+      action: 'delete',
+      lineRef: n,
+      detail: `DELETE LINE ${n}`,
+    });
+  }
   return 'OK';
 }
 
 export function handleAccountingAdd(entry: AccountingAddEntry, wa: WorkArea): string {
   if (!wa.pnr.hasContent()) return Response.NO_PNR;
   wa.pnr.manualAccountingLines.push(entry.line);
+  const lineNum = wa.pnr.tickets.length + wa.pnr.manualAccountingLines.length;
+  wa.pnr.accountingHistory.push({
+    timestamp: new Date(),
+    agent: wa.agent,
+    action: 'add',
+    lineRef: lineNum,
+    detail: `ADD MANUAL ${entry.line.validatingCarrier}/${entry.line.ticketNumber}`,
+  });
   return 'OK'; // reconstructed; QR documents entry but not response
 }
 
@@ -62,13 +86,22 @@ export function handleAccountingModify(entry: AccountingModifyEntry, wa: WorkAre
         ? (t.base * entry.newCommission) / 100
         : entry.newCommission;
     }
-    return 'OK';
+  } else {
+    const m = pnr.manualAccountingLines[n - ticketCount - 1];
+    m.validatingCarrier = entry.newCarrier;
+    if (entry.newCommission != null) {
+      m.commission = entry.newCommission;
+      m.commissionPercent = entry.newCommissionPercent ?? false;
+    }
   }
-  const m = pnr.manualAccountingLines[n - ticketCount - 1];
-  m.validatingCarrier = entry.newCarrier;
-  if (entry.newCommission != null) {
-    m.commission = entry.newCommission;
-    m.commissionPercent = entry.newCommissionPercent ?? false;
-  }
+  pnr.accountingHistory.push({
+    timestamp: new Date(),
+    agent: wa.agent,
+    action: 'modify',
+    lineRef: n,
+    detail: entry.newCommission != null
+      ? `MODIFY LINE ${n} → ${entry.newCarrier}, COMM ${entry.newCommissionPercent ? `P${entry.newCommission}` : entry.newCommission.toFixed(2)}`
+      : `MODIFY LINE ${n} → ${entry.newCarrier}`,
+  });
   return 'OK';
 }

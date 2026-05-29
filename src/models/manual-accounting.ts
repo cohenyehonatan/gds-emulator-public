@@ -12,6 +12,21 @@
  *   AC/UA/12345678901/P10/99.00/7.64/ONE/CCAX378700000000000 1.1ANDREWS J/1/D-INCLUDES SERVICE CHARGE
  */
 
+/**
+ * A single entry in the accounting field's change log. One is appended
+ * per accept of an AC/, AC<n>/, or AC¤<…> entry. *HAC renders these
+ * chronologically.
+ */
+export interface AccountingHistoryEntry {
+  timestamp: Date;
+  agent?: string;
+  action: 'add' | 'modify' | 'delete';
+  /** Line number affected, or 'ALL' for bulk delete. */
+  lineRef: number | 'ALL';
+  /** Short, human-readable summary the *HAC display surfaces. */
+  detail: string;
+}
+
 export interface ManualAccountingLine {
   validatingCarrier: string;
   /** 10-or-11-digit ticket number including check digit; no airline prefix. */

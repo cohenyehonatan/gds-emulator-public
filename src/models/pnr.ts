@@ -16,7 +16,7 @@ import type { RemarkElement } from './remark.js';
 import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
-import type { ManualAccountingLine } from './manual-accounting.js';
+import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 export class Pnr {
@@ -36,6 +36,13 @@ export class Pnr {
    * Source: Sabre Accounting Lines QR p.1.
    */
   manualAccountingLines: ManualAccountingLine[] = [];
+  /**
+   * Chronological log of changes to the accounting field. Surfaces via
+   * `*HAC` (Sabre Accounting Lines QR p.1 "Display history of accounting
+   * field data"). Append-only; entries don't get rewritten by subsequent
+   * modify/delete actions.
+   */
+  accountingHistory: AccountingHistoryEntry[] = [];
   /**
    * Set of 1-indexed accounting-line numbers that have been deleted via
    * `AC¤<n>` / `AC¤ALL` / `AC¤<range>`. Filtered out by *PAC. The deletion
@@ -72,6 +79,7 @@ export class Pnr {
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
+    p.accountingHistory = this.accountingHistory.map((h) => ({ ...h }));
     p.accountingLinesHidden = new Set(this.accountingLinesHidden);
     p.ticketing = this.ticketing;
     p.optionField = this.optionField;

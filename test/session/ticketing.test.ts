@@ -431,6 +431,28 @@ describe('e-ticket issuance', () => {
       expect(host.process('AC9/BA', wa)).toBe('ACCOUNTING LINE NOT FOUND');
     });
 
+    it('*HAC reports NO ACCOUNTING HISTORY before any AC action', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      expect(host.process('*HAC', wa)).toBe('NO ACCOUNTING HISTORY');
+    });
+
+    it('*HAC logs add / modify / delete actions chronologically', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      // Three actions: AC/ add, AC<n>/ modify, AC¤<n> delete.
+      host.process('AC/UA/12345678901/P10/99.00/7.64/ONE/CA/1/D', wa);
+      host.process('AC1/BA', wa);
+      host.process('AC¤1', wa);
+      const hac = host.process('*HAC', wa);
+      expect(hac).toContain('ACCOUNTING HISTORY');
+      expect(hac).toContain('ADD MANUAL UA');
+      expect(hac).toContain('MODIFY LINE 1 → BA');
+      expect(hac).toContain('DELETE LINE 1');
+      expect(wa.pnr.accountingHistory).toHaveLength(3);
+    });
+
     it('AC¤<range> and AC¤<list> both work', () => {
       book();
       host.process('-SMITH/JOHN MR', wa);
