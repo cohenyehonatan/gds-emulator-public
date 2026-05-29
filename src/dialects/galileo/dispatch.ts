@@ -832,7 +832,11 @@ function findOfferIdForFirstSegment(wa: WorkArea): string | undefined {
  *     in a follow-up commit.
  *   - issuance does not depend on `T.` ticketing-field state.
  */
-function handleGalileoTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerContext): string {
+async function handleGalileoTicket(
+  entry: TicketEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   if (entry.source !== 'pq') return GalileoResponse.FORMAT; // shouldn't happen via Galileo parser
   const idx = (entry.pqRecord ?? 1) - 1;
   if (idx < 0 || idx >= wa.pnr.priceQuotes.length) {
@@ -846,8 +850,24 @@ function handleGalileoTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
   const segments = wa.pnr.segments;
   if (segments.length === 0) return GalileoResponse.NEED_ITINERARY;
 
+  // Live path: POST a cash form-of-payment to the workbench. The actual
+  // ticket issuance happens at commit (E/ER) once both the FOP and the
+  // ticketing field are on the workbench. v1 only emits cash; the full
+  // TMU<n>F<form> grammar (credit cards, government warrants, etc.)
+  // hasn't been wired on the cryptic side yet.
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    try {
+      await ctx.backend.addFormOfPayment(wa.liveWorkbenchId, { kind: 'cash' });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
   // One ticket per passenger, per the Sabre ticketing convention.
   // Each ticket lumps every priced segment's tariff into a single base/tax.
+  // Locally-issued tickets keep the in-memory PNR coherent so *T queries
+  // still work; the live commit will additionally produce server-side
+  // ticket numbers in the response.
   const tariff: 'D' | 'I' = 'D'; // v1: assume domestic; international tariff comes with international markets
   const issued: TicketRecord[] = [];
   for (const block of fq.passengers) {

@@ -372,6 +372,36 @@ export class LiveTravelportBackend implements Backend {
    * the raw text and let TripServices validate it server-side — the
    * cryptic surface doesn't pre-parse the role.
    */
+  /**
+   * Add a form of payment to a workbench.
+   *
+   * Source: POST /11/air/payment/reservationworkbench/{wbID}/formofpayment.
+   * Without a FOP set on the workbench, the commit can't issue tickets —
+   * it just creates a held reservation (BF without TE/TK lines). For the
+   * Galileo live-TKP flow, this is the missing prerequisite: post a FOP,
+   * then commit, and the response carries the issued tickets in the
+   * Receipt block.
+   *
+   * v1 only emits cash FOPs. The full Mini Guide v2 TMU<n>F<form> grammar
+   * (cash, nonref, credit cards, government warrants) hasn't been wired
+   * yet on the cryptic side; when it is, the live handler can map TMU
+   * payloads through this method by extending the `fop` parameter.
+   */
+  async addFormOfPayment(
+    workbenchId: string,
+    fop: { kind: 'cash' } = { kind: 'cash' }
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/payment/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/formofpayment`;
+    // Defensive body shape — the spec endpoints list documents the URL but
+    // not the JSON exactly. Cash is the simplest; the documented field
+    // names live under FormOfPayment in adjacent endpoints (addaccounting
+    // etc. share a similar `Type: "Cash"` convention).
+    const body = { FormOfPayment: [{ Type: fop.kind === 'cash' ? 'Cash' : 'Cash' }] };
+    return this.postJson(url, body, 'addFormOfPayment');
+  }
+
   async addPrimaryContact(workbenchId: string, phone: string): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/book/primarycontact/reservationworkbench/${encodeURIComponent(workbenchId)}` +
