@@ -15,6 +15,8 @@
 
 import type { AvailabilityResult, AvailabilityLine } from '../../models/availability-result.js';
 import type { AirSegment } from '../../models/segment.js';
+import type { Pnr } from '../../models/pnr.js';
+import { formatNameItem } from '../../models/name-element.js';
 import { to24h } from '../../utils/validation.js';
 
 export interface GalileoSignature {
@@ -98,4 +100,41 @@ export function renderGalileoSoldSegment(s: AirSegment): string {
     `${s.date} ${s.origin} ${s.destination} ${s.status} ${s.seats} ` +
     `${to24h(s.departTime)} ${to24h(s.arriveTime ?? '')}`
   ); // reconstructed
+}
+
+/**
+ * Galileo PNR / Booking File display (`*R` per Module 2 p.27).
+ * Reconstructed — Smartpoint renders BF in a GUI panel and the Mini
+ * Guide doesn't quote the green-screen layout. Shape mirrors the
+ * Travelport+ training-doc callouts: locator header, numbered name
+ * line, itinerary segments in Module-2 column order, then the dotted
+ * section fields (P. / T. / R.) that pair 1:1 with the entry sigils.
+ */
+export function renderGalileoPnr(pnr: Pnr, sig: GalileoSignature): string {
+  const out: string[] = [];
+  out.push(renderGalileoBfHeader(pnr, sig));
+  if (pnr.names.length > 0) out.push(renderGalileoNames(pnr));
+  if (pnr.segments.length > 0) out.push(renderGalileoItinerary(pnr));
+  for (const p of pnr.phones) out.push(`P. ${p.number}`);
+  if (pnr.ticketing) out.push(`T. ${pnr.ticketing}`);
+  if (pnr.receivedFrom) out.push(`R. ${pnr.receivedFrom}`);
+  return out.join('\n');
+}
+
+/** `*I` — itinerary-only display (Module 2 p.27). */
+export function renderGalileoItinerary(pnr: Pnr): string {
+  if (pnr.segments.length === 0) return 'NO ITINERARY'; // reconstructed
+  return pnr.segments.map(renderGalileoSoldSegment).join('\n');
+}
+
+/** `<LOCATOR> <PCC>/<AGENT>` — BF header line. Reconstructed. */
+function renderGalileoBfHeader(pnr: Pnr, sig: GalileoSignature): string {
+  const code = sig.agent ?? 'AGT';
+  const loc = pnr.locator ?? '------';
+  return `${loc}  ${sig.pcc}/${code}`; // reconstructed
+}
+
+/** Name lines, Galileo-style. `1.1SMITH/JOHN MR` per industry convention. */
+function renderGalileoNames(pnr: Pnr): string {
+  return pnr.names.map((n, i) => `${i + 1}.${formatNameItem(n)}`).join('   ');
 }

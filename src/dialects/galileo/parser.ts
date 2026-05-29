@@ -38,6 +38,7 @@ import type {
   ReceivedFromEntry,
   EndTransactionEntry,
   IgnoreEntry,
+  DisplayEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -62,6 +63,11 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (upper === 'E' || upper === 'ET') return parseEnd(trimmed, false);
   if (upper === 'ER') return parseEnd(trimmed, true);
   if (upper === 'I' || upper === 'IR') return parseIgnore(trimmed);
+
+  // `*`-prefixed retrieve / display. Internal whitespace is meaningful for
+  // surname forms (`*- WILLIAMS/CHRIS MR` per Mini Guide p.17), so we
+  // capture from `trimmed` rather than the whitespace-stripped form.
+  if (upper.startsWith('*')) return parseDisplay(trimmed);
 
   // No-whitespace verbs: strip internal whitespace (`SON / ZHA` →
   // `SON/ZHA`) before sigil dispatch.
@@ -283,4 +289,32 @@ function parseEnd(raw: string, redisplay: boolean): EndTransactionEntry {
  */
 function parseIgnore(raw: string): IgnoreEntry {
   return { kind: 'ignore', raw, timestamp: new Date() };
+}
+
+/**
+ * `*<argument>` — retrieve / display. Source: Mini Format Guide v2 p.17
+ * + Smartpoint Module 2 p.27.
+ *
+ *   *<6-letter-locator>      retrieve booking file by locator
+ *   *-<surname>              retrieve by surname (numbered list if >1)
+ *   *-<surname>/<given>      retrieve by full name (parsed as the same
+ *                            "surname/given" the retrieve handler already
+ *                            matches against)
+ *   *R                       display the entire current booking file
+ *   *I                       display only the itinerary
+ *
+ * The Sabre DisplayEntry kind is reused — `argument` carries the post-`*`
+ * text and the dispatch fans out by shape. Internal whitespace in
+ * surname-with-given forms (`*- WILLIAMS/CHRIS MR`) is preserved.
+ *
+ * Deferred (parser still throws → FORMAT):
+ *   - **HK7-<NAME>     branch-PCC retrieve
+ *   - **B-<NAME>       all-branch retrieve
+ *   - *28JUN-<NAME>    date-and-name retrieve
+ *   - *I/<n>           single-segment subsection
+ *   - *<n>             similar-name list selection
+ */
+function parseDisplay(raw: string): DisplayEntry {
+  const argument = raw.slice(1).trim();
+  return { kind: 'display', raw, timestamp: new Date(), argument };
 }

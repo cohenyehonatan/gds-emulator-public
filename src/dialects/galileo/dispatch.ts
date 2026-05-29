@@ -25,7 +25,9 @@ import type {
   TicketingEntry,
   ReceivedFromEntry,
   EndTransactionEntry,
+  DisplayEntry,
 } from '../../protocol/entry.js';
+import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
 import type { AirSegment } from '../../models/segment.js';
@@ -41,6 +43,8 @@ import {
   renderGalileoSwitchAreaResponse,
   renderGalileoAvailability,
   renderGalileoSoldSegment,
+  renderGalileoPnr,
+  renderGalileoItinerary,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 
@@ -94,6 +98,9 @@ export function dispatchGalileo(
         wa.machine.transition(SessionEvent.IGNORE);
         wa.reset();
         return GalileoResponse.IGNORED;
+
+      case 'display':
+        return handleGalileoDisplay(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -248,7 +255,7 @@ const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
 };
 
 function handleGalileoEndTransaction(
-  _entry: EndTransactionEntry,
+  entry: EndTransactionEntry,
   wa: WorkArea,
   ctx: HandlerContext
 ): string {
@@ -267,7 +274,67 @@ function handleGalileoEndTransaction(
   });
 
   const locator = ctx.backend.pnrs.commit(wa.pnr);
+  const committed = wa.pnr;
+  const agent = wa.agent;
   wa.machine.transition(SessionEvent.END_TX);
   wa.reset();
-  return locator;
+  return entry.redisplay ? renderGalileoPnr(committed, { pcc: ctx.pcc, agent }) : locator;
+}
+
+/**
+ * `*R` / `*I` / `*<locator>` / `*-<surname>` — retrieve and display.
+ * Sources: Mini Format Guide v2 p.17 (retrieve forms) + Smartpoint
+ * Module 2 p.27 (`*R` / `*I` display verbs).
+ *
+ * Argument shapes:
+ *   ""        bare `*` — same as `*R` (redisplay current BF)
+ *   "R"       redisplay current BF
+ *   "I"       itinerary-only redisplay
+ *   "-NAME"   surname search; first-match retrieves into slot
+ *   "ABCDEF"  6-letter record locator → retrieve
+ *
+ * Multi-match surname results return the locators on one line each
+ * for now — the `*<n>` selection-from-list flow is deferred.
+ */
+function handleGalileoDisplay(entry: DisplayEntry, wa: WorkArea, ctx: HandlerContext): string {
+  const arg = entry.argument;
+  const sig = { pcc: ctx.pcc, agent: wa.agent };
+
+  // Redisplay verbs — operate on whatever's in the active slot.
+  if (arg === '' || arg.toUpperCase() === 'R') {
+    if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+    return renderGalileoPnr(wa.pnr, sig);
+  }
+  if (arg.toUpperCase() === 'I') {
+    if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+    return renderGalileoItinerary(wa.pnr);
+  }
+
+  // Surname retrieve — `*-SMITH`. For >1 match, list locators; the agent
+  // re-issues against a specific locator. (The `*<n>` similar-name-list
+  // selection is a Sabre-only convention not documented for Galileo.)
+  if (arg.startsWith('-')) {
+    const surname = arg.slice(1).trim().split('/')[0]; // strip any "/GIVEN"
+    const matches = ctx.backend.pnrs.findBySurname(surname);
+    if (matches.length === 0) return GalileoResponse.NO_PNR;
+    if (matches.length > 1) {
+      // Reconstructed multi-match listing — Mini Guide doesn't quote the
+      // layout, so we just present the locators one per line.
+      return matches.map((p, i) => `${i + 1}. ${p.locator}`).join('\n');
+    }
+    wa.pnr = matches[0];
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    return renderGalileoPnr(matches[0], sig);
+  }
+
+  // Record locator (6-char alphanumeric per generateRecordLocator).
+  if (isRecordLocator(arg)) {
+    const pnr = ctx.backend.pnrs.get(arg);
+    if (!pnr) return GalileoResponse.NO_PNR;
+    wa.pnr = pnr;
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    return renderGalileoPnr(pnr, sig);
+  }
+
+  return GalileoResponse.FORMAT;
 }
