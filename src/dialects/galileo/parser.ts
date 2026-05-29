@@ -32,6 +32,12 @@ import type {
   SwitchAreaEntry,
   AvailabilityEntry,
   SellEntry,
+  NameEntry,
+  PhoneEntry,
+  TicketingEntry,
+  ReceivedFromEntry,
+  EndTransactionEntry,
+  IgnoreEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -42,13 +48,24 @@ const GALILEO_AREA_LETTERS = new Set(['A', 'B', 'C', 'D', 'E']);
 export function parseGalileoEntry(raw: string): ParsedEntry {
   const trimmed = raw.trim();
   if (trimmed.length === 0) throw new ParseError('Empty entry');
+  const upper = trimmed.toUpperCase();
 
-  // Strip whitespace inside the entry — sources show `SON / ZHA` formatted
-  // for readability; the wire form is `SON/ZHA`. Once we accept more verbs
-  // that *do* keep internal spaces (e.g. name fields), this collapses to
-  // a more targeted whitespace strip.
+  // `.`-prefixed field entries — internal whitespace is meaningful
+  // (`N.HENRIQUEZ/RUDY MR`), so we parse from `trimmed` not the
+  // whitespace-stripped form used for the no-whitespace verbs below.
+  if (upper.startsWith('N.')) return parseNameField(trimmed);
+  if (upper.startsWith('P.')) return parsePhoneField(trimmed);
+  if (upper.startsWith('T.')) return parseTicketingField(trimmed);
+  if (upper.startsWith('R.')) return parseReceivedFromField(trimmed);
+
+  // End / ignore verbs — pure letters, no internal whitespace expected.
+  if (upper === 'E' || upper === 'ET') return parseEnd(trimmed, false);
+  if (upper === 'ER') return parseEnd(trimmed, true);
+  if (upper === 'I' || upper === 'IR') return parseIgnore(trimmed);
+
+  // No-whitespace verbs: strip internal whitespace (`SON / ZHA` →
+  // `SON/ZHA`) before sigil dispatch.
   const u = trimmed.replace(/\s+/g, '').toUpperCase();
-
   if (u.startsWith('SON/Z')) return parseSignOn(trimmed, u);
   if (u === 'SOF' || u.startsWith('SOF/Z')) return parseSignOff(trimmed, u);
   if (isAreaSwitch(u)) return parseAreaSwitch(trimmed, u);
@@ -184,4 +201,86 @@ function parseSell(raw: string, u: string): SellEntry {
     bookingClass,
     line,
   };
+}
+
+/**
+ * `N.<surname>/<given>[<title>]` — name field. Source: Mini Format
+ * Guide v2 p.14-15. The text after the `.` is forwarded to the shared
+ * NameItem parser (same shape as Sabre's `-<surname>/<given>`),
+ * so multi-traveler counts (`N.3MAJA/...`), the infant prefix `I/`,
+ * passenger-type-code remarks (`*P-C08`), and DOB suffixes ride
+ * through unchanged.
+ *
+ * Galileo-specific verbs that look like name entries but aren't
+ * straight pushes — `N.P1@`, `N.P2@SMITH/...`, `N.P5-6@...` (delete /
+ * change passenger) — fall under modify and are deferred to a follow-
+ * up commit; we currently route them through the name handler which
+ * will produce a malformed NameItem. Flag.
+ */
+function parseNameField(raw: string): NameEntry {
+  const text = raw.slice(2).trim(); // strip "N."
+  if (!text.includes('/')) {
+    throw new ParseError(`Galileo N.: expected SURNAME/GIVEN in "${raw}"`);
+  }
+  return { kind: 'name', raw, timestamp: new Date(), text };
+}
+
+/**
+ * `P.<rest>` — phone / contact field. Source: Mini Format Guide v2
+ * p.16. Galileo's phone field is wider than Sabre's — it carries
+ * agency contacts, hotel numbers, and email addresses — so the parser
+ * just captures the raw remainder; the handler stores it as-is in
+ * the PNR without trying to split city/number/type the way Sabre's
+ * parsePhoneText does.
+ */
+function parsePhoneField(raw: string): PhoneEntry {
+  const text = raw.slice(2).trim();
+  if (text.length === 0) throw new ParseError(`Galileo P.: empty phone field in "${raw}"`);
+  return { kind: 'phone', raw, timestamp: new Date(), text };
+}
+
+/**
+ * `T.<rest>` — ticketing / time-limit field. Source: Mini Format
+ * Guide v2 p.16. Forms documented:
+ *
+ *   T.T*                    minimum ticketing input
+ *   T.TAU/10FEB             to ticketing queue 10 on 10FEB
+ *   T.TAU/12JUN*ISSUE TKT   with remark
+ *   T.@TAU/08MAR            change ticketing field
+ *
+ * Parser just captures the raw remainder; the handler stores it on
+ * the PNR.
+ */
+function parseTicketingField(raw: string): TicketingEntry {
+  const text = raw.slice(2).trim();
+  if (text.length === 0) throw new ParseError(`Galileo T.: empty ticketing field in "${raw}"`);
+  return { kind: 'ticketing', raw, timestamp: new Date(), text };
+}
+
+/**
+ * `R.<rest>` — received from field. Source: Mini Format Guide v2 p.16.
+ * Documented forms: `R.AGT`, `R.YY`. Parser captures the raw text.
+ */
+function parseReceivedFromField(raw: string): ReceivedFromEntry {
+  const text = raw.slice(2).trim();
+  if (text.length === 0) throw new ParseError(`Galileo R.: empty received-from in "${raw}"`);
+  return { kind: 'received_from', raw, timestamp: new Date(), text };
+}
+
+/**
+ * `E`/`ET` end transaction (save BF), `ER` end + retrieve same BF.
+ * Source: Mini Format Guide v2 p.17.
+ */
+function parseEnd(raw: string, redisplay: boolean): EndTransactionEntry {
+  return { kind: 'end_transaction', raw, timestamp: new Date(), redisplay };
+}
+
+/**
+ * `I` ignore, `IR` ignore + retrieve previously saved BF.
+ * Source: Mini Format Guide v2 p.17. The retrieve side of IR is
+ * deferred — both forms currently clear the work area without the
+ * subsequent retrieve.
+ */
+function parseIgnore(raw: string): IgnoreEntry {
+  return { kind: 'ignore', raw, timestamp: new Date() };
 }

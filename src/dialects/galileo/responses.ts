@@ -21,4 +21,19 @@ export const GalileoResponse = {
   FORMAT: 'FORMAT', // reconstructed — Galileo's actual format-error wording isn't published
   /** Empty / null fallback for handlers that can't act. */
   OK: 'OK', // reconstructed
+  /** Successful ignore (Mini Guide p.18: "I — Ignore Transact"). */
+  IGNORED: 'IGNORED', // reconstructed
+  /**
+   * End-transaction rejections — none of these strings are published in
+   * the references; reconstructed shapes name the Galileo sigil the
+   * agent forgot, paralleling Sabre's "USE <n>" pattern.
+   */
+  NEED_NAME: 'NEED NAME - USE N.', // reconstructed
+  NEED_TICKETING: 'NEED TICKETING - USE T.', // reconstructed
+  NEED_RECEIVED_FROM: 'NEED RECEIVED FROM - USE R.', // reconstructed
+  NEED_PHONE: 'NEED PHONE - USE P.', // reconstructed
+  NEED_ITINERARY: 'NEED ITINERARY', // reconstructed
+  NAMES_NOT_EQUAL: 'NUMBER OF NAMES NOT EQUAL TO RESERVATIONS', // reconstructed
+  /** No PNR currently in the active work area. */
+  NO_PNR: 'NO BOOKING FILE', // reconstructed (Galileo uses "Booking File" not "PNR")
 } as const;

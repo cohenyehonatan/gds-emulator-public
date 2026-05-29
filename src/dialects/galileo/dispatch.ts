@@ -16,15 +16,25 @@
  * can stop on them.
  */
 
-import type { ParsedEntry, AvailabilityEntry, SellEntry } from '../../protocol/entry.js';
+import type {
+  ParsedEntry,
+  AvailabilityEntry,
+  SellEntry,
+  NameEntry,
+  PhoneEntry,
+  TicketingEntry,
+  ReceivedFromEntry,
+  EndTransactionEntry,
+} from '../../protocol/entry.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
 import type { AirSegment } from '../../models/segment.js';
-import { StatusCode } from '../../protocol/constants.js';
+import type { MandatoryFieldKey } from '../../protocol/constants.js';
+import { MandatoryField, StatusCode } from '../../protocol/constants.js';
+import { parseNameText } from '../../models/name-element.js';
 import { SessionEvent } from '../../session/session-state.js';
 import { InvalidTransitionError } from '../../session/session-machine.js';
 import { dayOfWeekLetter, dayOfWeekNumber } from '../../session/handlers/context.js';
-import { to24h } from '../../utils/validation.js';
 import {
   renderGalileoSignInResponse,
   renderGalileoSignOffResponse,
@@ -64,6 +74,26 @@ export function dispatchGalileo(
 
       case 'sell':
         return handleGalileoSell(entry, wa, ctx);
+
+      case 'name':
+        return handleGalileoName(entry, wa);
+
+      case 'phone':
+        return handleGalileoPhone(entry, wa);
+
+      case 'ticketing':
+        return handleGalileoTicketing(entry, wa);
+
+      case 'received_from':
+        return handleGalileoReceivedFrom(entry, wa);
+
+      case 'end_transaction':
+        return handleGalileoEndTransaction(entry, wa, ctx);
+
+      case 'ignore':
+        wa.machine.transition(SessionEvent.IGNORE);
+        wa.reset();
+        return GalileoResponse.IGNORED;
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -148,4 +178,96 @@ function handleGalileoSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext):
   };
   wa.pnr.segments.push(seg);
   return renderGalileoSoldSegment(seg);
+}
+
+/**
+ * `N.<surname>/<given>[<title>]` — name field. Sources the same
+ * parseNameText that Sabre's `-SURNAME/GIVEN` handler uses, since the
+ * post-prefix shape is identical (Mini Format Guide v2 p.14-15).
+ */
+function handleGalileoName(entry: NameEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.names.push(parseNameText(entry.text));
+  return GalileoResponse.OK;
+}
+
+/**
+ * `P.<rest>` — phone / contact field. Galileo's phone field carries
+ * agency contacts, hotel numbers, and email addresses, so we don't
+ * try to split city/number/type (Sabre's parsePhoneText would mangle
+ * the agency-T* / hotel-A* forms documented at Mini Guide v2 p.16). The
+ * raw text rides through in PhoneElement.number; a Galileo PNR
+ * renderer can format it back out unchanged when that lands.
+ */
+function handleGalileoPhone(entry: PhoneEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.phones.push({ number: entry.text });
+  return GalileoResponse.OK;
+}
+
+/**
+ * `T.<rest>` — ticketing / time-limit field. Mini Guide v2 p.16
+ * documents `T.T*` minimum input, `T.TAU/<DDMMM>` queue+date, the
+ * `*<remark>` suffix, and the `@` change prefix. The handler stores
+ * the raw text; downstream consumers (PNR display, ticket-issue) can
+ * inspect it as they need to.
+ */
+function handleGalileoTicketing(entry: TicketingEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.ticketing = entry.text;
+  return GalileoResponse.OK;
+}
+
+/**
+ * `R.<rest>` — received from field. Mini Guide v2 p.16: `R.AGT`,
+ * `R.YY` (agent initials).
+ */
+function handleGalileoReceivedFrom(entry: ReceivedFromEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  wa.pnr.receivedFrom = entry.text;
+  return GalileoResponse.OK;
+}
+
+/**
+ * `E`/`ET` end transaction (Mini Guide v2 p.17). Mandatory-field
+ * checks mirror Sabre's: name, ticketing, received-from, phone,
+ * itinerary — all five are required before the booking file commits.
+ * Names==seats is also checked (carries over since the PNR data
+ * model is shared).
+ *
+ * `ER` (end + retrieve) returns the locator like `E`/`ET` for v1;
+ * the Galileo BF redisplay renderer lands with the PNR display verb
+ * in a follow-up commit.
+ */
+const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
+  [MandatoryField.PHONE]: GalileoResponse.NEED_PHONE,
+  [MandatoryField.RECEIVED_FROM]: GalileoResponse.NEED_RECEIVED_FROM,
+  [MandatoryField.ITINERARY]: GalileoResponse.NEED_ITINERARY,
+  [MandatoryField.NAME]: GalileoResponse.NEED_NAME,
+  [MandatoryField.TICKETING]: GalileoResponse.NEED_TICKETING,
+};
+
+function handleGalileoEndTransaction(
+  _entry: EndTransactionEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string {
+  const missing = wa.pnr.missingMandatory();
+  if (missing.length > 0) return GALILEO_MISSING_RESPONSE[missing[0]];
+
+  const pax = wa.pnr.passengerCount();
+  if (wa.pnr.segments.some((s) => s.seats !== pax)) {
+    return GalileoResponse.NAMES_NOT_EQUAL;
+  }
+
+  // Waitlisted segments confirm to HL at end-tx (Zenon course p.13;
+  // the convention is shared across mainframe GDS).
+  wa.pnr.segments.forEach((s) => {
+    if (s.status === 'LL') s.status = 'HL';
+  });
+
+  const locator = ctx.backend.pnrs.commit(wa.pnr);
+  wa.machine.transition(SessionEvent.END_TX);
+  wa.reset();
+  return locator;
 }
