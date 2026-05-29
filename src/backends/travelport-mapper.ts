@@ -253,6 +253,52 @@ export function mapReservation(response: unknown, locator: string): Pnr {
   return pnr;
 }
 
+/**
+ * Build a `${carrier}-${flightNumber}` → `offerId` lookup from a
+ * Reservation response (e.g. the body returned by
+ * `buildfromlocator`). Used by partial-cancel of a committed BF to
+ * map each cryptic segment number to its server-side offer ID
+ * without needing a cached availability.
+ *
+ * The Reservation structure groups segments under each Offer; we
+ * walk every Offer node, pull its `Identifier.value`, then map each
+ * flight inside that offer to it. Defensive against three shapes
+ * we've seen across v11 access groups: `Offer`/`Offers.Offer`/
+ * `AirReservation.Offer`.
+ */
+export function extractSegmentOfferIds(response: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const r = response as any;
+  const root = r?.Reservation ?? r?.OrderReservationResponse?.Reservation ?? r;
+  if (root == null) return out;
+  const offers = arrayish(
+    root?.Offer ?? root?.Offers?.Offer ?? root?.Offers ?? root?.AirReservation?.Offer
+  );
+  for (const offer of offers) {
+    const offerId =
+      offer?.Identifier?.value ??
+      offer?.OfferIdentifier?.value ??
+      offer?.offerId ??
+      offer?.offerID;
+    if (typeof offerId !== 'string' || offerId.length === 0) continue;
+    const flights = arrayish(
+      offer?.Flight ??
+        offer?.Flights ??
+        offer?.AirSegment ??
+        offer?.BookingSegment ??
+        offer?.Product ??
+        offer?.Products
+    );
+    for (const f of flights) {
+      const carrier = f?.carrier ?? f?.Carrier;
+      const number = f?.number ?? f?.Number;
+      if (!carrier || number == null) continue;
+      out.set(`${carrier}-${String(number)}`, offerId);
+    }
+  }
+  return out;
+}
+
 /** Travelers — one NameItem per Traveler element. */
 function mapReservationTravelers(root: any): NameItem[] {
   const travelers = arrayish(root?.Traveler ?? root?.Travelers ?? root?.travelers);

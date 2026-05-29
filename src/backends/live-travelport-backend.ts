@@ -671,6 +671,41 @@ export class LiveTravelportBackend implements Backend {
     );
   }
 
+  /**
+   * Open a post-commit workbench from an existing locator so the
+   * committed BF can be modified (in particular, partial-cancelled).
+   *
+   * Source: POST /11/air/book/session/reservationworkbench/
+   * buildfromlocator?Locator={LocatorCode} — query param Locator, empty
+   * body. Response includes the full Reservation plus the new
+   * workbench `Identifier`.
+   *
+   * Returns `{ workbenchId, raw }` so callers can both (a) reference the
+   * new workbench for `cancelitems`/`commit` and (b) inspect the
+   * Reservation to resolve `offerID` per segment — the response is the
+   * only authoritative source of offer IDs for a retrieved BF.
+   */
+  async openWorkbenchFromLocator(
+    locator: string
+  ): Promise<{ workbenchId: string; raw: unknown }> {
+    const url =
+      `${this.opts.apiBase}/air/book/session/reservationworkbench/buildfromlocator` +
+      `?Locator=${encodeURIComponent(locator)}`;
+    const json = (await this.postJson(url, {}, 'openWorkbenchFromLocator')) as any;
+    const id =
+      json?.Identifier?.value ??
+      json?.ReservationWorkbench?.Identifier?.value ??
+      json?.Workbench?.Identifier?.value ??
+      json?.workbenchID ??
+      json?.workbenchId;
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error(
+        'LiveTravelportBackend openWorkbenchFromLocator: response missing workbenchID'
+      );
+    }
+    return { workbenchId: id, raw: json };
+  }
+
   async commitWorkbench(
     workbenchId: string,
     opts?: { autoDeleteDate?: string; ticketing?: string }

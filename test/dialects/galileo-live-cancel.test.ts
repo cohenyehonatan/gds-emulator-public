@@ -227,16 +227,107 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
     expect(body).toEqual({ '@type': 'CancelRequest', cancelAllInd: true });
   });
 
-  it('partial cancel against a committed BF returns the deferred-feature marker', async () => {
+  it('partial cancel against a committed BF opens workbench, cancels offer, commits', async () => {
+    // Reservation response with one Offer carrying our UA1234 flight,
+    // so extractSegmentOfferIds can map segment 1 → OFF-COMMIT.
+    const reservationWithOffer = new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: 'ABC123' },
+          Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+          Offer: [
+            {
+              Identifier: { value: 'OFF-COMMIT' },
+              Flight: [
+                {
+                  carrier: 'UA',
+                  number: '1234',
+                  Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                  Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+                },
+              ],
+            },
+          ],
+          AirReservation: {
+            Flights: [
+              {
+                carrier: 'UA',
+                number: '1234',
+                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+              },
+            ],
+          },
+        },
+        Identifier: { value: 'WB-POST-ABC123' },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+    const commitResp = new Response(
+      JSON.stringify({
+        Receipt: [{ Confirmation: { Locator: { value: 'ABC123', authority: 'Travelport' } } }],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(reservationResponse('ABC123'));
+      .mockResolvedValueOnce(reservationResponse('ABC123'))   // *<locator>
+      .mockResolvedValueOnce(reservationWithOffer)            // buildfromlocator
+      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))  // cancelitems
+      .mockResolvedValueOnce(commitResp);                     // commit
 
     await host.process('*ABC123', wa);
     const resp = await host.process('X1', wa);
-    expect(resp).toBe('LIVE PARTIAL CANCEL REQUIRES WORKBENCH');
+    expect(resp).toBe('ITINERARY CANCELLED');
+    expect(wa.pnr.segments.length).toBe(0);
+
+    const [bflUrl] = fetchSpy.mock.calls[2];
+    expect(bflUrl).toContain('/book/session/reservationworkbench/buildfromlocator');
+    expect(bflUrl).toContain('Locator=ABC123');
+
+    const [cancelUrl, cancelInit] = fetchSpy.mock.calls[3];
+    expect(cancelUrl).toContain('/book/reservationworkbench/WB-POST-ABC123/reservations/cancelitems');
+    const body = JSON.parse((cancelInit?.body as string) ?? '{}');
+    expect(body.cancelOffers?.offerProductSelection?.[0]?.offerID?.Identifier?.value).toBe(
+      'OFF-COMMIT'
+    );
+
+    const [commitUrl] = fetchSpy.mock.calls[4];
+    expect(commitUrl).toContain('/book/reservation/reservations/WB-POST-ABC123');
+  });
+
+  it('partial cancel: buildfromlocator returns Reservation without offer IDs → LIVE OFFER ID MISSING', async () => {
+    // Open workbench succeeds but the response has no Offer nodes,
+    // so we can't map segment → offerId. Should NOT post cancelitems.
+    const noOfferResp = new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: 'ABC123' },
+          AirReservation: {
+            Flights: [
+              {
+                carrier: 'UA',
+                number: '1234',
+                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+              },
+            ],
+          },
+        },
+        Identifier: { value: 'WB-POST-ABC123' },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(reservationResponse('ABC123'))
+      .mockResolvedValueOnce(noOfferResp);
+
+    await host.process('*ABC123', wa);
+    const resp = await host.process('X1', wa);
+    expect(resp).toBe('LIVE OFFER ID MISSING');
     expect(wa.pnr.segments.length).toBe(1);  // untouched
-    expect(fetchSpy).toHaveBeenCalledTimes(2);  // no third (cancel) call
+    expect(fetchSpy).toHaveBeenCalledTimes(3);  // no cancelitems / commit
   });
 
   it('cancelReservation 5xx surfaces as LIVE BACKEND ERROR', async () => {

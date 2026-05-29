@@ -46,6 +46,7 @@ import {
   mapReservation,
   mapPricedOffer,
   mapReceipts,
+  extractSegmentOfferIds,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -735,25 +736,69 @@ async function cancelGalileoLiveCommitted(
   ctx: HandlerContext,
   backend: LiveTravelportBackend
 ): Promise<string> {
-  // v1 only supports full cancel against committed reservations.
-  // Partial cancel requires a post-commit workbench (`buildfromlocator`)
-  // which is a separate REST flow; deferred.
-  if (entry.mode !== 'itinerary' && entry.mode !== 'all_air') {
-    return 'LIVE PARTIAL CANCEL REQUIRES WORKBENCH'; // reconstructed
+  if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
+    try {
+      await backend.cancelReservation(wa.pnr.locator!);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+    wa.machine.transition(SessionEvent.MODIFY);
+    wa.pnr.segments = [];
+    // Mirror the cancel locally too — the committed BF in pnrStore was
+    // a pragmatic shadow; cancelling it on the server should clear the
+    // local copy's segments so a subsequent *R reflects the cancel.
+    const local = ctx.backend.pnrs.get(wa.pnr.locator!);
+    if (local) local.segments = [];
+    return 'ITINERARY CANCELLED'; // reconstructed
+  }
+
+  // Partial cancel against a committed BF: open a post-commit
+  // workbench via `buildfromlocator`, map cryptic segment numbers to
+  // offer IDs from the reservation in the response (the cached
+  // availability is typically empty after a retrieve), cancel those
+  // offers in the workbench, then re-commit. Same locator persists
+  // across the cancel-and-recommit per the v11 spec.
+  const max = wa.pnr.segments.length;
+  for (const n of entry.segments) {
+    if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+  }
+  let workbenchId: string;
+  let segmentOfferIds: Map<string, string>;
+  try {
+    const opened = await backend.openWorkbenchFromLocator(wa.pnr.locator!);
+    workbenchId = opened.workbenchId;
+    segmentOfferIds = extractSegmentOfferIds(opened.raw);
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
+  const offerIds = new Set<string>();
+  for (const n of entry.segments) {
+    const seg = wa.pnr.segments.find((s) => s.segmentNumber === n);
+    if (!seg) continue;
+    const id = segmentOfferIds.get(`${seg.carrier}-${seg.flightNumber}`);
+    if (id) offerIds.add(id);
+  }
+  if (offerIds.size === 0) {
+    return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
   }
   try {
-    await backend.cancelReservation(wa.pnr.locator!);
+    await backend.cancelWorkbenchItems(workbenchId, { offerIds: [...offerIds] });
+    await backend.commitWorkbench(workbenchId);
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
   wa.machine.transition(SessionEvent.MODIFY);
-  wa.pnr.segments = [];
-  // Mirror the cancel locally too — the committed BF in pnrStore was
-  // a pragmatic shadow; cancelling it on the server should clear the
-  // local copy's segments so a subsequent *R reflects the cancel.
+  const remove = new Set(entry.segments);
+  wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  wa.pnr.renumberSegments();
   const local = ctx.backend.pnrs.get(wa.pnr.locator!);
-  if (local) local.segments = [];
-  return 'ITINERARY CANCELLED'; // reconstructed
+  if (local) {
+    local.segments = local.segments.filter((s) => !remove.has(s.segmentNumber));
+    local.renumberSegments();
+  }
+  return wa.pnr.segments.length > 0
+    ? renderGalileoItinerary(wa.pnr)
+    : 'ITINERARY CANCELLED'; // reconstructed
 }
 
 /**
