@@ -16,6 +16,7 @@ import type { RemarkElement } from './remark.js';
 import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
+import type { ManualAccountingLine } from './manual-accounting.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 export class Pnr {
@@ -29,6 +30,12 @@ export class Pnr {
   frequentFlyers: FrequentFlyer[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
+  /**
+   * Manually-entered air accounting lines (`AC/<carrier>/<tkt>/…`).
+   * Rendered alongside the auto-generated lines from tickets in *PAC.
+   * Source: Sabre Accounting Lines QR p.1.
+   */
+  manualAccountingLines: ManualAccountingLine[] = [];
   /**
    * Set of 1-indexed accounting-line numbers that have been deleted via
    * `AC¤<n>` / `AC¤ALL` / `AC¤<range>`. Filtered out by *PAC. The deletion
@@ -64,6 +71,7 @@ export class Pnr {
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
+    p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
     p.accountingLinesHidden = new Set(this.accountingLinesHidden);
     p.ticketing = this.ticketing;
     p.optionField = this.optionField;

@@ -403,6 +403,7 @@ export type ParsedEntry =
   | RefundEntry
   | CancelRefundEntry
   | AccountingDeleteEntry
+  | AccountingAddEntry
   | UnsupportedEntry;
 
 /**
@@ -421,6 +422,16 @@ export interface AccountingDeleteEntry extends BaseEntry {
   /** `'all'` deletes the whole field; otherwise `lines` carries the explicit list. */
   mode: 'lines' | 'all';
   lines: number[];
+}
+
+/**
+ * Add a manual accounting line (`AC/<carrier>/<tkt>/…`). Source: Sabre
+ * Accounting Lines QR p.1. Parser populates every documented field; the
+ * handler appends one ManualAccountingLine to the PNR.
+ */
+export interface AccountingAddEntry extends BaseEntry {
+  kind: 'accounting_add';
+  line: import('../models/manual-accounting.js').ManualAccountingLine;
 }
 
 /**

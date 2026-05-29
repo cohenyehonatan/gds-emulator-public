@@ -381,6 +381,29 @@ describe('e-ticket issuance', () => {
       expect(host.process('AC¤9', wa)).toBe('ACCOUNTING LINE NOT FOUND');
     });
 
+    it('AC/<carrier>/<tkt>/... adds a manual accounting line surfaced in *PAC', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('-DOE/JANE MS', wa);
+      // QR verbatim example from p.1 (slightly shortened FOP for readability).
+      const entry = 'AC/UA/12345678901/P10/99.00/7.64/ONE/CCAX1234 1.1SMITH J/1/D-SERVICE CHARGE';
+      expect(host.process(entry, wa)).toBe('OK');
+      const pac = host.process('*PAC', wa);
+      expect(pac).toContain('UA¥12345678901/');
+      expect(pac).toContain('P10/');            // percent commission preserved
+      expect(pac).toContain('ONE/CCAX1234');
+      expect(pac).toContain('-SERVICE CHARGE'); // free-text appended
+    });
+
+    it('AC/ rejects a malformed grammar at parse time', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      // Missing tariff letter at the end → 8 fields instead of 9.
+      expect(() =>
+        parseEntry('AC/UA/12345678901/P10/99.00/7.64/ONE/CK/1')
+      ).toThrow(/9 slash-fields/);
+    });
+
     it('AC¤<range> and AC¤<list> both work', () => {
       book();
       host.process('-SMITH/JOHN MR', wa);

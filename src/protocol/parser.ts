@@ -58,6 +58,7 @@ const firstChar = (c: string) => (raw: string) => raw.startsWith(c);
 const RULES: DispatchRule[] = [
   // Multi-char alphabetic sigils first (longest / most specific).
   { match: startsWith('AC¤'), parse: parseAccounting }, // accounting-line delete (¤ separator)
+  { match: startsWith('AC/'), parse: parseAccounting }, // accounting-line add (manual)
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },

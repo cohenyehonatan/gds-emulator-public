@@ -1,25 +1,26 @@
 /**
- * Accounting-line delete parser (`AC¤…`). Source: Sabre Accounting Lines
- * QR p.1 verbatim:
- *   AC¤1                delete one accounting line
- *   AC¤ALL              delete all accounting lines
- *   AC¤3-5              delete a range
- *   AC¤1,3,6            delete a list
+ * Accounting-line parser (`AC…`). Two forms today:
  *
- * Separator is `¤` (change key, not `¥`). The keyboard layer normalizes
- * ASCII `[` → `¤` upstream, so `AC[1` reaches here as `AC¤1`.
+ *   AC¤…    soft-delete (line / ALL / range / list)
+ *   AC/…    add a manual accounting line
  *
- * Manual `AC/<carrier>/<ticket>/…` create + `AC<n>/<carrier>` modify (also
- * documented on the QR) are deferred to a follow-up.
+ * Sources: Sabre Accounting Lines QR p.1 verbatim — both forms quoted.
+ *
+ * Modify forms (AC<n>/<carrier>, AC<n>/<carrier>/<commission>,
+ * AC<n>¤O/<text>) are deferred to a follow-up.
  */
 
-import type { AccountingDeleteEntry } from '../entry.js';
+import type { AccountingDeleteEntry, AccountingAddEntry } from '../entry.js';
 import { ParseError } from '../errors.js';
 
-export function parseAccounting(raw: string): AccountingDeleteEntry {
-  const m = /^AC¤(.+)$/.exec(raw);
-  if (!m) throw new ParseError(`Accounting: expected AC¤<selection> in "${raw}"`);
-  const body = m[1].toUpperCase();
+export function parseAccounting(raw: string): AccountingDeleteEntry | AccountingAddEntry {
+  if (raw.startsWith('AC¤')) return parseDelete(raw);
+  if (raw.startsWith('AC/')) return parseAdd(raw);
+  throw new ParseError(`Accounting: expected AC¤<…> or AC/<…> in "${raw}"`);
+}
+
+function parseDelete(raw: string): AccountingDeleteEntry {
+  const body = raw.slice(3).toUpperCase();
   const base = { kind: 'accounting_delete' as const, raw, timestamp: new Date() };
 
   if (body === 'ALL') return { ...base, mode: 'all', lines: [] };
@@ -37,5 +38,69 @@ export function parseAccounting(raw: string): AccountingDeleteEntry {
     return { ...base, mode: 'lines', lines: body.split(',').map((n) => parseInt(n, 10)) };
   }
 
-  throw new ParseError(`Accounting: unsupported AC¤ selection "${m[1]}" in "${raw}"`);
+  throw new ParseError(`Accounting: unsupported AC¤ selection "${body}" in "${raw}"`);
+}
+
+/**
+ * Parse the manual AC create grammar — slash-delimited fields per the
+ * QR's verbatim shape. The optional trailing `-<freetext>` is captured
+ * after splitting on the first `-` that isn't inside a field.
+ */
+function parseAdd(raw: string): AccountingAddEntry {
+  // Strip the leading "AC/"; split body into "main" and optional "-freetext".
+  const body = raw.slice(3);
+  const dashAt = body.indexOf('-');
+  const main = dashAt === -1 ? body : body.slice(0, dashAt);
+  const freeText = dashAt === -1 ? undefined : body.slice(dashAt + 1);
+
+  const fields = main.split('/');
+  if (fields.length !== 9) {
+    throw new ParseError(`Accounting: expected 9 slash-fields in "${raw}" (got ${fields.length})`);
+  }
+  const [carrier, ticket, comm, base, taxes, fareApp, fop, docs, tariff] = fields;
+
+  if (!/^[A-Z0-9]{2}$/i.test(carrier)) throw new ParseError(`Accounting: bad carrier "${carrier}" in "${raw}"`);
+  if (!/^\d{10,11}$/.test(ticket)) throw new ParseError(`Accounting: bad ticket number "${ticket}" in "${raw}"`);
+
+  // Commission: `P<n>` percent, or a decimal amount.
+  let commission: number;
+  let commissionPercent = false;
+  const pctMatch = /^P(\d+(?:\.\d+)?)$/.exec(comm);
+  if (pctMatch) {
+    commission = parseFloat(pctMatch[1]);
+    commissionPercent = true;
+  } else if (/^\d+(?:\.\d+)?$/.test(comm)) {
+    commission = parseFloat(comm);
+  } else {
+    throw new ParseError(`Accounting: bad commission "${comm}" in "${raw}"`);
+  }
+
+  if (!/^\d+(?:\.\d+)?$/.test(base)) throw new ParseError(`Accounting: bad base fare "${base}" in "${raw}"`);
+  if (!/^\d+(?:\.\d+)?$/.test(taxes)) throw new ParseError(`Accounting: bad taxes "${taxes}" in "${raw}"`);
+  if (!['ONE', 'PER', 'ALL'].includes(fareApp.toUpperCase())) {
+    throw new ParseError(`Accounting: bad fare application "${fareApp}" in "${raw}"`);
+  }
+  if (!/^\d+$/.test(docs)) throw new ParseError(`Accounting: bad doc count "${docs}" in "${raw}"`);
+  if (!['D', 'F', 'T'].includes(tariff.toUpperCase())) {
+    throw new ParseError(`Accounting: bad tariff "${tariff}" in "${raw}"`);
+  }
+
+  return {
+    kind: 'accounting_add',
+    raw,
+    timestamp: new Date(),
+    line: {
+      validatingCarrier: carrier.toUpperCase(),
+      ticketNumber: ticket,
+      commission,
+      commissionPercent,
+      baseFare: parseFloat(base),
+      taxes: parseFloat(taxes),
+      fareApplication: fareApp.toUpperCase() as 'ONE' | 'PER' | 'ALL',
+      formOfPayment: fop,
+      conjunctDocs: parseInt(docs, 10),
+      tariff: tariff.toUpperCase() as 'D' | 'F' | 'T',
+      freeText,
+    },
+  };
 }

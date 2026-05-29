@@ -166,25 +166,33 @@ function renderTicketLine(t: TicketRecord): string {
  * and FOP land here, NOT in `*T` — per the QR data model.
  */
 export function renderAccountingLines(pnr: Pnr): string {
-  if (pnr.tickets.length === 0) return 'NO ACCOUNTING DATA';
+  const totalLines = pnr.tickets.length + pnr.manualAccountingLines.length;
+  if (totalLines === 0) return 'NO ACCOUNTING DATA';
   const fmtAmt = (n: number): string => n.toFixed(2);
-  // Filter out lines deleted via AC¤<n>; line numbers stay stable (the deleted
-  // index just doesn't render — the others keep their original 1-indexed
-  // position so a subsequent AC¤<n> still refers to the same ticket).
-  const lines = pnr.tickets
-    .map((t, i) => ({ t, n: i + 1 }))
-    .filter(({ n }) => !pnr.accountingLinesHidden.has(n))
-    .map(({ t, n }) => {
-      const ticketSerial = t.number.slice(3); // strip 3-digit airline code
-      const commission = fmtAmt(t.commission ?? 0);
-      const base = fmtAmt(t.base);
-      const tax = fmtAmt(t.taxTotal);
-      const fop = fopCode(t);
-      const tariffLetter = t.tariff === 'I' ? 'F' : 'D';
-      return `  ${n}. ${t.validatingCarrier}¥${ticketSerial}/ ${commission}/ ${base}/ ${tax}/ONE/${fop} ${t.passenger}/1/${tariffLetter}`;
-    });
-  if (lines.length === 0) return 'NO ACCOUNTING DATA'; // everything deleted
-  return ['ACCOUNTING DATA', ...lines].join('\n');
+  // Combined line numbering: auto-from-tickets first (1..N), then manual
+  // lines (N+1..M). AC¤<n> hides by line number; line numbers stay stable
+  // when other lines are hidden (renderer just skips them).
+  const out: string[] = [];
+  pnr.tickets.forEach((t, i) => {
+    const n = i + 1;
+    if (pnr.accountingLinesHidden.has(n)) return;
+    const ticketSerial = t.number.slice(3); // strip 3-digit airline code
+    const commission = fmtAmt(t.commission ?? 0);
+    const base = fmtAmt(t.base);
+    const tax = fmtAmt(t.taxTotal);
+    const fop = fopCode(t);
+    const tariffLetter = t.tariff === 'I' ? 'F' : 'D';
+    out.push(`  ${n}. ${t.validatingCarrier}¥${ticketSerial}/ ${commission}/ ${base}/ ${tax}/ONE/${fop} ${t.passenger}/1/${tariffLetter}`);
+  });
+  pnr.manualAccountingLines.forEach((m, i) => {
+    const n = pnr.tickets.length + i + 1;
+    if (pnr.accountingLinesHidden.has(n)) return;
+    const commission = m.commissionPercent ? `P${m.commission}` : fmtAmt(m.commission);
+    const trail = m.freeText ? `-${m.freeText}` : '';
+    out.push(`  ${n}. ${m.validatingCarrier}¥${m.ticketNumber}/ ${commission}/ ${fmtAmt(m.baseFare)}/ ${fmtAmt(m.taxes)}/${m.fareApplication}/${m.formOfPayment}/${m.conjunctDocs}/${m.tariff}${trail}`);
+  });
+  if (out.length === 0) return 'NO ACCOUNTING DATA'; // all hidden
+  return ['ACCOUNTING DATA', ...out].join('\n');
 }
 
 /**
