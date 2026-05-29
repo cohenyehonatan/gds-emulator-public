@@ -524,6 +524,50 @@ function mapOnePassengerFare(priceNode: any, passengerType: string): PassengerFa
  * *HTE handler. The /receipts endpoint returns a Receipt[] with each
  * ticket's number, status, passenger, and totals.
  */
+/**
+ * `AgencyQueueResponse` → `QueueListResult`. Source: v11
+ * `APIRef_QueueList.htm`. Defensive against shape drift across access
+ * groups — tries the documented `AgencyQueue.QueueList[]` path plus
+ * a few common alternatives.
+ *
+ * Each `QueueList[]` entry yields `{ locator, name, travelDate }`. We
+ * pass-through whatever the source emits for the name and date — the
+ * cryptic serializer is responsible for any further formatting.
+ */
+export function mapQueueList(
+  response: unknown,
+  queue: string
+): import('../models/queue-list.js').QueueListResult {
+  const r = response as any;
+  const root =
+    r?.AgencyQueueResponse?.AgencyQueue ??
+    r?.AgencyQueue ??
+    r?.agencyQueue ??
+    r;
+  const items: import('../models/queue-list.js').QueueListItem[] = [];
+  const list = arrayish(root?.QueueList ?? root?.queueList ?? root?.Items ?? root?.items);
+  for (const e of list) {
+    const locator =
+      e?.Locator?.value ?? e?.Locator ?? e?.locator ?? e?.LocatorCode ?? e?.locatorCode;
+    if (typeof locator !== 'string' || locator.length === 0) continue;
+    const rawName = e?.Name ?? e?.name ?? e?.PassengerName ?? e?.passengerName ?? '';
+    let name: string;
+    if (typeof rawName === 'string') {
+      name = rawName;
+    } else {
+      // PersonName-style object: { Surname, Given }
+      const surname = rawName?.Surname ?? rawName?.surname ?? rawName?.lastName ?? '';
+      const given = rawName?.Given ?? rawName?.given ?? rawName?.firstName ?? '';
+      name = surname && given ? `${surname}/${given.charAt(0)}` : String(surname || given || '');
+    }
+    const travelDate = String(
+      e?.TravelDate ?? e?.travelDate ?? e?.DepartureDate ?? e?.departureDate ?? ''
+    );
+    items.push({ locator: String(locator), name: String(name), travelDate });
+  }
+  return { queue, items };
+}
+
 export function mapReceipts(response: unknown): import('../models/ticket.js').TicketRecord[] {
   const r = response as any;
   const receipts = arrayish(r?.Receipt ?? r?.Receipts ?? r?.receipts);

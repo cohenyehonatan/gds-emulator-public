@@ -189,6 +189,30 @@ export function renderGalileoIssuedTickets(tickets: TicketRecord[]): string {
 }
 
 /**
+ * `Q/<n>` response — display queue contents. Reconstructed: Mini
+ * Format Guide v2 p.41 documents the entry (`Q/0 (URG)`, `Q/1 (GEN)`,
+ * `Q/10 ...`) but not the response layout. Format chosen here:
+ *
+ *   QUEUE <n>   <count> ITEMS
+ *     1. <locator>  <name>           <travelDate>
+ *     2. ...
+ *
+ * Empty queue: `QUEUE <n>  EMPTY`. Same `// reconstructed` posture
+ * as `renderGalileoTicketList`.
+ */
+export function renderGalileoQueueList(result: {
+  queue: string;
+  items: Array<{ locator: string; name: string; travelDate: string }>;
+}): string {
+  if (result.items.length === 0) return `QUEUE ${result.queue}  EMPTY`; // reconstructed
+  const lines = result.items.map((it, i) => {
+    const idx = `${i + 1}.`.padEnd(4);
+    return `  ${idx}${it.locator}  ${it.name.padEnd(15)}${it.travelDate}`;
+  });
+  return [`QUEUE ${result.queue}   ${result.items.length} ITEMS`, ...lines].join('\n'); // reconstructed
+}
+
+/**
  * `TTL<n>` response — show flight details for one availability line.
  * Reconstructed (Mini Guide v2 documents the entry, not the response).
  * Layout: header with flight identity, then a body line with route +

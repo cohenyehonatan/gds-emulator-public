@@ -102,6 +102,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('QP/')) return parseQueuePlace(trimmed, u);
+  if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
@@ -596,6 +597,29 @@ function parseQueuePlace(raw: string, u: string): QueueEntry {
     raw,
     timestamp: new Date(),
     op: 'place',
+    queue: m[1],
+  };
+}
+
+/**
+ * `Q/<n>` — Access queue `<n>`, display its contents. Source: Mini
+ * Format Guide v2 p.41 ("Q/0 (URG) Q/1 (GEN) Q/10 — Open a queue
+ * number 0-99"). The response screen layout isn't documented; the
+ * serializer renders a reconstructed tabular display.
+ *
+ * Deferred:
+ *   - Q/<n>/D<offset>   date-range qualifier (maps to dateOffset)
+ *   - Q/<n>/C<cat>      category qualifier (maps to category)
+ *   - Q/<PCC>/<n>       branch-PCC queue access (maps to pccOverride)
+ */
+function parseQueueAccess(raw: string, u: string): QueueEntry {
+  const m = /^Q\/([A-Z0-9]+)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo Q/: expected Q/<queue> in "${raw}"`);
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: 'access',
     queue: m[1],
   };
 }

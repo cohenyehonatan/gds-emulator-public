@@ -548,6 +548,33 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * List bookings sitting on an agency queue. Used by Galileo `Q/<n>`.
+   *
+   * Source: POST /11/air/queue/queue/list — body is `AgencyQueueSummary`
+   * with one or more queues. Verbatim schema from `APIRef_QueueList.htm`
+   * (verified 2026-05-29).
+   *
+   * v1: single queue, no per-queue qualifiers. Date-range (`dateOffset`),
+   * branch-PCC override, and category filters are deferred — surface
+   * via `opts` when the cryptic parser supports them.
+   */
+  async listQueue(
+    queue: string,
+    opts?: { dateOffset?: number; pccOverride?: string; category?: string }
+  ): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/queue/queue/list`;
+    const q: Record<string, unknown> = { value: queue };
+    if (opts?.dateOffset != null) q.dateOffset = opts.dateOffset;
+    if (opts?.pccOverride) q.pccOverride = opts.pccOverride;
+    if (opts?.category) q.category = opts.category;
+    return this.postJson(
+      url,
+      { '@type': 'AgencyQueueSummary', Queue: [q] },
+      'listQueue'
+    );
+  }
+
+  /**
    * Divide a reservation: split out one or more passengers into a new
    * reservation. Used by Galileo `DP<n>` (Mini Guide v2 p.39).
    *

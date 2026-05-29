@@ -47,6 +47,7 @@ import {
   mapPricedOffer,
   mapReceipts,
   extractSegmentOfferIds,
+  mapQueueList,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -70,6 +71,7 @@ import {
   renderGalileoIssuedTickets,
   renderGalileoTicketList,
   renderGalileoFlightInfo,
+  renderGalileoQueueList,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 
@@ -1150,7 +1152,9 @@ async function handleGalileoQueue(
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
-  if (entry.op !== 'place' || !entry.queue) return GalileoResponse.FORMAT;
+  if (!entry.queue) return GalileoResponse.FORMAT;
+  if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
+  if (entry.op !== 'place') return GalileoResponse.FORMAT;
   const queue = entry.queue;
 
   // QEB embeds an end-transaction: commit first if no locator. QP
@@ -1183,6 +1187,50 @@ async function handleGalileoQueue(
   ctx.backend.queues.set(queue, list);
 
   return `OK-QUEUE ${queue}`; // reconstructed
+}
+
+/**
+ * `Q/<n>` — Access a queue and display its contents. Live path POSTs
+ * `/queue/queue/list` with an `AgencyQueueSummary` body and maps the
+ * `QueueList[]` to a `QueueListResult`. Emulated path reads
+ * `ctx.backend.queues` (a `Map<queueId, locator[]>`) and joins each
+ * locator with the PNR store to populate names/dates.
+ *
+ * Tracks `wa.currentQueue` so a future `QR` (remove) or `QX` (exit)
+ * has the right target. No FSM transition — Q/ is read-only.
+ *
+ * Empty queue renders `QUEUE <n>  EMPTY` (reconstructed); the Mini
+ * Guide documents the entry but not the response screen.
+ */
+async function handleGalileoQueueAccess(
+  entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const queue = entry.queue!;
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      const response = await ctx.backend.listQueue(queue);
+      const result = mapQueueList(response, queue);
+      wa.currentQueue = queue;
+      return renderGalileoQueueList(result);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+  // Emulated: cross the locator list against the PNR store for name + date.
+  const locators = ctx.backend.queues.get(queue) ?? [];
+  const items = locators.map((locator) => {
+    const pnr = ctx.backend.pnrs.get(locator);
+    const lead = pnr?.names[0];
+    const surname = lead?.surname ?? '';
+    const given = lead?.passengers[0]?.firstName ?? '';
+    const name = surname && given ? `${surname}/${given.charAt(0)}` : surname || '';
+    const travelDate = pnr?.segments[0]?.date ?? '';
+    return { locator, name, travelDate };
+  });
+  wa.currentQueue = queue;
+  return renderGalileoQueueList({ queue, items });
 }
 
 /**
