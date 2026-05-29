@@ -252,6 +252,22 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Shared DELETE helper. Many DELETE endpoints respond 204 No Content
+   * or an empty body — tolerate both.
+   */
+  private async deleteJson(url: string, label: string): Promise<unknown> {
+    const headers = await this.tripServicesHeaders();
+    const res = await fetch(url, { method: 'DELETE', headers });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
+      );
+    }
+    return text ? JSON.parse(text) : {};
+  }
+
+  /**
    * Air search against TripServices CatalogProductOfferings. Returns the
    * raw JSON response; the Galileo `availability` handler maps
    * `CatalogProductOfferingsResponse` to the dialect-shared
@@ -299,6 +315,21 @@ export class LiveTravelportBackend implements Backend {
    * one. (Not implemented in this commit; for now the agent has to
    * IG to clear state.)
    */
+  /**
+   * Discard an open reservation workbench server-side. Polite-citizen
+   * call from `I` / `IR` — the workbench would otherwise sit until its
+   * 30-minute TTL expires. Failures are non-fatal at the dispatch layer
+   * (cryptic users still see `IGNORED` even if the server returned 5xx)
+   * but we surface the rejection here so callers can log.
+   *
+   * Source: DELETE /11/air/book/session/reservationworkbench/{workbenchID}
+   */
+  async deleteWorkbench(workbenchId: string): Promise<void> {
+    const url =
+      `${this.opts.apiBase}/air/book/session/reservationworkbench/${encodeURIComponent(workbenchId)}`;
+    await this.deleteJson(url, 'deleteWorkbench');
+  }
+
   async createWorkbench(): Promise<string> {
     const url = `${this.opts.apiBase}/air/book/session/reservationworkbench`;
     // Minimal payload per the spec; the workbench is created empty and

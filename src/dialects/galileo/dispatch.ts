@@ -35,6 +35,7 @@ import type {
   VoidEntry,
   QueueEntry,
   DivideEntry,
+  IgnoreEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -122,9 +123,7 @@ export function dispatchGalileo(
         return handleGalileoEndTransaction(entry, wa, ctx);
 
       case 'ignore':
-        wa.machine.transition(SessionEvent.IGNORE);
-        wa.reset();
-        return GalileoResponse.IGNORED;
+        return handleGalileoIgnore(entry, wa, ctx);
 
       case 'display':
         return handleGalileoDisplay(entry, wa, ctx);
@@ -450,6 +449,48 @@ const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
   [MandatoryField.NAME]: GalileoResponse.NEED_NAME,
   [MandatoryField.TICKETING]: GalileoResponse.NEED_TICKETING,
 };
+
+/**
+ * `I` (ignore) / `IR` (ignore + retrieve). Source: Mini Format Guide
+ * v2 p.17. The ignore semantics are shared:
+ *  - Live: send polite-citizen `DELETE .../reservationworkbench/{wb}`
+ *    if a workbench is open. Failures are swallowed (server's 30-min
+ *    TTL would clean up anyway); the cryptic still returns `IGNORED`.
+ *  - Clear the work area + transition IGNORE.
+ *
+ * `IR` then re-retrieves whatever locator was on screen before — same
+ * code path as `*<locator>`. If there was no locator (mid-build with
+ * no prior retrieve), IR degrades to plain I.
+ */
+async function handleGalileoIgnore(
+  entry: IgnoreEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const priorLocator = wa.pnr.locator;
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    try {
+      await ctx.backend.deleteWorkbench(wa.liveWorkbenchId);
+    } catch {
+      // Polite-citizen — server's 30-min TTL handles failures here.
+    }
+  }
+  wa.machine.transition(SessionEvent.IGNORE);
+  wa.reset();
+
+  if (entry.retrieve && priorLocator) {
+    const sig = { pcc: ctx.pcc, agent: wa.agent };
+    if (ctx.backend instanceof LiveTravelportBackend) {
+      return retrieveGalileoLive(priorLocator, wa, ctx, ctx.backend, sig);
+    }
+    const pnr = ctx.backend.pnrs.get(priorLocator);
+    if (!pnr) return GalileoResponse.NO_PNR;
+    wa.pnr = pnr;
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    return renderGalileoPnr(pnr, sig);
+  }
+  return GalileoResponse.IGNORED;
+}
 
 function handleGalileoEndTransaction(
   entry: EndTransactionEntry,

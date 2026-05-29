@@ -223,6 +223,13 @@ export interface PricingEntry extends BaseEntry {
 
 export interface IgnoreEntry extends BaseEntry {
   kind: 'ignore';
+  /**
+   * Set by Galileo `IR` (ignore + retrieve) — after the workbench is
+   * discarded and the work area cleared, re-retrieve whatever BF was
+   * last on screen (by locator if there is one). Plain `I` leaves it
+   * unset and the work area stays empty.
+   */
+  retrieve?: boolean;
 }
 
 export interface SignInEntry extends BaseEntry {

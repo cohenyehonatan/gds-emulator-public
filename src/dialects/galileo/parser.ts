@@ -326,12 +326,16 @@ function parseEnd(raw: string, redisplay: boolean): EndTransactionEntry {
 
 /**
  * `I` ignore, `IR` ignore + retrieve previously saved BF.
- * Source: Mini Format Guide v2 p.17. The retrieve side of IR is
- * deferred — both forms currently clear the work area without the
- * subsequent retrieve.
+ * Source: Mini Format Guide v2 p.17.
+ *
+ * I  — discard the work area; live workbench DELETE'd politely.
+ * IR — same as I, but also re-retrieve the BF that was on screen
+ *      (by locator). The dispatch handler reads `retrieve` and
+ *      invokes the same retrieve path `*<locator>` uses.
  */
 function parseIgnore(raw: string): IgnoreEntry {
-  return { kind: 'ignore', raw, timestamp: new Date() };
+  const u = raw.trim().toUpperCase();
+  return { kind: 'ignore', raw, timestamp: new Date(), retrieve: u === 'IR' };
 }
 
 /**
