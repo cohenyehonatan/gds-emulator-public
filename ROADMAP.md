@@ -307,20 +307,25 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
             derived from the on-screen PNR's segments; flagged as the
             documented approximation until per-coupon ticket modeling
             lands.
-      - [ ] **Void (`WV`)** — last remaining v3 ticketing item; pause
-            here per user request to re-evaluate. The standalone `WV`
-            sigil isn't in any first-party Sabre QR in `references/`;
-            only third-party reseller cheat sheets (EmQuest) document
-            it, and we deliberately didn't import those. Three options
-            on the table: (a) import the third-party doc and implement
-            with "verbatim-third-party" caveat alongside QREX's
-            existing third-party status; (b) implement with fully-
-            reconstructed strings flagged as such; (c) leave WV
-            permanently deferred as a known fidelity gap.
-      - [ ] **Void** stays the one permanent source gap — no first-party
-            Sabre QR documents the standalone `WV` sigil with response
-            screens; only third-party reseller cheat sheets do. Void
-            responses would land as "reconstructed" if implemented.
+      - [x] **Void (`WV`)** (`174f303`/`b2f85d0`/`2223489`/`01a0660`) —
+            all five forms from the Sabre Travel Network Middle East QR
+            (Sept 2007) p.13: `WV<n>` (Twice / two-step confirmation),
+            `WV‡<13>/<amt>/<fop>/<DDMMM>/<cc>/<n>` manual, `WV*`
+            list-month, `WV*DT<DDMMM>` list-day, `WV*DT<from>-<to>`
+            list-range. Picked option (a) — imported the EmQuest QR as
+            quasi-first-party (published by Sabre Travel Network Middle
+            East, a Sabre subsidiary). Entries are verbatim-third-party
+            (one tier above pure reconstruction, matching QREX); host
+            responses (`OK-VOID`, `RE-ENTER TO VOID TKT`, `TKT ALREADY
+            VOIDED`, `NO VOIDS`) are reconstructed at the QREX-voice
+            fidelity bar and flagged inline. Same-day cutoff isn't
+            enforced (consistent with WTRX — emulator doesn't model
+            wall-clock cutoffs).
+
+  **v3 ticketing complete.** Every item in the section above is shipped
+  and source-grounded. The only residual reconstruction is in the void
+  host responses (no source documents them); entry formats are sourced
+  for every verb. 309/309 tests green.
 
 ## v4 — Aviation-suite integration (optional)
 
