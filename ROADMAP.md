@@ -379,14 +379,14 @@ so it can grow into it without faking fidelity. The matrix:
       Every handler reads `ctx.backend.X` — no direct imports of `Inventory`
       or `PnrStore` from handler files. 314/314 tests still green after
       the refactor, so the seam is provably non-disruptive.
-- [ ] **`Backend` seam — async upgrade** — widen `Backend` methods +
-      `Dialect.processEntry` / `GdsHost.process` to `string | Promise<string>`
-      for live REST backends. The interface change is small; the cost is
-      `await` on ~400 test call sites across 16 files (mechanical, but
-      voluminous). Deferred until `LiveTravelportBackend` actually needs it
-      — pre-emptively going async pays the mechanical cost now for no
-      behavioral win, and the change lands cleanly alongside the OAuth
-      client + cryptic→REST mapping when those need it.
+- [x] **`Backend` seam — async upgrade** (`8b03edc`) — `GdsHost.process`
+      returns `Promise<string>` and `Dialect.processEntry` widened to
+      `string | Promise<string>`. EmulatedBackend dialects stay sync
+      internally; live ones return promises. Cost: bulk `await` on ~920
+      test sites across 31 files + `async` on the surrounding callbacks
+      + helper functions (mechanical sed). All 445 tests still green
+      after the migration — pure return-type widening, zero behavior
+      change.
 - [x] **CLI dispatch** — `npx tsx src/index.ts terminal [sabre|galileo]`
       resolves a name to a Dialect via `pickDialect()` in `src/index.ts`
       (throws on unknown name, so typos exit cleanly). npm scripts
@@ -415,20 +415,35 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
       are closer to Sabre's (`0` sell, `¤` change/delete, `:3`/`:4` SSR/OSI,
       `N:` name) than Galileo's. Same Travelport OAuth path with a 1V access
       group. Not a separate version — a co-build once Galileo lands.
-- [ ] **OAuth client** — token fetch, in-memory cache to 24h expiry, single
-      refresh on 401. Reads `TVP_CLIENT_ID`/`SECRET`/`USERNAME`/`PASSWORD` from
-      env (never on disk); production `auth.travelport.net` swap is one env var.
-- [ ] **Cryptic → REST mapping** — minimum viable surface:
-      `A` (availability) → `catalogproductofferings`, `0` (sell line N) →
-      cache offer refs from search and resolve N → offerRef on `0`, `N:` (name)
-      → passenger on the in-flight order, `*R` (retrieve) → order lookup,
-      `ER` (commit) → `CreateOrder`. The BUILDING→DISPLAYED FSM choreographs
-      the offer/order lifecycle — the avail-cached-on-work-area invariant maps
-      almost 1:1 onto "cache offer refs for later resolution."
-- [ ] **JSON → Galileo screen rendering** — reconstruct cryptic screens from
-      REST responses. Real data, reconstructed presentation (same caveat the
-      project already documents for reconstructed strings — just with authentic
-      data underneath).
+- [x] **OAuth client** (`b4bc113`) — `LiveTravelportBackend.ensureToken()`
+      with in-memory cache + 60s pre-expiry refetch. Reads
+      `TVP_CLIENT_ID/SECRET/USERNAME/PASSWORD` from env via
+      `liveTravelportFromEnv()` or directly via the constructor. No
+      disk writes, no log emission, no network at import or
+      construction time.
+- [x] **Cryptic → REST mapping — first verb live** (`069dbf9`/`6c432bc`/
+      `b0a4e16`) — `A<DDMMM><orig><dest>` now dispatches against
+      LiveTravelportBackend via `airSearch()` →
+      `mapCatalogProductOfferings()` → `AvailabilityLine[]`. The mapper
+      also captures `vendorRef.{offerId,productId,brandId}` so a
+      future live sell has the Travelport identifiers it needs. `TTL<n>`
+      flight-detail surfaces the offerId on a `TVP OFFER <id>` trailer
+      so an operator can confirm which Travelport offer a cached line
+      maps to.
+- [ ] **Cryptic → REST mapping — remaining verbs**:
+      `N<seats><class><line>` sell → use cached vendorRef.offerId in
+      `CreateOrder` (or whichever endpoint provisioning permits).
+      `*<locator>` retrieve → order lookup.
+      `FQ` → `OfferPriceRequest` against the vendorRef.
+      `ER` (commit) → `CreateOrder` finalize.
+      Same template as the availability commit: live class method +
+      response mapper + dispatch instanceof discrimination + mocked
+      tests + env-gated integration test.
+- [x] **JSON → Galileo screen rendering** (`069dbf9`) — established by
+      `mapCatalogProductOfferings` + `renderGalileoAvailability`. The
+      same dialect serializer renders the emulated and live responses
+      identically; only the source-of-truth differs. Pattern extends
+      to the remaining verbs as their mappers land.
 - [ ] **Hybrid coverage, made explicit** — only entries with REST analogs
       (search/price/order/ticket/retrieve) go live. Queue ops, exotic displays,
       host-only functions have no endpoint → return a single, explicit
