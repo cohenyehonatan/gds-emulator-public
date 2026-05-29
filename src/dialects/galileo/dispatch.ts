@@ -133,7 +133,7 @@ export function dispatchGalileo(
         return handleGalileoSegmentStatus(entry, wa);
 
       case 'passive_cancel':
-        return handleGalileoPassiveCancel(entry, wa);
+        return handleGalileoPassiveCancel(entry, wa, ctx);
 
       case 'pricing':
         return handleGalileoPricing(entry, wa, ctx);
@@ -774,15 +774,38 @@ function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): st
 
 /**
  * `@<n>XK` — passive cancel. Mini Guide v2 p.17: "Remove a HX segment
- * passively (for all airlines except EK)". Same observable behavior as
- * a normal cancel in this emulator (we don't model an airline party);
- * dispatch is separate to honor the wire-format distinction.
+ * passively (for all airlines except EK)". Live path against an open
+ * workbench routes through `cancelitems` with the canonical
+ * `CancelSelectedOffers` body and `sendPassiveNotificationInd: true`
+ * per the v11 spec — the flag distinguishes passive cancel from a
+ * standard cancel that would notify the carrier. Outside a workbench
+ * (committed BF or emulated backend) we fall back to local-only
+ * removal, since no documented REST path covers passive cancel of a
+ * committed BF.
  */
-function handleGalileoPassiveCancel(entry: PassiveCancelEntry, wa: WorkArea): string {
+async function handleGalileoPassiveCancel(
+  entry: PassiveCancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
   const max = wa.pnr.segments.length;
   for (const n of entry.segments) {
     if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+  }
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    const offerIds = collectOfferIdsForSegments(wa, entry.segments);
+    if (offerIds.length === 0) {
+      return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
+    }
+    try {
+      await ctx.backend.cancelWorkbenchItems(wa.liveWorkbenchId, {
+        offerIds,
+        passive: true,
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
   }
   wa.machine.transition(SessionEvent.MODIFY);
   const remove = new Set(entry.segments);
