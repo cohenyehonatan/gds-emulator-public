@@ -697,7 +697,22 @@ async function cancelGalileoLiveWorkbench(
   }
   try {
     const isFull = entry.mode === 'itinerary' || entry.mode === 'all_air';
-    await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, isFull ? undefined : entry.segments);
+    if (isFull) {
+      await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { all: true });
+    } else {
+      // Per-segment cancel: resolve each segment's `vendorRef.offerId` by
+      // matching against the cached availability lines (carrier + flight
+      // number). Group by offer ID — TripServices cancels at the offer
+      // level when we don't supply per-segment productID + sequence,
+      // which means selecting any segment of a multi-leg offer cancels
+      // the whole offer. The local view is renumbered to match after
+      // the POST returns OK.
+      const offerIds = collectOfferIdsForSegments(wa, entry.segments);
+      if (offerIds.length === 0) {
+        return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
+      }
+      await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { offerIds });
+    }
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
@@ -842,6 +857,28 @@ function findOfferIdForFirstSegment(wa: WorkArea): string | undefined {
     (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
   );
   return line?.vendorRef?.offerId;
+}
+
+/**
+ * Resolve each cryptic segment number to its Travelport offer ID via
+ * cached availability. Used by live partial cancel. Deduped so a
+ * multi-leg offer cancel only generates one `offerProductSelection`
+ * entry. Returns [] if no offer IDs could be resolved.
+ */
+function collectOfferIdsForSegments(wa: WorkArea, segmentNumbers: number[]): string[] {
+  const avail = wa.lastAvailability;
+  if (!avail) return [];
+  const ids = new Set<string>();
+  for (const n of segmentNumbers) {
+    const seg = wa.pnr.segments.find((s) => s.segmentNumber === n);
+    if (!seg) continue;
+    const line = avail.lines.find(
+      (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
+    );
+    const offerId = line?.vendorRef?.offerId;
+    if (offerId) ids.add(offerId);
+  }
+  return [...ids];
 }
 
 /**

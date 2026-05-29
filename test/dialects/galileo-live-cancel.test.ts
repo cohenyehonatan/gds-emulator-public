@@ -68,7 +68,7 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('XI during build POSTs to /cancelitems with empty body and clears workbench segments', async () => {
+  it('XI during build POSTs canonical CancelRequest{cancelAllInd:true} to /cancelitems', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResponse())
@@ -83,11 +83,10 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
     expect(resp).toBe('ITINERARY CANCELLED');
     expect(wa.pnr.segments.length).toBe(0);
 
-    // Cancel call (4th non-token mock) used the workbench cancelitems URL with empty body
     const [cancelUrl, cancelInit] = fetchSpy.mock.calls[4];
     expect(cancelUrl).toContain('/book/reservationworkbench/WB-X/reservations/cancelitems');
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
-    expect(body).toEqual({});  // XI = empty body
+    expect(body).toEqual({ '@type': 'CancelRequest', cancelAllInd: true });
   });
 
   it('XA behaves the same as XI (full cancel)', async () => {
@@ -105,7 +104,7 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
     expect(wa.pnr.segments.length).toBe(0);
   });
 
-  it('X1 (partial cancel) sends Segments body with the selected segment numbers', async () => {
+  it('X1 (partial cancel) sends CancelSelectedOffers body keyed to the segment offer ID', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResponse())
@@ -119,7 +118,14 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
 
     const [, cancelInit] = fetchSpy.mock.calls[4];
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
-    expect(body.Segments).toEqual([{ segmentNumber: 1 }]);
+    expect(body['@type']).toBe('CancelRequest');
+    expect(body.cancelOffers?.objectType).toBe('CancelSelectedOffers');
+    expect(body.cancelOffers?.offerProductSelection).toEqual([
+      {
+        sendPassiveNotificationInd: false,
+        offerID: { Identifier: { authority: 'Travelport', value: 'OFF-001' } },
+      },
+    ]);
   });
 
   it('X<n> out of range is rejected BEFORE any cancel POST', async () => {
@@ -215,8 +221,10 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
     expect(resp).toBe('ITINERARY CANCELLED');
     expect(wa.pnr.segments.length).toBe(0);
 
-    const [cancelUrl] = fetchSpy.mock.calls[2];
+    const [cancelUrl, cancelInit] = fetchSpy.mock.calls[2];
     expect(cancelUrl).toContain('/air/receipt/reservations/ABC123/receipts');
+    const body = JSON.parse((cancelInit?.body as string) ?? '{}');
+    expect(body).toEqual({ '@type': 'CancelRequest', cancelAllInd: true });
   });
 
   it('partial cancel against a committed BF returns the deferred-feature marker', async () => {

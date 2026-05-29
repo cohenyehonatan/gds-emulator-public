@@ -99,6 +99,20 @@ export interface AirSearchRequest {
   adults?: number;
 }
 
+/**
+ * Options for cancelWorkbenchItems. Either `all: true` (full cancel
+ * → `cancelAllInd: true` body) OR supply `offerIds` (offer-targeted
+ * cancel). Setting both with `all: true` wins.
+ */
+export interface CancelWorkbenchOpts {
+  /** `cancelAllInd: true` — cancel everything in the workbench. */
+  all?: boolean;
+  /** Travelport offer IDs to cancel; one entry per offer. */
+  offerIds?: string[];
+  /** `sendPassiveNotificationInd: true` — passive cancel (no airline message). */
+  passive?: boolean;
+}
+
 export class LiveTravelportBackend implements Backend {
   readonly id = 'travelport-1g';
   readonly displayName: string;
@@ -562,33 +576,72 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
-   * Cancel offers / segments inside an in-flight workbench (BEFORE
-   * commit). Used by Galileo `XI` / `XA` / `X<n>` while the agent is
-   * still building.
+   * Cancel offers / segments inside a workbench. Works for both in-
+   * flight workbenches (created via `createWorkbench()`) and post-
+   * commit workbenches (created via `buildWorkbenchFromLocator()`).
    *
    * Source: POST /book/reservationworkbench/{workbenchID}/reservations
    * /cancelitems. The path is intentionally NOT under `/11/air` — the
-   * v11 spec endpoint list documents it at the root.
+   * v11 endpoints list documents it at the root.
    *
-   * `segmentNumbers` is optional: omit for "cancel everything in the
-   * workbench" (XI / XA semantics); supply for partial cancel. The
-   * exact body shape for partial cancel isn't deeply documented; for
-   * v1 we encode the selected segment numbers under a `Segments`
-   * array — pre-prod will surface a 4xx fast if that's wrong, at
-   * which point the spec doc grows a verbatim example.
+   * Canonical body schema verbatim from `APIRef_CancelWorkbenchItems.htm`:
+   *
+   *   Full cancel:
+   *     { "@type": "CancelRequest", "cancelAllInd": true }
+   *
+   *   Cancel one or more offers (each offer-cancel implicitly cancels
+   *   every segment inside the offer):
+   *     { "@type": "CancelRequest",
+   *       "cancelOffers": {
+   *         "objectType": "CancelSelectedOffers",
+   *         "offerProductSelection": [{
+   *           "sendPassiveNotificationInd": false,
+   *           "offerID": { "Identifier": { "authority": "Travelport",
+   *                                        "value": "<offer-id>" } }
+   *         }]
+   *       } }
+   *
+   *   Segment-level cancel additionally populates `productSegmentSequence
+   *   Array[].productID.Identifier.value` + `segmentSequenceArray` —
+   *   not yet wired since we don't extract product IDs from search
+   *   responses. Cryptic X<n> against a single offer falls back to
+   *   offer-level cancel (cancelling the whole offer).
+   *
+   * Note: "Cancel Workbench Items must always be followed by a Workbench
+   * Commit to commit the changes" — the caller is responsible for the
+   * follow-up commit.
    */
   async cancelWorkbenchItems(
     workbenchId: string,
-    segmentNumbers?: number[]
+    opts: CancelWorkbenchOpts = { all: true }
   ): Promise<unknown> {
-    // Note: path is `/book/reservationworkbench/...` per the v11
-    // endpoints list — no `/air` prefix on this one.
     const url =
       `${this.opts.apiBase.replace(/\/11$/, '')}/book/reservationworkbench/` +
       `${encodeURIComponent(workbenchId)}/reservations/cancelitems`;
-    const body: Record<string, unknown> = {};
-    if (segmentNumbers && segmentNumbers.length > 0) {
-      body.Segments = segmentNumbers.map((n) => ({ segmentNumber: n }));
+
+    let body: Record<string, unknown>;
+    if (opts.all) {
+      body = { '@type': 'CancelRequest', cancelAllInd: true };
+    } else if (opts.offerIds && opts.offerIds.length > 0) {
+      body = {
+        '@type': 'CancelRequest',
+        cancelOffers: {
+          objectType: 'CancelSelectedOffers',
+          offerProductSelection: opts.offerIds.map((id) => ({
+            sendPassiveNotificationInd: !!opts.passive,
+            offerID: {
+              Identifier: { authority: 'Travelport', value: id },
+            },
+          })),
+        },
+      };
+    } else {
+      // Caller asked for offer-targeted cancel without supplying IDs —
+      // surface that as a programming error rather than silently sending
+      // a malformed payload.
+      throw new Error(
+        'LiveTravelportBackend cancelWorkbenchItems: opts must set `all: true` or supply `offerIds`'
+      );
     }
     return this.postJson(url, body, 'cancelWorkbenchItems');
   }
@@ -601,14 +654,21 @@ export class LiveTravelportBackend implements Backend {
    * the same endpoint also handles cancel-with-refund for NDC, but
    * this v1 sticks to plain GDS cancel.
    *
-   * Response shape isn't documented in the v11 endpoint list we
-   * fetched; we just verify the call succeeded (2xx) and return the
-   * raw response for callers that want to inspect it.
+   * Body: the canonical schema for this endpoint isn't surfaced in
+   * the v11 endpoints list we fetched. We send the empty CancelRequest
+   * shape that the workbench-side cancel uses (`{ "@type":
+   * "CancelRequest", "cancelAllInd": true }`) on the bet that the
+   * receipt-cancel endpoint accepts the same envelope. Pre-prod will
+   * either accept it or surface a 4xx with the real schema.
    */
   async cancelReservation(locator: string): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/receipt/reservations/${encodeURIComponent(locator)}/receipts`;
-    return this.postJson(url, { Cancel: true }, 'cancelReservation');
+    return this.postJson(
+      url,
+      { '@type': 'CancelRequest', cancelAllInd: true },
+      'cancelReservation'
+    );
   }
 
   async commitWorkbench(
