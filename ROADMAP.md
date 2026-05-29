@@ -372,13 +372,21 @@ so it can grow into it without faking fidelity. The matrix:
       `9cb83fa` (relocate Sabre `Response.*` into `dialects/sabre/responses.ts`),
       `d426b86` (`Dialect` interface + `SabreDialect`, unused), `dd257f8`
       (`GdsHost` dispatches via Dialect, banner sourced from dialect).
-- [ ] **`Backend` seam + async** — widen `Dialect.processEntry` /
-      `GdsHost.process` to `string | Promise<string>` for live REST backends.
-      The interface change is one line; the cost is `await` on ~400 test call
-      sites across 16 files (mechanical, but voluminous). Deferred until
-      `galileo:live` is actually wired — pre-emptively going async pays the
-      mechanical cost now for no behavioral win, and the change lands cleanly
-      alongside the OAuth client + cryptic→REST mapping when those need it.
+- [x] **`Backend` seam** (`c863934`/`71f7438`) — synchronous interface in
+      `src/backends/backend.ts` exposing `inventory`, `pnrs`, `queues`, and
+      `nextTicketSerial()`. `EmulatedBackend` (the v1-v3 behaviour) is the
+      default; `new GdsHost({ backend: ... })` accepts an injected one.
+      Every handler reads `ctx.backend.X` — no direct imports of `Inventory`
+      or `PnrStore` from handler files. 314/314 tests still green after
+      the refactor, so the seam is provably non-disruptive.
+- [ ] **`Backend` seam — async upgrade** — widen `Backend` methods +
+      `Dialect.processEntry` / `GdsHost.process` to `string | Promise<string>`
+      for live REST backends. The interface change is small; the cost is
+      `await` on ~400 test call sites across 16 files (mechanical, but
+      voluminous). Deferred until `LiveTravelportBackend` actually needs it
+      — pre-emptively going async pays the mechanical cost now for no
+      behavioral win, and the change lands cleanly alongside the OAuth
+      client + cryptic→REST mapping when those need it.
 - [x] **CLI dispatch** — `npx tsx src/index.ts terminal [sabre|galileo]`
       resolves a name to a Dialect via `pickDialect()` in `src/index.ts`
       (throws on unknown name, so typos exit cleanly). npm scripts
