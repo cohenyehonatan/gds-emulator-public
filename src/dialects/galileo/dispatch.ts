@@ -163,6 +163,7 @@ function handleGalileoAvailability(
   };
   const lines = ctx.backend.inventory.availability(date.raw, dow, entry.origin!, entry.destination!, {
     carriers: entry.carriers,
+    connectingCity: entry.connectingCity,
   });
   const result = {
     date: date.raw,
@@ -186,31 +187,45 @@ function handleGalileoAvailability(
 function handleGalileoSell(entry: SellEntry, wa: WorkArea, ctx: HandlerContext): string {
   const avail = wa.lastAvailability;
   if (!avail) return 'NO AVAILABILITY DISPLAYED'; // reconstructed
-  const line = avail.lines.find((l) => l.line === entry.line);
-  if (!line) return GalileoResponse.FORMAT;
-  if ((line.classes[entry.bookingClass] ?? 0) < entry.seats) return 'CLASS NOT AVAILABLE'; // reconstructed
 
-  // ADD_FIELD-style state transition — the SessionMachine treats a sell on
-  // an empty work area as "start building".
+  // Single-segment sells set `bookingClass` + `line` at the top; multi-leg
+  // sells additionally populate `legs`. Normalize to a single array.
+  const legs = entry.legs ?? [{ bookingClass: entry.bookingClass, line: entry.line! }];
+
+  // Validate every (line, class) pair before mutating anything — a partial
+  // multi-leg sell would leave the PNR in a bad state.
+  for (const leg of legs) {
+    const line = avail.lines.find((l) => l.line === leg.line);
+    if (!line) return GalileoResponse.FORMAT;
+    if ((line.classes[leg.bookingClass] ?? 0) < entry.seats) {
+      return 'CLASS NOT AVAILABLE'; // reconstructed
+    }
+  }
+
   wa.machine.transition(SessionEvent.SELL);
-  ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, entry.bookingClass, entry.seats);
-  const seg: AirSegment = {
-    segmentNumber: wa.pnr.segments.length + 1,
-    carrier: line.carrier,
-    flightNumber: line.flightNumber,
-    bookingClass: entry.bookingClass,
-    date: avail.date,
-    dayOfWeek: line.dayOfWeek,
-    dayOfWeekNum: line.dayOfWeekNum,
-    origin: line.origin,
-    destination: line.destination,
-    status: StatusCode.SS,
-    seats: entry.seats,
-    departTime: line.departTime,
-    arriveTime: line.arriveTime,
-  };
-  wa.pnr.segments.push(seg);
-  return renderGalileoSoldSegment(seg);
+  const added: AirSegment[] = [];
+  for (const leg of legs) {
+    const line = avail.lines.find((l) => l.line === leg.line)!;
+    ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, leg.bookingClass, entry.seats);
+    const seg: AirSegment = {
+      segmentNumber: wa.pnr.segments.length + added.length + 1,
+      carrier: line.carrier,
+      flightNumber: line.flightNumber,
+      bookingClass: leg.bookingClass,
+      date: avail.date,
+      dayOfWeek: line.dayOfWeek,
+      dayOfWeekNum: line.dayOfWeekNum,
+      origin: line.origin,
+      destination: line.destination,
+      status: StatusCode.SS,
+      seats: entry.seats,
+      departTime: line.departTime,
+      arriveTime: line.arriveTime,
+    };
+    added.push(seg);
+  }
+  for (const s of added) wa.pnr.segments.push(s);
+  return added.map(renderGalileoSoldSegment).join('\n');
 }
 
 /**

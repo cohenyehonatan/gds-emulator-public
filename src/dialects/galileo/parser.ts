@@ -168,7 +168,7 @@ function parseAreaSwitch(raw: string, u: string): SwitchAreaEntry {
  *   - date deltas A#, A-1, A+5      (scroll forward/back)
  *   - class filter @V               (booking-class restrictor)
  */
-const AVAIL_RE = /^A([DJAF])?(\d{1,2}[A-Z]{3})([A-Z]{3})([A-Z]{3})(?:\/([A-Z0-9]+))?$/;
+const AVAIL_RE = /^A([DJAF])?(\d{1,2}[A-Z]{3})([A-Z]{3})([A-Z]{3})(?:\.([A-Z]{3}))?(?:\/([A-Z0-9]+))?$/;
 
 function isAvailability(u: string): boolean {
   return AVAIL_RE.test(u);
@@ -176,7 +176,7 @@ function isAvailability(u: string): boolean {
 
 function parseAvailability(raw: string, u: string): AvailabilityEntry {
   const m = AVAIL_RE.exec(u)!;
-  const [, _sortMode, dateTok, origin, destination, carrier] = m;
+  const [, _sortMode, dateTok, origin, destination, viaCity, carrier] = m;
   const parsed = parseSabreDate(dateTok);
   if (!parsed) throw new ParseError(`Galileo: bad date "${dateTok}" in "${raw}"`);
   return {
@@ -188,24 +188,27 @@ function parseAvailability(raw: string, u: string): AvailabilityEntry {
     origin,
     destination,
     carriers: carrier ? [carrier] : undefined,
+    connectingCity: viaCity, // Mini Guide p.10: `.<midpoint>` filters to connections via that hub
   };
 }
 
 /**
  * Sell entries. Source: Mini Format Guide v2 p.12 + Pocket Guide p.3:
  *
- *   N<seats><class><line>           basic single-segment sell
- *                                    e.g. N1Y1 (1 seat Y class line 1)
+ *   N<seats><class><line>                    single-segment sell
+ *                                             e.g. N1Y1 (1 seat Y class line 1)
+ *   N<seats><class1><line1><class2><line2>   multi-leg connecting sell
+ *                                             e.g. N2F1F2Y3 (2 seats: F class
+ *                                             lines 1 and 2, Y class line 3)
  *
  * Deferred for follow-up commits:
- *   - multi-leg connecting form     N2F1F2Y3
  *   - sell-with-star-connections    N1C5*
  *   - waitlist if unavailable       (Mini Guide / Pocket Guide both
  *                                    document this implicitly)
  *   - ARNK segments                 0A
  *   - direct/long sell              (no availability cache needed)
  */
-const SELL_RE = /^N(\d+)([A-Z])(\d+)$/;
+const SELL_RE = /^N(\d+)((?:[A-Z]\d+)+)$/;
 
 function isSell(u: string): boolean {
   return SELL_RE.test(u);
@@ -213,20 +216,30 @@ function isSell(u: string): boolean {
 
 function parseSell(raw: string, u: string): SellEntry {
   const m = SELL_RE.exec(u)!;
-  const [, seatsStr, bookingClass, lineStr] = m;
-  const seats = parseInt(seatsStr, 10);
-  const line = parseInt(lineStr, 10);
+  const seats = parseInt(m[1], 10);
   if (seats <= 0) throw new ParseError(`Galileo: zero seats in "${raw}"`);
-  if (line <= 0) throw new ParseError(`Galileo: zero line in "${raw}"`);
-  return {
-    kind: 'sell',
+
+  // Pull out every (class, line) pair: F1, F2, Y3, ... in N2F1F2Y3.
+  const pairs: { bookingClass: string; line: number }[] = [];
+  const pairRe = /([A-Z])(\d+)/g;
+  let pm;
+  while ((pm = pairRe.exec(m[2])) !== null) {
+    const line = parseInt(pm[2], 10);
+    if (line <= 0) throw new ParseError(`Galileo: zero line in "${raw}"`);
+    pairs.push({ bookingClass: pm[1], line });
+  }
+  if (pairs.length === 0) throw new ParseError(`Galileo: no class/line pair in "${raw}"`);
+
+  const base = {
+    kind: 'sell' as const,
     raw,
     timestamp: new Date(),
-    mode: 'availability',
+    mode: 'availability' as const,
     seats,
-    bookingClass,
-    line,
+    bookingClass: pairs[0].bookingClass,
+    line: pairs[0].line,
   };
+  return pairs.length === 1 ? base : { ...base, legs: pairs };
 }
 
 /**
