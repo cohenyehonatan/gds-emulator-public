@@ -44,6 +44,8 @@ export class WorkArea {
   pendingCancelRefundTicket?: string;
   /** Last refund-response string; redisplayed by `WFR*`. */
   lastRefundResponse?: string;
+  /** Last ETR/ticket-image rendering; redisplayed by `WETR*`. */
+  lastTicketDocument?: string;
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -63,5 +65,6 @@ export class WorkArea {
     this.lastSimilarNameList = undefined;
     this.pendingCancelRefundTicket = undefined;
     this.lastRefundResponse = undefined;
+    this.lastTicketDocument = undefined;
   }
 }

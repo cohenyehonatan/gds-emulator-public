@@ -43,6 +43,7 @@ import {
   handleAccountingAdd,
   handleAccountingModify,
 } from './accounting-handler.js';
+import { handleTicketDocumentDisplay } from './ticket-display-handler.js';
 
 export type { HandlerContext };
 
@@ -124,6 +125,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleAccountingAdd(entry, wa);
       case 'accounting_modify':
         return handleAccountingModify(entry, wa);
+      case 'ticket_document_display':
+        return handleTicketDocumentDisplay(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

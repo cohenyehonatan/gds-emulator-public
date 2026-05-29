@@ -405,7 +405,35 @@ export type ParsedEntry =
   | AccountingDeleteEntry
   | AccountingAddEntry
   | AccountingModifyEntry
+  | TicketDocumentDisplayEntry
   | UnsupportedEntry;
+
+/**
+ * Display an ETR (Electronic Ticket Record) or its database image.
+ * Source: Sabre Ticket Display Tools QR p.1-2.
+ *
+ *   WETR*              redisplay last ETR
+ *   WETR*<n>           by *T item number
+ *   WETR*T<13-digit>   by ticket number
+ *   WETR*<n>/E         enhanced (NVA/NVB + baggage + FCI)
+ *   WETR*H             ETR history
+ *   WTDB*<n>           database ticket image by *T item
+ *   WTDB*T<13-digit>   image by ticket number
+ *   WTDB*<n>/OB        image + OB ticketing fees
+ *
+ * Without a per-coupon model on TicketRecord, the renderer derives the
+ * coupon (per-segment) lines from the PNR's segments. Flag the
+ * approximation when this becomes load-bearing.
+ */
+export interface TicketDocumentDisplayEntry extends BaseEntry {
+  kind: 'ticket_document_display';
+  family: 'etr' | 'image';
+  mode: 'redisplay' | 'by_item' | 'by_ticket' | 'history';
+  itemNumber?: number;
+  ticketNumber?: string;
+  /** `/E` for WETR enhanced; `/OB` for WTDB OB-fees. */
+  enhanced?: boolean;
+}
 
 /**
  * Delete accounting-line(s) (`AC¤…`). Source: Sabre Accounting Lines QR

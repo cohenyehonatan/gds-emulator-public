@@ -254,6 +254,52 @@ function matchesSabreDate(tok: string): (d: Date) => boolean {
 }
 
 /**
+ * Render an ETR / ticket-image document (`WETR*<n>`, `WTDB*<n>`, etc.).
+ * Source: Sabre Ticket Display Tools QR p.1-2. Layout is reconstructed
+ * at the queue-prompt fidelity bar — the QR documents entries but punts
+ * the rendered shape to Format Finder. Per-segment "coupons" derive
+ * from the on-screen PNR's segments since TicketRecord doesn't yet
+ * carry per-coupon data.
+ */
+export function renderTicketDocument(
+  pnr: Pnr,
+  t: TicketRecord,
+  opts: { family: 'etr' | 'image'; enhanced: boolean }
+): string {
+  const header = opts.family === 'etr' ? 'ELECTRONIC TICKET RECORD' : 'TICKET IMAGE';
+  const sig = `${t.pcc}*${t.agent ?? 'AGT'}`;
+  const lines: string[] = [
+    `${header} ${t.number}`,
+    `  ${t.passenger}  ${sig}  ${sabreTime(t.issuedAt)}/${sabreDayMon(t.issuedAt)} ${t.tariff}`,
+    `  FARE ${t.base.toFixed(2)}  TAX ${t.taxTotal.toFixed(2)}  TOTAL ${t.total.toFixed(2)}`,
+  ];
+  // One coupon line per segment.
+  pnr.segments.forEach((s, i) => {
+    const status = t.status ?? 'OPEN';
+    lines.push(`  CPN${i + 1} ${s.carrier}${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin}${s.destination} ${status}`);
+  });
+  if (opts.enhanced) {
+    // /E or /OB widen the detail; for the emulator, surface the validating
+    // carrier + commission + FOP code so the difference is visible.
+    lines.push(`  VAL ${t.validatingCarrier}  COMM ${(t.commission ?? 0).toFixed(2)}  FOP ${fopCode(t)}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render `WETR*H` — chronological history of ETRs on a PNR. One line per
+ * ticket with type/number/issuance metadata. Reconstructed layout.
+ */
+export function renderEtrHistory(pnr: Pnr): string {
+  if (pnr.tickets.length === 0) return 'NO ETR HISTORY';
+  const lines = pnr.tickets.map(
+    (t, i) =>
+      `  ${i + 1}. ${t.type} ${t.number} ${t.passenger}  ${sabreTime(t.issuedAt)}/${sabreDayMon(t.issuedAt)}  ${t.status ?? 'OPEN'}`
+  );
+  return ['ETR HISTORY', ...lines].join('\n');
+}
+
+/**
  * Render the accounting-field history (`*HAC`). Source: Sabre Accounting
  * Lines QR p.1 ("Display history of accounting field data"). The QR
  * documents the entry but not the response layout; this rendering is
