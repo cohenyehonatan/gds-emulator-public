@@ -118,7 +118,7 @@ export function dispatchGalileo(
         return handleGalileoDisplay(entry, wa, ctx);
 
       case 'cancel':
-        return handleGalileoCancel(entry, wa);
+        return handleGalileoCancel(entry, wa, ctx);
 
       case 'segment_status':
         return handleGalileoSegmentStatus(entry, wa);
@@ -579,10 +579,40 @@ async function retrieveGalileoLive(
  * itinerary renderer when segments remain, an `ITINERARY CANCELLED`
  * placeholder otherwise (reconstructed — Mini Guide doesn't quote the
  * empty-itinerary wording).
+ *
+ * Live-backend routing (three cases):
+ *   - In-flight workbench (`wa.liveWorkbenchId` populated): cancel via
+ *     `POST /book/reservationworkbench/{wb}/reservations/cancelitems`.
+ *     XI / XA send the empty body; X<n> sends `Segments: [{ segmentNumber }]`.
+ *   - Committed BF retrieved by `*<locator>` (locator + no workbench):
+ *     cancel via `POST /11/air/receipt/reservations/{loc}/receipts`. Only
+ *     full-itinerary cancels (XI / XA) are supported live in v1 — partial
+ *     cancel of a committed reservation requires a post-commit-workbench
+ *     flow (`buildfromlocator`) which is deferred.
+ *   - Neither: emulated path (handleGalileoCancelEmulated).
  */
-function handleGalileoCancel(entry: CancelEntry, wa: WorkArea): string {
+function handleGalileoCancel(
+  entry: CancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string | Promise<string> {
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
 
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    if (wa.liveWorkbenchId) {
+      return cancelGalileoLiveWorkbench(entry, wa, ctx, ctx.backend);
+    }
+    if (wa.pnr.locator) {
+      return cancelGalileoLiveCommitted(entry, wa, ctx, ctx.backend);
+    }
+    // Fall through to emulated for the (unusual) live-backend case with
+    // neither workbench nor locator — segments would be entirely local.
+  }
+
+  return handleGalileoCancelEmulated(entry, wa);
+}
+
+function handleGalileoCancelEmulated(entry: CancelEntry, wa: WorkArea): string {
   if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
     wa.machine.transition(SessionEvent.MODIFY);
     wa.pnr.segments = [];
@@ -602,6 +632,66 @@ function handleGalileoCancel(entry: CancelEntry, wa: WorkArea): string {
   return wa.pnr.segments.length > 0
     ? renderGalileoItinerary(wa.pnr)
     : 'ITINERARY CANCELLED'; // reconstructed
+}
+
+async function cancelGalileoLiveWorkbench(
+  entry: CancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+  backend: LiveTravelportBackend
+): Promise<string> {
+  const max = wa.pnr.segments.length;
+  // Partial cancel: validate selection before posting (so we don't
+  // partially deplete the workbench and leave the local view drifting).
+  if (entry.mode !== 'itinerary' && entry.mode !== 'all_air') {
+    for (const n of entry.segments) {
+      if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+    }
+  }
+  try {
+    const isFull = entry.mode === 'itinerary' || entry.mode === 'all_air';
+    await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, isFull ? undefined : entry.segments);
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
+  wa.machine.transition(SessionEvent.MODIFY);
+  if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
+    wa.pnr.segments = [];
+  } else {
+    const remove = new Set(entry.segments);
+    wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+    wa.pnr.renumberSegments();
+  }
+  return wa.pnr.segments.length > 0
+    ? renderGalileoItinerary(wa.pnr)
+    : 'ITINERARY CANCELLED'; // reconstructed
+}
+
+async function cancelGalileoLiveCommitted(
+  entry: CancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+  backend: LiveTravelportBackend
+): Promise<string> {
+  // v1 only supports full cancel against committed reservations.
+  // Partial cancel requires a post-commit workbench (`buildfromlocator`)
+  // which is a separate REST flow; deferred.
+  if (entry.mode !== 'itinerary' && entry.mode !== 'all_air') {
+    return 'LIVE PARTIAL CANCEL REQUIRES WORKBENCH'; // reconstructed
+  }
+  try {
+    await backend.cancelReservation(wa.pnr.locator!);
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
+  wa.machine.transition(SessionEvent.MODIFY);
+  wa.pnr.segments = [];
+  // Mirror the cancel locally too — the committed BF in pnrStore was
+  // a pragmatic shadow; cancelling it on the server should clear the
+  // local copy's segments so a subsequent *R reflects the cancel.
+  const local = ctx.backend.pnrs.get(wa.pnr.locator!);
+  if (local) local.segments = [];
+  return 'ITINERARY CANCELLED'; // reconstructed
 }
 
 /**

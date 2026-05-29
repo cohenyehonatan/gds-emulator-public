@@ -388,6 +388,56 @@ export class LiveTravelportBackend implements Backend {
     return this.getJson(url, 'retrieveReservation');
   }
 
+  /**
+   * Cancel offers / segments inside an in-flight workbench (BEFORE
+   * commit). Used by Galileo `XI` / `XA` / `X<n>` while the agent is
+   * still building.
+   *
+   * Source: POST /book/reservationworkbench/{workbenchID}/reservations
+   * /cancelitems. The path is intentionally NOT under `/11/air` — the
+   * v11 spec endpoint list documents it at the root.
+   *
+   * `segmentNumbers` is optional: omit for "cancel everything in the
+   * workbench" (XI / XA semantics); supply for partial cancel. The
+   * exact body shape for partial cancel isn't deeply documented; for
+   * v1 we encode the selected segment numbers under a `Segments`
+   * array — pre-prod will surface a 4xx fast if that's wrong, at
+   * which point the spec doc grows a verbatim example.
+   */
+  async cancelWorkbenchItems(
+    workbenchId: string,
+    segmentNumbers?: number[]
+  ): Promise<unknown> {
+    // Note: path is `/book/reservationworkbench/...` per the v11
+    // endpoints list — no `/air` prefix on this one.
+    const url =
+      `${this.opts.apiBase.replace(/\/11$/, '')}/book/reservationworkbench/` +
+      `${encodeURIComponent(workbenchId)}/reservations/cancelitems`;
+    const body: Record<string, unknown> = {};
+    if (segmentNumbers && segmentNumbers.length > 0) {
+      body.Segments = segmentNumbers.map((n) => ({ segmentNumber: n }));
+    }
+    return this.postJson(url, body, 'cancelWorkbenchItems');
+  }
+
+  /**
+   * Cancel a committed GDS reservation (AFTER commit, by locator).
+   * Used by Galileo `XI` / `XA` against a previously-retrieved BF.
+   *
+   * Source: POST /11/air/receipt/reservations/{LocatorCode}/receipts —
+   * the same endpoint also handles cancel-with-refund for NDC, but
+   * this v1 sticks to plain GDS cancel.
+   *
+   * Response shape isn't documented in the v11 endpoint list we
+   * fetched; we just verify the call succeeded (2xx) and return the
+   * raw response for callers that want to inspect it.
+   */
+  async cancelReservation(locator: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/receipt/reservations/${encodeURIComponent(locator)}/receipts`;
+    return this.postJson(url, { Cancel: true }, 'cancelReservation');
+  }
+
   async commitWorkbench(
     workbenchId: string,
     opts?: { autoDeleteDate?: string }
