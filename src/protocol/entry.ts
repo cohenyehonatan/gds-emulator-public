@@ -406,6 +406,7 @@ export type ParsedEntry =
   | AccountingAddEntry
   | AccountingModifyEntry
   | TicketDocumentDisplayEntry
+  | VoidEntry
   | UnsupportedEntry;
 
 /**
@@ -561,4 +562,51 @@ export interface AuditTrailEntry extends BaseEntry {
   date?: string;
   /** Branch PCC argument — the `B4T0` in `DQB*` + `/B4T0`. */
   branch?: string;
+}
+
+/**
+ * Void a ticket (`WV` family). Source: Sabre Travel Network Middle East
+ * Quick Reference Guide (Sept 2007) p.13. The QR documents entries
+ * verbatim but does NOT show host responses — those land reconstructed
+ * in `void-handler.ts` and are flagged there.
+ *
+ * Forms (per QR p.13):
+ *   WV<n>                                  void by *T item number; "(Twice)" —
+ *                                          must be re-entered to confirm.
+ *   WV‡<tkt>/<amount>/<fop>/<date>/<carrier>/<count>
+ *                                          manual void when the ticket
+ *                                          doesn't appear in *T.
+ *   WV *                                   list of all voids same month.
+ *   WV *DT<DDMMM>                          voids for one day.
+ *   WV *DT<DDMMM>-<DDMMM>                  voids for a date range.
+ *
+ * Examples spaced to avoid the JSDoc literal asterisk-slash gotcha
+ * (`*` + `/` would close the block). On the wire the entries are
+ * contiguous: `WV*`, `WV*DT15SEP`, `WV*DT15SEP-30SEP`.
+ *
+ * Same-day cutoff (Sabre's real WV is constrained to "before midnight
+ * GMT of the issue day") isn't enforced — the emulator doesn't model
+ * wall-clock cutoffs, consistent with WTRX.
+ */
+export interface VoidEntry extends BaseEntry {
+  kind: 'void';
+  mode: 'by_item' | 'manual' | 'list_month' | 'list_day' | 'list_range';
+  /** by_item: 1-indexed line on the on-screen PNR's *T field. */
+  itemNumber?: number;
+  /** manual: 13-digit ticket number from the WV‡ form. */
+  ticketNumber?: string;
+  /** manual: amount string as typed ("USD500.00") — kept raw, no FX parsing. */
+  amount?: string;
+  /** manual: form-of-payment / stub reference (e.g. "JMKQLM"). */
+  fop?: string;
+  /** manual: SabreDate string (DDMMM, e.g. "03JUN"). */
+  date?: string;
+  /** manual: validating carrier (e.g. "CA"). */
+  carrier?: string;
+  /** manual: coupon count. */
+  count?: number;
+  /** list_day / list_range: start of the window (DDMMM). */
+  fromDate?: string;
+  /** list_range: end of the window (DDMMM). */
+  toDate?: string;
 }

@@ -37,8 +37,8 @@
  * W¥S (segment select), W¥F (form of payment with CVV/extended/pre-approved),
  * W¥DP (invoice — must be last per QR p.1), multi-PQ W¥PQ2N1.2¥PQ5N1.3-1.5
  * (max 4 records), paper W¥XETR, *PAC accounting line (commission lives
- * there, not *T), WFR/WFRT/WTRX refund flow. Void's standalone WV sigil
- * isn't in any first-party Sabre QR; deferred separately.
+ * there, not *T), WFR/WFRT/WTRX refund flow. WV void family lives in
+ * `commands/void.ts` (Sabre Middle East QR p.13 — verbatim third-party).
  */
 
 import type { TicketEntry } from '../entry.js';

@@ -44,6 +44,7 @@ import {
   handleAccountingModify,
 } from './accounting-handler.js';
 import { handleTicketDocumentDisplay } from './ticket-display-handler.js';
+import { handleVoid } from './void-handler.js';
 
 export type { HandlerContext };
 
@@ -127,6 +128,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleAccountingModify(entry, wa);
       case 'ticket_document_display':
         return handleTicketDocumentDisplay(entry, wa, ctx);
+      case 'void':
+        return handleVoid(entry, wa, ctx);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

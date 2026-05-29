@@ -40,6 +40,7 @@ import { parseAuditTrail } from './commands/audit-trail.js';
 import { parseRefund, parseCancelRefund } from './commands/refund.js';
 import { parseAccounting } from './commands/accounting.js';
 import { parseTicketDocumentDisplay } from './commands/ticket-display.js';
+import { parseVoid } from './commands/void.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -68,6 +69,7 @@ const RULES: DispatchRule[] = [
   { match: startsWith('WTRX'), parse: parseCancelRefund }, // WTRX cancel refund — before bare W
   { match: startsWith('WETR*'), parse: parseTicketDocumentDisplay }, // ETR display
   { match: startsWith('WTDB*'), parse: parseTicketDocumentDisplay }, // ticket-image display
+  { match: startsWith('WV'), parse: parseVoid }, // WV void family — before bare W ticketing
   { match: startsWith('W'), parse: parseTicket }, // W¥ ticketing (after WP pricing)
   { match: startsWith('TTP'), parse: parseTicket }, // issue all (synonym for W¥)
   { match: equals('PQ'), parse: parsePricing },
