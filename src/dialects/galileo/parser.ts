@@ -106,8 +106,10 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QX' || u === 'QXI' || u === 'QXE' || u === 'QXIR' || u === 'QXER') {
     return parseQueueExit(trimmed, u);
   }
-  if (u === 'QR') return parseQueueRemove(trimmed);
+  // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
+  // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
+  if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
@@ -572,19 +574,26 @@ function parseVoid(raw: string, u: string): VoidEntry {
  * `QEB/<n>` — End transaction and place BF on queue `<n>`. Source:
  * Galileo Pocket Guide p.3. Combines two ops: commit + queue-place.
  *
+ * Multi-queue form: `QEB/35+40+45` (Pocket Guide p.31) places on every
+ * queue in the chain. First queue is primary; remainder land in
+ * `additionalTargets`. Backed by N round-trips because the v11 place
+ * endpoint takes one queue per request.
+ *
  * Deferred:
  *   - QEB/<PCC>/<n>    branch-PCC queue placement
  */
 function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
-  const m = /^QEB\/([A-Z0-9]+)$/.exec(u);
-  if (!m) throw new ParseError(`Galileo QEB: expected QEB/<queue> in "${raw}"`);
+  const m = /^QEB\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo QEB: expected QEB/<queue>[+<queue>...] in "${raw}"`);
+  const [primary, ...rest] = m[1].split('+');
   return {
     kind: 'queue',
     raw,
     timestamp: new Date(),
     op: 'place',
-    queue: m[1],
+    queue: primary,
     endTransaction: true,
+    additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
   };
 }
 
@@ -625,18 +634,27 @@ function parseQueuePlace(raw: string, u: string): QueueEntry {
  */
 /**
  * `QR` — Remove the on-screen BF from the current queue. Source:
- * Galileo Pocket Guide p.13 ("QR  Remove BF from queue"). v1 covers
- * the simple form only; `QRQ/ALL` (remove from all queues) deferred.
+ * Galileo Pocket Guide p.13 ("QR  Remove BF from queue").
  *
- * Both `wa.currentQueue` and `wa.pnr.locator` must be present —
- * dispatch returns `FORMAT` otherwise.
+ * Multi-queue form: `QR/23+77` (Mini Format Guide v2 p.45) — remove
+ * from active queue PLUS queues 23 and 77 in one call. Active queue
+ * comes from `wa.currentQueue` at dispatch time; the `+`-list lands
+ * in `additionalTargets`.
  */
-function parseQueueRemove(raw: string): QueueEntry {
+function parseQueueRemove(raw: string, u: string): QueueEntry {
+  if (u === 'QR') {
+    return { kind: 'queue', raw, timestamp: new Date(), op: 'remove' };
+  }
+  const m = /^QR\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo QR: expected QR or QR/<queue>[+<queue>...] in "${raw}"`);
+  const [primary, ...rest] = m[1].split('+');
   return {
     kind: 'queue',
     raw,
     timestamp: new Date(),
     op: 'remove',
+    queue: primary,
+    additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
   };
 }
 

@@ -39,6 +39,36 @@ import { GalileoResponse } from './responses.js';
 const COMBINE = '+';
 
 /**
+ * Split a chained entry on `+`. Disambiguate from the multi-queue `+`
+ * separator (`QEB/35+40+45`, `QR/23+77`, Pocket Guide p.31 / Mini
+ * Guide p.45): only split where the character after `+` (after any
+ * intermediate whitespace) looks like the start of a new verb — a
+ * letter, `@`, or `*`. A pure-digit continuation stays attached as
+ * part of the prior verb's syntax.
+ *
+ * `+` followed by nothing is treated as a trailing chain separator
+ * and dropped.
+ */
+function splitGalileoChain(raw: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== COMBINE) continue;
+    let j = i + 1;
+    while (j < raw.length && raw[j] === ' ') j++;
+    const head = raw[j];
+    if (head != null && /[A-Za-z@*]/.test(head)) {
+      out.push(raw.slice(start, i).trim());
+      start = j;
+      i = j - 1;
+    }
+    // else: digit (or end) — leave the `+` attached to the current segment.
+  }
+  out.push(raw.slice(start).trim());
+  return out.filter((s) => s.length > 0);
+}
+
+/**
  * Strings that halt an end-item chain. The Mini Guide doesn't document
  * Galileo's chain semantics explicitly, so we mirror Sabre's: stop at
  * the first error so the agent isn't surprised by silent skips.
@@ -61,10 +91,7 @@ export class GalileoDialect implements Dialect {
   }
 
   splitChain(raw: string): string[] {
-    return raw
-      .split(COMBINE)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    return splitGalileoChain(raw);
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {

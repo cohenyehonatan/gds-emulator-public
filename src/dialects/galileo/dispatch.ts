@@ -1224,63 +1224,88 @@ async function handleGalileoQueue(
   }
   const locator = wa.pnr.locator!;
 
-  // Live queue placement.
+  // Multi-queue chain (`QEB/35+40+45` / `QP/35+40`). v11 place endpoint
+  // takes one queue per request — fan out N round-trips. We post the
+  // primary first; if it succeeds, every additional target gets its
+  // own POST. Any failure mid-chain short-circuits and surfaces the
+  // backend error; queues already placed stay placed (we don't undo).
+  const queues = [queue, ...(entry.additionalTargets ?? []).map((t) => t.queue)];
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
-      await ctx.backend.placeOnQueue(locator, queue);
+      for (const q of queues) {
+        await ctx.backend.placeOnQueue(locator, q);
+      }
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
 
-  // Emulated mirror: append the locator to the shared backend.queues map.
-  const list = ctx.backend.queues.get(queue) ?? [];
-  if (!list.includes(locator)) list.push(locator);
-  ctx.backend.queues.set(queue, list);
+  // Emulated mirror: append the locator to every target queue.
+  for (const q of queues) {
+    const list = ctx.backend.queues.get(q) ?? [];
+    if (!list.includes(locator)) list.push(locator);
+    ctx.backend.queues.set(q, list);
+  }
 
-  return `OK-QUEUE ${queue}`; // reconstructed
+  return `OK-QUEUE ${queues.join('+')}`; // reconstructed
 }
 
 /**
- * `QR` — Remove the on-screen committed BF from the current queue.
- * Source: Galileo Pocket Guide p.13. Live path POSTs the canonical
- * `AgencyQueueSummary` body to `/queue/queue/remove` (verified verbatim
- * from `APIRef_QueueRemove.htm` 2026-05-29):
+ * `QR` / `QR/<n>[+<n>...]` — Remove the on-screen committed BF from
+ * queues. Source: Galileo Pocket Guide p.13 + Mini Format Guide v2 p.45.
  *
- *   {
- *     "@type": "AgencyQueueSummary",
- *     "ReservationIdentifier": { "value": "<locator>" },
- *     "Queue": [{ "value": "<queue>" }]
- *   }
+ * Forms:
+ *  - `QR`           — remove from the active queue (wa.currentQueue).
+ *                     Requires `wa.currentQueue` AND `wa.pnr.locator`.
+ *  - `QR/23`        — remove from queue 23 (active queue not required
+ *                     when an explicit target is given). Requires
+ *                     `wa.pnr.locator`.
+ *  - `QR/23+77`     — multi-queue: active queue + 23 + 77 if active is
+ *                     set; else just 23 + 77. Mini Guide says "Remove
+ *                     booking file from active queue plus queue 23 and
+ *                     77" — so the active queue is implicit when
+ *                     present alongside explicit targets.
  *
- * Requires both `wa.currentQueue` (set by `Q/<n>` access) and a
- * locator on the on-screen BF — return `FORMAT` otherwise (Mini Guide
- * doesn't quote the rejection wording). Local mirror in
- * `backend.queues` is updated to match. v1: simple QR only; `QRQ/ALL`
- * (remove from all queues) deferred.
+ * Live path uses `removeFromQueues(locator, queues[])` for the
+ * single-call multi-queue body when more than one queue is targeted;
+ * single-queue calls fall back to `removeFromQueue` to keep the body
+ * simple. Local mirror in `backend.queues` is updated to match.
  */
 async function handleGalileoQueueRemove(
-  _entry: QueueEntry,
+  entry: QueueEntry,
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
-  const queue = wa.currentQueue;
   const locator = wa.pnr.locator;
-  if (!queue || !locator) return GalileoResponse.FORMAT;
+  if (!locator) return GalileoResponse.FORMAT;
+  const explicit: string[] = [];
+  if (entry.queue) explicit.push(entry.queue);
+  for (const t of entry.additionalTargets ?? []) explicit.push(t.queue);
+  // Active queue is implicit only when present (Mini Guide: "active
+  // queue plus 23 and 77"). Bare `QR` with no active queue → FORMAT.
+  const active = wa.currentQueue;
+  const queues = [...new Set(active ? [active, ...explicit] : explicit)];
+  if (queues.length === 0) return GalileoResponse.FORMAT;
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
-      await ctx.backend.removeFromQueue(locator, queue);
+      if (queues.length === 1) {
+        await ctx.backend.removeFromQueue(locator, queues[0]);
+      } else {
+        await ctx.backend.removeFromQueues(locator, queues);
+      }
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
-  const list = ctx.backend.queues.get(queue) ?? [];
-  const idx = list.indexOf(locator);
-  if (idx !== -1) {
-    list.splice(idx, 1);
-    ctx.backend.queues.set(queue, list);
+  for (const q of queues) {
+    const list = ctx.backend.queues.get(q) ?? [];
+    const idx = list.indexOf(locator);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      ctx.backend.queues.set(q, list);
+    }
   }
-  return `OK-QUEUE REMOVE ${queue}`; // reconstructed
+  return `OK-QUEUE REMOVE ${queues.join('+')}`; // reconstructed
 }
 
 /**
