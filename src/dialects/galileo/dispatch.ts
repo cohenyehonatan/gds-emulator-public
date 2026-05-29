@@ -1197,6 +1197,7 @@ async function handleGalileoQueue(
     return handleGalileoQueueExit(entry, wa, ctx);
   }
   if (entry.op === 'remove') return handleGalileoQueueRemove(entry, wa, ctx);
+  if (entry.op === 'remove_all_in_pcc') return handleGalileoQueueRemoveAll(entry, wa, ctx);
   if (!entry.queue) return GalileoResponse.FORMAT;
   if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
@@ -1274,6 +1275,53 @@ async function handleGalileoQueueRemove(
     ctx.backend.queues.set(queue, list);
   }
   return `OK-QUEUE REMOVE ${queue}`; // reconstructed
+}
+
+/**
+ * `QRQ/ALL` — Remove the on-screen BF from ALL queues in the agency
+ * PCC. Source: Galileo Pocket Guide p.13. Precondition: NOT inside a
+ * queue cursor (the source says "cannot be done if in the queue") AND
+ * a committed BF is on screen.
+ *
+ * Queue list is derived from the local `backend.queues` mirror — the
+ * union of every queue containing this locator. Server-side queues
+ * the local shadow didn't see (e.g. a queue placement that happened
+ * outside this session) are missed; v11 has a `QW` cryptic for
+ * "queues containing this BF" but no REST equivalent in the
+ * endpoints list, so the local view is the best we can do.
+ *
+ * If the local view shows no queues for this locator, the call is
+ * skipped — there's nothing to ask the server to remove. The cryptic
+ * still returns `OK-QUEUE REMOVE ALL` for idempotency.
+ */
+async function handleGalileoQueueRemoveAll(
+  _entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (wa.currentQueue) return GalileoResponse.FORMAT; // "cannot be done if in the queue"
+  const locator = wa.pnr.locator;
+  if (!locator) return GalileoResponse.FORMAT;
+  const queues: string[] = [];
+  for (const [q, locators] of ctx.backend.queues.entries()) {
+    if (locators.includes(locator)) queues.push(q);
+  }
+  if (ctx.backend instanceof LiveTravelportBackend && queues.length > 0) {
+    try {
+      await ctx.backend.removeFromQueues(locator, queues);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+  for (const q of queues) {
+    const list = ctx.backend.queues.get(q) ?? [];
+    const idx = list.indexOf(locator);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      ctx.backend.queues.set(q, list);
+    }
+  }
+  return 'OK-QUEUE REMOVE ALL'; // reconstructed
 }
 
 /**

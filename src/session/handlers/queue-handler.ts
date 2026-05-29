@@ -196,9 +196,11 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
 
     case 'exit_ignore':
     case 'exit_end_tx':
-      // Galileo-only QXI / QXE — the Galileo dispatcher routes these
-      // through its own `handleGalileoQueueExit`. Sabre's parser never
-      // emits them; if we ever see one here it's a programming error.
+    case 'remove_all_in_pcc':
+      // Galileo-only verbs (QXI / QXE / QRQ/ALL) — the Galileo
+      // dispatcher routes these through its own handlers. Sabre's
+      // parser never emits them; if we ever see one here it's a
+      // programming error.
       return 'FORMAT';
   }
 }

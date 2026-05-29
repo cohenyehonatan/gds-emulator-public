@@ -262,6 +262,8 @@ export interface QueueEntry extends BaseEntry {
     | 'place'
     | 'access'
     | 'remove'
+    /** `QRQ/ALL` — remove BF from ALL queues in the agency PCC. */
+    | 'remove_all_in_pcc'
     | 'exit'
     /** `QXI` — exit + ignore active BF (composes with I semantics). */
     | 'exit_ignore'

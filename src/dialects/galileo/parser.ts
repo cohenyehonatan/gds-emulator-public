@@ -105,6 +105,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
   if (u === 'QX' || u === 'QXI' || u === 'QXE') return parseQueueExit(trimmed, u);
   if (u === 'QR') return parseQueueRemove(trimmed);
+  if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
@@ -634,6 +635,24 @@ function parseQueueRemove(raw: string): QueueEntry {
     raw,
     timestamp: new Date(),
     op: 'remove',
+  };
+}
+
+/**
+ * `QRQ/ALL` — Remove the on-screen BF from ALL queues in the agency
+ * PCC. Source: Galileo Pocket Guide p.13. Pre-condition: must NOT be
+ * inside a queue cursor — the source explicitly says "cannot be done
+ * if in the queue". v1 derives the queue list from the local mirror
+ * (`backend.queues`) and POSTs a single multi-queue removal. Server-
+ * side queues that the local shadow didn't see are missed — flagged
+ * in the dispatch docstring.
+ */
+function parseQueueRemoveAll(raw: string): QueueEntry {
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: 'remove_all_in_pcc',
   };
 }
 

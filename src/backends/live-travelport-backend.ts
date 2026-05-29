@@ -642,6 +642,24 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Remove a booking from multiple agency queues in one call. Used by
+   * Galileo `QRQ/ALL`. Same endpoint as `removeFromQueue`; the body's
+   * `Queue[]` array carries every queue number in one shot.
+   */
+  async removeFromQueues(locator: string, queues: string[]): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/queue/queue/remove`;
+    return this.postJson(
+      url,
+      {
+        '@type': 'AgencyQueueSummary',
+        ReservationIdentifier: { value: locator },
+        Queue: queues.map((q) => ({ value: q })),
+      },
+      'removeFromQueues'
+    );
+  }
+
+  /**
    * Divide a reservation: split out one or more passengers into a new
    * reservation. Used by Galileo `DP<n>` (Mini Guide v2 p.39).
    *
