@@ -7,7 +7,8 @@
  *   W¥N<item>  issue only for name field <item>
  *
  * Each ticket gets a 13-digit number (3-digit airline code + serial from
- * ctx.ticketSerial), is appended to pnr.tickets, and surfaces in the ticketing
+ * ctx.backend.nextTicketSerial()), is appended to pnr.tickets, and surfaces
+ * in the ticketing
  * field (*T). Issuance does not change session state; the agent still ends the
  * transaction afterwards (the QR's "you must end the PNR after issuing").
  *
@@ -92,7 +93,7 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
       if (entry.commissionAmount != null) commission = entry.commissionAmount;
       else if (entry.commissionPercent != null) commission = (p.base * entry.commissionPercent) / 100;
       pnr.tickets.push({
-        number: ticketNumber(validating, ctx.ticketSerial++),
+        number: ticketNumber(validating, ctx.backend.nextTicketSerial()),
         type,
         stock: 'AT',
         passenger: p.passenger,
@@ -193,7 +194,7 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
     else if (entry.commissionPercent != null) commission = (fare.base * entry.commissionPercent) / 100;
 
     const record: TicketRecord = {
-      number: ticketNumber(validating, ctx.ticketSerial++),
+      number: ticketNumber(validating, ctx.backend.nextTicketSerial()),
       type: ticketType,
       stock: 'AT',
       passenger,

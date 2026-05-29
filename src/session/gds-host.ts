@@ -16,8 +16,7 @@ import { WorkArea } from './work-area.js';
 import { type HandlerContext } from './handlers/index.js';
 import type { Dialect } from '../dialects/dialect.js';
 import { SabreDialect } from '../dialects/sabre/index.js';
-import { Inventory } from '../store/inventory.js';
-import { PnrStore } from '../store/pnr-store.js';
+import { type Backend, EmulatedBackend } from '../backends/backend.js';
 import { Logger, type LogLevel } from '../logging/logger.js';
 
 export interface GdsHostOptions {
@@ -28,6 +27,8 @@ export interface GdsHostOptions {
   pcc?: string;
   /** Cryptic dialect this host serves (default: Sabre). */
   dialect?: Dialect;
+  /** Where answers come from (default: EmulatedBackend). v5 Backend axis. */
+  backend?: Backend;
 }
 
 export class GdsHost {
@@ -36,16 +37,22 @@ export class GdsHost {
   private logger: Logger;
   readonly context: HandlerContext;
   readonly dialect: Dialect;
+  readonly backend: Backend;
 
   constructor(private readonly options: GdsHostOptions) {
     this.logger = new Logger('GDS', options.logLevel ?? 'info');
     this.dialect = options.dialect ?? new SabreDialect();
+    this.backend = options.backend ?? new EmulatedBackend();
+    // During step-1 of the v5 backend migration, both the new `backend`
+    // field and the duplicated inventory/pnrStore/queues fields point at
+    // the same in-memory objects so unmigrated handlers keep working.
+    // Step 2 removes the duplicated fields.
     this.context = {
-      inventory: new Inventory(),
-      pnrStore: new PnrStore(),
+      backend: this.backend,
+      inventory: this.backend.inventory,
+      pnrStore: this.backend.pnrs,
       pcc: options.pcc ?? 'A0UC',
-      queues: new Map<string, string[]>(),
-      ticketSerial: 4692507094, // matches the QR example's order of magnitude
+      queues: this.backend.queues,
     };
     this.server = new TcpServer(options.port, options.framing);
 
