@@ -41,7 +41,7 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
 
   redraw();
 
-  rl.on('line', (line) => {
+  rl.on('line', async (line) => {
     const entry = line.trim();
     if (isQuit(entry)) {
       rl.close();
@@ -49,7 +49,7 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
     }
     if (entry.length > 0) {
       screen.printEntry(entry);
-      screen.print(host.process(entry, wa));
+      screen.print(await host.process(entry, wa));
       screen.print('');
     }
     redraw();

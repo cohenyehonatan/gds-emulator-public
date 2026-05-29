@@ -3,8 +3,8 @@ import { parseEntry } from '../../src/protocol/parser.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
-describe('divide parsing', () => {
-  it('parses D<item>, D<item>.<pax>, and multiple', () => {
+describe('divide parsing', async () => {
+  it('parses D<item>, D<item>.<pax>, and multiple', async () => {
     const d1 = parseEntry('D1');
     if (d1.kind === 'divide') expect(d1.refs).toEqual([{ item: 1, passenger: undefined }]);
     const d21 = parseEntry('D2.1');
@@ -14,28 +14,28 @@ describe('divide parsing', () => {
   });
 });
 
-describe('divide / file a PNR', () => {
+describe('divide / file a PNR', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
-    host.process('SI*4321', wa);
-    host.process('115JUNJFKLAX', wa);
-    host.process('02Y2', wa); // 2 seats
-    host.process('-SMITH/JOHN MR', wa);
-    host.process('-JONES/MARY MS', wa);
+    await host.process('SI*4321', wa);
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('02Y2', wa); // 2 seats
+    await host.process('-SMITH/JOHN MR', wa);
+    await host.process('-JONES/MARY MS', wa);
   });
 
-  it('divides a name field into a new pending PNR and files it', () => {
-    const divided = host.process('D2', wa);
+  it('divides a name field into a new pending PNR and files it', async () => {
+    const divided = await host.process('D2', wa);
     expect(divided).toContain('JONES/MARY MS');
     expect(divided).toContain('DIVIDED FROM');
     expect(wa.pnr.names.map((n) => n.surname)).toEqual(['JONES']); // work area shows the new PNR
     expect(wa.dividedOriginal!.names.map((n) => n.surname)).toEqual(['SMITH']);
 
-    const filed = host.process('F', wa);
+    const filed = await host.process('F', wa);
     const m = /PNR FILED ([A-Z]{6})/.exec(filed);
     expect(m).not.toBeNull();
     expect(host.context.backend.pnrs.has(m![1])).toBe(true); // new PNR committed
@@ -44,20 +44,20 @@ describe('divide / file a PNR', () => {
     expect(wa.dividedOriginal).toBeUndefined();
   });
 
-  it('divides one passenger out of a multi-passenger name item', () => {
+  it('divides one passenger out of a multi-passenger name item', async () => {
     const w = host.newWorkArea();
-    host.process('SI*4321', w);
-    host.process('-2MURRAY/FRED MR/HANA MRS', w);
-    host.process('D1.2', w); // divide HANA (passenger 2)
+    await host.process('SI*4321', w);
+    await host.process('-2MURRAY/FRED MR/HANA MRS', w);
+    await host.process('D1.2', w); // divide HANA (passenger 2)
     expect(w.pnr.names[0].passengers.map((p) => p.firstName)).toEqual(['HANA']); // new PNR
     expect(w.dividedOriginal!.names[0].passengers.map((p) => p.firstName)).toEqual(['FRED']);
   });
 
-  it('refuses to divide all names, and rejects File with no divide', () => {
+  it('refuses to divide all names, and rejects File with no divide', async () => {
     const w = host.newWorkArea();
-    host.process('SI*4321', w);
-    host.process('-SMITH/JOHN MR', w);
-    expect(host.process('D1', w)).toContain('CANNOT DIVIDE ALL');
-    expect(host.process('F', w)).toContain('NO DIVIDED PNR');
+    await host.process('SI*4321', w);
+    await host.process('-SMITH/JOHN MR', w);
+    expect(await host.process('D1', w)).toContain('CANNOT DIVIDE ALL');
+    expect(await host.process('F', w)).toContain('NO DIVIDED PNR');
   });
 });

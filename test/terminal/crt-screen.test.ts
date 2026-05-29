@@ -22,14 +22,14 @@ function fakeStream(columns: number, rows: number) {
   };
 }
 
-describe('CrtScreen', () => {
-  it('reports the input caret position relative to terminal size', () => {
+describe('CrtScreen', async () => {
+  it('reports the input caret position relative to terminal size', async () => {
     const screen = new CrtScreen(fakeStream(80, 24));
     expect(screen.inputRow()).toBe(23); // H-1
     expect(screen.inputCol()).toBe(3); // after "│ "
   });
 
-  it('renders a full box frame with status and scrollback content', () => {
+  it('renders a full box frame with status and scrollback content', async () => {
     const out = fakeStream(40, 12);
     const screen = new CrtScreen(out);
     screen.print('ABCDEF'); // a fake host response line
@@ -50,7 +50,7 @@ describe('CrtScreen', () => {
     expect(frame).toContain('\x1b[12;1H');
   });
 
-  it('keeps only the tail of the scrollback that fits the response area', () => {
+  it('keeps only the tail of the scrollback that fits the response area', async () => {
     const out = fakeStream(40, 12); // areaH = H-6 = 6 visible response rows
     const screen = new CrtScreen(out);
     for (let i = 0; i < 50; i++) screen.print(`LINE${i}`);

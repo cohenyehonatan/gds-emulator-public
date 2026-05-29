@@ -4,8 +4,8 @@ import type { WorkArea } from '../../src/session/work-area.js';
 import { priceItinerary } from '../../src/session/handlers/pricing-handler.js';
 import { fareFor } from '../../src/store/tariff.js';
 
-describe('fare engine', () => {
-  it('prices a market/class from the tariff', () => {
+describe('fare engine', async () => {
+  it('prices a market/class from the tariff', async () => {
     const y = fareFor('JFK', 'LAX', 'Y');
     expect(y.base).toBe(245);
     expect(y.fareBasis).toBe('Y14');
@@ -14,27 +14,27 @@ describe('fare engine', () => {
   });
 });
 
-describe('WP pricing', () => {
+describe('WP pricing', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
-    host.process('SI*4321', wa);
+    await host.process('SI*4321', wa);
   });
 
-  function bookRoundTrip(): void {
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y2', wa); // AA 100 Y (market base 245)
-    host.process('120JUNLAXJFK', wa);
-    host.process('01Y1', wa); // DL 422 Y
+  async function bookRoundTrip(): void {
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y2', wa); // AA 100 Y (market base 245)
+    await host.process('120JUNLAXJFK', wa);
+    await host.process('01Y1', wa); // DL 422 Y
   }
 
-  it('prices the itinerary as booked with base + taxes + total', () => {
-    bookRoundTrip();
-    host.process('-SMITH/JOHN MR', wa);
-    const resp = host.process('WP', wa);
+  it('prices the itinerary as booked with base + taxes + total', async () => {
+    await bookRoundTrip();
+    await host.process('-SMITH/JOHN MR', wa);
+    const resp = await host.process('WP', wa);
     expect(resp).toContain('BASE FARE');
     expect(resp).toContain('USD490.00'); // 245 + 245
     expect(resp).toContain('ADT');
@@ -46,16 +46,16 @@ describe('WP pricing', () => {
     expect(wa.lastPricing!.fareBasis).toEqual(['Y14', 'Y14']);
   });
 
-  it('counts seat-occupying passengers (ignores infants)', () => {
-    bookRoundTrip();
-    host.process('-SMITH/JOHN MR', wa);
-    host.process('-I/SMITH/BABY', wa);
+  it('counts seat-occupying passengers (ignores infants)', async () => {
+    await bookRoundTrip();
+    await host.process('-SMITH/JOHN MR', wa);
+    await host.process('-I/SMITH/BABY', wa);
     expect(priceItinerary(wa.pnr)!.passengers[0].count).toBe(1);
   });
 
-  it('prices multiple passenger types with WPP (child + infant discounts)', () => {
-    bookRoundTrip();
-    const resp = host.process('WPPADT/C05/INF', wa);
+  it('prices multiple passenger types with WPP (child + infant discounts)', async () => {
+    await bookRoundTrip();
+    const resp = await host.process('WPPADT/C05/INF', wa);
     const types = wa.lastPricing!.passengers;
     expect(types.map((p) => p.passengerType)).toEqual(['ADT', 'C05', 'INF']);
     expect(types[1].base).toBe(367.5); // child = 75% of 490
@@ -64,152 +64,152 @@ describe('WP pricing', () => {
     expect(resp).toContain('INF');
   });
 
-  it('prices a subset of segments with WPS', () => {
-    bookRoundTrip(); // two segments
-    host.process('WPS1', wa); // first segment only
+  it('prices a subset of segments with WPS', async () => {
+    await bookRoundTrip(); // two segments
+    await host.process('WPS1', wa); // first segment only
     expect(wa.lastPricing!.fareBasis).toEqual(['Y14']);
     expect(wa.lastPricing!.passengers[0].base).toBe(245);
   });
 
-  it('rejects WPS for a non-existent segment', () => {
-    bookRoundTrip();
-    expect(host.process('WPS9', wa)).toContain('SEGMENT');
+  it('rejects WPS for a non-existent segment', async () => {
+    await bookRoundTrip();
+    expect(await host.process('WPS9', wa)).toContain('SEGMENT');
   });
 
-  it('stores the last quote as a PQ record (PQ) and displays it (*PQ)', () => {
-    bookRoundTrip();
-    host.process('-SMITH/JOHN MR', wa);
-    host.process('WP', wa);
-    const stored = host.process('PQ', wa);
+  it('stores the last quote as a PQ record (PQ) and displays it (*PQ)', async () => {
+    await bookRoundTrip();
+    await host.process('-SMITH/JOHN MR', wa);
+    await host.process('WP', wa);
+    const stored = await host.process('PQ', wa);
     expect(stored).toContain('PRICE QUOTE RECORD RETAINED');
     expect(stored).toContain('PQ 1');
     expect(wa.pnr.priceQuotes).toHaveLength(1);
-    expect(host.process('*PQ', wa)).toContain('PQ 1');
-    expect(host.process('*PQ1', wa)).toContain('VALIDATING CARRIER');
+    expect(await host.process('*PQ', wa)).toContain('PQ 1');
+    expect(await host.process('*PQ1', wa)).toContain('VALIDATING CARRIER');
   });
 
-  it('prices and stores in one entry with WPRQ', () => {
-    bookRoundTrip();
-    const resp = host.process('WPRQ', wa);
+  it('prices and stores in one entry with WPRQ', async () => {
+    await bookRoundTrip();
+    const resp = await host.process('WPRQ', wa);
     expect(resp).toContain('PRICE QUOTE RECORD RETAINED');
     expect(wa.pnr.priceQuotes).toHaveLength(1);
   });
 
-  it('creates one PQ record per passenger type', () => {
-    bookRoundTrip();
-    host.process('WPPADT/C05/INF', wa);
-    host.process('PQ', wa);
+  it('creates one PQ record per passenger type', async () => {
+    await bookRoundTrip();
+    await host.process('WPPADT/C05/INF', wa);
+    await host.process('PQ', wa);
     expect(wa.pnr.priceQuotes).toHaveLength(3); // ADT, C05, INF
-    expect(host.process('*PQ2', wa)).toContain('C05');
+    expect(await host.process('*PQ2', wa)).toContain('C05');
   });
 
-  it('rejects PQ with nothing priced, and *PQ with no records', () => {
-    bookRoundTrip();
-    expect(host.process('PQ', wa)).toContain('NO PRICING TO STORE');
-    expect(host.process('*PQ', wa)).toContain('NO PQ RECORDS');
+  it('rejects PQ with nothing priced, and *PQ with no records', async () => {
+    await bookRoundTrip();
+    expect(await host.process('PQ', wa)).toContain('NO PRICING TO STORE');
+    expect(await host.process('*PQ', wa)).toContain('NO PQ RECORDS');
   });
 
-  it('includes a fare-calculation line in the quote and shows it via WPDF', () => {
-    bookRoundTrip();
-    const wp = host.process('WP', wa);
+  it('includes a fare-calculation line in the quote and shows it via WPDF', async () => {
+    await bookRoundTrip();
+    const wp = await host.process('WP', wa);
     expect(wp).toContain('JFK AA LAX245.00Y14 DL JFK245.00Y14 490.00 END');
-    const df = host.process('WPDF', wa);
+    const df = await host.process('WPDF', wa);
     expect(df).toContain('FARE CALCULATION');
     expect(df).toContain('ADT  JFK AA LAX245.00Y14 DL JFK245.00Y14 490.00 END');
   });
 
-  it('WPDF<n> selects a passenger-type fare-calc line', () => {
-    bookRoundTrip();
-    host.process('WPPADT/C05', wa);
-    const df = host.process('WPDF2', wa); // C05 line (child, 75%)
+  it('WPDF<n> selects a passenger-type fare-calc line', async () => {
+    await bookRoundTrip();
+    await host.process('WPPADT/C05', wa);
+    const df = await host.process('WPDF2', wa); // C05 line (child, 75%)
     expect(df).toContain('C05  JFK AA LAX183.75'); // 245 * 0.75
   });
 
-  it('rejects WPDF with nothing priced', () => {
-    bookRoundTrip();
-    expect(host.process('WPDF', wa)).toContain('NO PRICING TO DISPLAY');
+  it('rejects WPDF with nothing priced', async () => {
+    await bookRoundTrip();
+    expect(await host.process('WPDF', wa)).toContain('NO PRICING TO DISPLAY');
   });
 
-  it('redisplays the last quote with WP*', () => {
-    bookRoundTrip();
-    const first = host.process('WP', wa);
-    expect(host.process('WP*', wa)).toBe(first);
+  it('redisplays the last quote with WP*', async () => {
+    await bookRoundTrip();
+    const first = await host.process('WP', wa);
+    expect(await host.process('WP*', wa)).toBe(first);
   });
 
-  it('rejects WP with no itinerary, and WP* with nothing priced', () => {
-    expect(host.process('WP', wa)).toContain('NO ITINERARY');
-    expect(host.process('WP*', wa)).toContain('NO PRICING');
+  it('rejects WP with no itinerary, and WP* with nothing priced', async () => {
+    expect(await host.process('WP', wa)).toContain('NO ITINERARY');
+    expect(await host.process('WP*', wa)).toContain('NO PRICING');
   });
 
-  it('rejects an unsupported pricing format (until later commits)', () => {
-    bookRoundTrip();
-    expect(host.process('WPXP', wa)).toBe('FORMAT'); // exclude-penalty qualifier not modeled
+  it('rejects an unsupported pricing format (until later commits)', async () => {
+    await bookRoundTrip();
+    expect(await host.process('WPXP', wa)).toBe('FORMAT'); // exclude-penalty qualifier not modeled
   });
 
-  it('WPA overrides the validating carrier; WPM sets the currency label', () => {
-    bookRoundTrip();
-    host.process('WPALH', wa);
+  it('WPA overrides the validating carrier; WPM sets the currency label', async () => {
+    await bookRoundTrip();
+    await host.process('WPALH', wa);
     expect(wa.lastPricing!.validatingCarrier).toBe('LH');
-    host.process('WPMEUR', wa);
+    await host.process('WPMEUR', wa);
     expect(wa.lastPricing!.currency).toBe('EUR');
   });
 
-  it('WPTN exempts all taxes; WPTE exempts taxes but keeps fees', () => {
-    bookRoundTrip();
-    host.process('WPTN', wa);
+  it('WPTN exempts all taxes; WPTE exempts taxes but keeps fees', async () => {
+    await bookRoundTrip();
+    await host.process('WPTN', wa);
     expect(wa.lastPricing!.passengers[0].taxTotal).toBe(0);
-    host.process('WPTE', wa);
+    await host.process('WPTE', wa);
     expect(wa.lastPricing!.passengers[0].taxes.map((t) => t.code)).toEqual(['XF', 'AY']);
   });
 
-  it('¥N prices a single named passenger', () => {
-    host.process('115JUNJFKLAX', wa);
-    host.process('02Y1', wa); // 2 seats
-    host.process('-SMITH/JOHN MR', wa);
-    host.process('-JONES/MARY MS', wa);
-    host.process('WP¥N1.1', wa);
+  it('¥N prices a single named passenger', async () => {
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('02Y1', wa); // 2 seats
+    await host.process('-SMITH/JOHN MR', wa);
+    await host.process('-JONES/MARY MS', wa);
+    await host.process('WP¥N1.1', wa);
     expect(wa.lastPricing!.passengers[0].count).toBe(1);
   });
 
-  it('combines qualifiers with ¥ (segment + currency)', () => {
-    bookRoundTrip();
-    host.process('WP¥S1¥MGBP', wa);
+  it('combines qualifiers with ¥ (segment + currency)', async () => {
+    await bookRoundTrip();
+    await host.process('WP¥S1¥MGBP', wa);
     expect(wa.lastPricing!.fareBasis).toHaveLength(1); // one segment priced
     expect(wa.lastPricing!.currency).toBe('GBP');
   });
 });
 
-describe('bargain finder (WPNC family)', () => {
+describe('bargain finder (WPNC family)', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
-    host.process('SI*4321', wa);
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y1', wa); // AA 100 Y (M is cheaper and available)
+    await host.process('SI*4321', wa);
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y1', wa); // AA 100 Y (M is cheaper and available)
   });
 
-  it('WPNC advises a cheaper available class without changing the PNR', () => {
-    const resp = host.process('WPNC', wa);
+  it('WPNC advises a cheaper available class without changing the PNR', async () => {
+    const resp = await host.process('WPNC', wa);
     expect(resp).toContain('REBOOK');
     expect(resp).toContain('Y TO M'); // M is the cheapest available class on AA100
     expect(wa.pnr.segments[0].bookingClass).toBe('Y'); // PNR untouched
     expect(wa.lastPricing!.passengers[0].base).toBeLessThan(245); // cheaper than the Y fare
   });
 
-  it('WPNCS ignores availability and finds the globally cheapest class', () => {
-    const resp = host.process('WPNCS', wa);
+  it('WPNCS ignores availability and finds the globally cheapest class', async () => {
+    const resp = await host.process('WPNCS', wa);
     expect(resp).toContain('Y TO V'); // V has the lowest multiplier in the tariff
     expect(wa.pnr.segments[0].bookingClass).toBe('Y'); // still advisory only
   });
 
-  it('WPNCB rebooks the class in the PNR', () => {
-    const resp = host.process('WPNCB', wa);
+  it('WPNCB rebooks the class in the PNR', async () => {
+    const resp = await host.process('WPNCB', wa);
     expect(resp).toContain('REBOOKED');
     expect(wa.pnr.segments[0].bookingClass).toBe('M');
     // a second WPNCB finds nothing cheaper available
-    expect(host.process('WPNCB', wa)).toContain('LOWEST AVAILABLE');
+    expect(await host.process('WPNCB', wa)).toContain('LOWEST AVAILABLE');
   });
 });

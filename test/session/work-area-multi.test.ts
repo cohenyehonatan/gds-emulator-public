@@ -3,23 +3,23 @@ import { WorkArea, WorkAreaSlot } from '../../src/session/work-area.js';
 import { Pnr } from '../../src/models/pnr.js';
 import { SessionState, SessionEvent } from '../../src/session/session-state.js';
 
-describe('WorkArea — multi-area container', () => {
-  it('constructs with six areas A-F by default', () => {
+describe('WorkArea — multi-area container', async () => {
+  it('constructs with six areas A-F by default', async () => {
     const wa = new WorkArea();
     expect(wa.allAreaLetters()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
     expect(wa.area).toBe('A');
   });
 
-  it('constructs with a custom set of letters (e.g. Galileo A-E)', () => {
+  it('constructs with a custom set of letters (e.g. Galileo A-E)', async () => {
     const wa = new WorkArea(['A', 'B', 'C', 'D', 'E']);
     expect(wa.allAreaLetters()).toEqual(['A', 'B', 'C', 'D', 'E']);
   });
 
-  it('rejects an empty area set', () => {
+  it('rejects an empty area set', async () => {
     expect(() => new WorkArea([])).toThrow();
   });
 
-  it('switchTo(letter) moves the active area; switchTo(unknown) returns false', () => {
+  it('switchTo(letter) moves the active area; switchTo(unknown) returns false', async () => {
     const wa = new WorkArea();
     expect(wa.switchTo('D')).toBe(true);
     expect(wa.area).toBe('D');
@@ -27,7 +27,7 @@ describe('WorkArea — multi-area container', () => {
     expect(wa.area).toBe('D'); // unchanged
   });
 
-  it('each slot has its own PNR — building in one area does not affect another', () => {
+  it('each slot has its own PNR — building in one area does not affect another', async () => {
     const wa = new WorkArea();
     expect(wa.pnr.names.length).toBe(0);
     wa.pnr.names.push({ surname: 'SMITH', infant: false, count: 1, passengers: [{ firstName: 'JOHN' }] });
@@ -38,7 +38,7 @@ describe('WorkArea — multi-area container', () => {
     expect(wa.pnr.names[0].surname).toBe('SMITH');
   });
 
-  it('each slot has its own SessionMachine — FSM state is per-area', () => {
+  it('each slot has its own SessionMachine — FSM state is per-area', async () => {
     const wa = new WorkArea();
     wa.machine.transition(SessionEvent.SIGN_IN);
     expect(wa.state()).toBe(SessionState.EMPTY);
@@ -48,7 +48,7 @@ describe('WorkArea — multi-area container', () => {
     expect(wa.state()).toBe(SessionState.EMPTY); // A's FSM survived
   });
 
-  it('reset() clears only the active slot and preserves the FSM', () => {
+  it('reset() clears only the active slot and preserves the FSM', async () => {
     const wa = new WorkArea();
     wa.machine.transition(SessionEvent.SIGN_IN);
     wa.pnr = new Pnr();
@@ -64,7 +64,7 @@ describe('WorkArea — multi-area container', () => {
     expect(wa.pnr.locator).toBe('BBBB00'); // B untouched
   });
 
-  it('resetAll() clears every slot but preserves every machine', () => {
+  it('resetAll() clears every slot but preserves every machine', async () => {
     const wa = new WorkArea();
     wa.machine.transition(SessionEvent.SIGN_IN);
     wa.switchTo('B');
@@ -77,14 +77,14 @@ describe('WorkArea — multi-area container', () => {
     expect(wa.state()).toBe(SessionState.EMPTY); // A's FSM survived (still signed in)
   });
 
-  it('slot(letter) returns the underlying WorkAreaSlot for direct access', () => {
+  it('slot(letter) returns the underlying WorkAreaSlot for direct access', async () => {
     const wa = new WorkArea();
     const slotA = wa.slot('A');
     expect(slotA).toBeInstanceOf(WorkAreaSlot);
     expect(wa.slot('Z')).toBeUndefined();
   });
 
-  it('agent is session-level — spans all areas (Sabre QR p.7)', () => {
+  it('agent is session-level — spans all areas (Sabre QR p.7)', async () => {
     const wa = new WorkArea();
     wa.agent = 'ALJ';
     expect(wa.agent).toBe('ALJ');

@@ -3,26 +3,26 @@ import { parseEntry } from '../../src/protocol/parser.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
-describe('Sabre ¤<letter> work-area switch parsing', () => {
-  it('parses ¤D as switch_area to D', () => {
+describe('Sabre ¤<letter> work-area switch parsing', async () => {
+  it('parses ¤D as switch_area to D', async () => {
     const r = parseEntry('¤D');
     expect(r.kind).toBe('switch_area');
     if (r.kind === 'switch_area') expect(r.targetArea).toBe('D');
   });
 
-  it('accepts each documented letter A-F', () => {
+  it('accepts each documented letter A-F', async () => {
     for (const l of ['A', 'B', 'C', 'D', 'E', 'F']) {
       const r = parseEntry(`¤${l}`);
       if (r.kind === 'switch_area') expect(r.targetArea).toBe(l);
     }
   });
 
-  it('uppercases lowercase letters', () => {
+  it('uppercases lowercase letters', async () => {
     const r = parseEntry('¤d');
     if (r.kind === 'switch_area') expect(r.targetArea).toBe('D');
   });
 
-  it('multi-char form falls through to modify (not switch)', () => {
+  it('multi-char form falls through to modify (not switch)', async () => {
     // ¤AB has two letters — looks like field-change syntax to the modify
     // matcher (which rejects it as having no SIGIL_FIELD prefix), so
     // dispatch is unrecognized → FORMAT at the host. Verified at the
@@ -32,73 +32,73 @@ describe('Sabre ¤<letter> work-area switch parsing', () => {
   });
 });
 
-describe('Sabre ¤<letter> through the host', () => {
+describe('Sabre ¤<letter> through the host', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
-    host.process('SI*ALJ', wa);
+    await host.process('SI*ALJ', wa);
   });
 
-  it('¤D switches to area D and returns the signature line ending in ..D', () => {
+  it('¤D switches to area D and returns the signature line ending in ..D', async () => {
     expect(wa.area).toBe('A');
-    const resp = host.process('¤D', wa);
+    const resp = await host.process('¤D', wa);
     expect(wa.area).toBe('D');
     expect(resp).toBe('A0UC.A0UC*ALJ..D');
   });
 
-  it('switched area has its own empty PNR; switching back preserves area A state', () => {
+  it('switched area has its own empty PNR; switching back preserves area A state', async () => {
     // Build something in area A
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y1', wa);
-    host.process('-SMITH/JOHN MR', wa);
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    await host.process('-SMITH/JOHN MR', wa);
     expect(wa.pnr.names.length).toBe(1);
     expect(wa.pnr.segments.length).toBe(1);
     // Switch to B — independent slate
-    host.process('¤B', wa);
+    await host.process('¤B', wa);
     expect(wa.pnr.names.length).toBe(0);
     expect(wa.pnr.segments.length).toBe(0);
     // Switch back to A — work survives
-    host.process('¤A', wa);
+    await host.process('¤A', wa);
     expect(wa.pnr.names.length).toBe(1);
     expect(wa.pnr.names[0].surname).toBe('SMITH');
     expect(wa.pnr.segments.length).toBe(1);
   });
 
-  it('agent is preserved across area switches (session-level)', () => {
+  it('agent is preserved across area switches (session-level)', async () => {
     expect(wa.agent).toBe('ALJ');
-    host.process('¤C', wa);
+    await host.process('¤C', wa);
     expect(wa.agent).toBe('ALJ');
   });
 
-  it('¤Z (unconfigured letter) returns FORMAT and leaves the active area unchanged', () => {
+  it('¤Z (unconfigured letter) returns FORMAT and leaves the active area unchanged', async () => {
     // The keyboard layer maps `[` to `¤`, so '¤Z' is also reachable as '[Z'.
     // The parser accepts ¤Z (just one letter), the handler rejects it.
-    const resp = host.process('¤Z', wa);
+    const resp = await host.process('¤Z', wa);
     // Z isn't in the default A-F set; WorkArea.switchTo returns false.
     expect(resp).toBe('FORMAT');
     expect(wa.area).toBe('A');
   });
 
-  it('switch + IG cycle clears only the active area\'s PNR', () => {
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y1', wa);
-    host.process('-SMITH/JOHN MR', wa); // built in A
-    host.process('¤C', wa);
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y1', wa);
-    host.process('-DOE/JANE MS', wa); // built in C
-    host.process('IG', wa); // ignores only C (active area)
+  it('switch + IG cycle clears only the active area\'s PNR', async () => {
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    await host.process('-SMITH/JOHN MR', wa); // built in A
+    await host.process('¤C', wa);
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    await host.process('-DOE/JANE MS', wa); // built in C
+    await host.process('IG', wa); // ignores only C (active area)
     expect(wa.pnr.names.length).toBe(0); // C cleared
-    host.process('¤A', wa);
+    await host.process('¤A', wa);
     expect(wa.pnr.names[0].surname).toBe('SMITH'); // A survived
   });
 
-  it('ASCII [ keyboard alias also works (`[`→`¤` per protocol/keyboard.ts)', () => {
+  it('ASCII [ keyboard alias also works (`[`→`¤` per protocol/keyboard.ts)', async () => {
     // The keyboard normalization happens at GdsHost.process via the dialect.
-    const resp = host.process('[B', wa);
+    const resp = await host.process('[B', wa);
     expect(resp).toBe('A0UC.A0UC*ALJ..B');
     expect(wa.area).toBe('B');
   });

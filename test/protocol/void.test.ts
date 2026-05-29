@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseEntry } from '../../src/protocol/parser.js';
 
-describe('WV void entry parsing', () => {
-  it('parses WV<n> as by_item', () => {
+describe('WV void entry parsing', async () => {
+  it('parses WV<n> as by_item', async () => {
     const r = parseEntry('WV2');
     expect(r.kind).toBe('void');
     if (r.kind === 'void') {
@@ -10,7 +10,7 @@ describe('WV void entry parsing', () => {
     }
   });
 
-  it('parses the manual form (¥ form, 6 slash-fields)', () => {
+  it('parses the manual form (¥ form, 6 slash-fields)', async () => {
     const r = parseEntry('WV¥0577136789012/USD500.00/JMKQLM/03JUN/CA/1');
     if (r.kind === 'void') {
       expect(r).toMatchObject({
@@ -25,7 +25,7 @@ describe('WV void entry parsing', () => {
     }
   });
 
-  it('accepts ‡ as a synonym for the cross of Lorraine in manual form', () => {
+  it('accepts ‡ as a synonym for the cross of Lorraine in manual form', async () => {
     const r = parseEntry('WV‡0577136789012/USD500.00/JMKQLM/03JUN/CA/1');
     if (r.kind === 'void') {
       expect(r.mode).toBe('manual');
@@ -33,19 +33,19 @@ describe('WV void entry parsing', () => {
     }
   });
 
-  it('parses WV* as list_month', () => {
+  it('parses WV* as list_month', async () => {
     const r = parseEntry('WV*');
     if (r.kind === 'void') expect(r.mode).toBe('list_month');
   });
 
-  it('parses WV*DT<date> as list_day', () => {
+  it('parses WV*DT<date> as list_day', async () => {
     const r = parseEntry('WV*DT15SEP');
     if (r.kind === 'void') {
       expect(r).toMatchObject({ mode: 'list_day', fromDate: '15SEP' });
     }
   });
 
-  it('parses WV*DT<from>-<to> as list_range', () => {
+  it('parses WV*DT<from>-<to> as list_range', async () => {
     const r = parseEntry('WV*DT15SEP-30SEP');
     if (r.kind === 'void') {
       expect(r).toMatchObject({
@@ -56,7 +56,7 @@ describe('WV void entry parsing', () => {
     }
   });
 
-  it('rejects malformed by_item / list / manual selectors', () => {
+  it('rejects malformed by_item / list / manual selectors', async () => {
     expect(() => parseEntry('WVABC')).toThrow();
     expect(() => parseEntry('WV*XYZ')).toThrow(); // missing DT
     expect(() => parseEntry('WV*DT')).toThrow(); // empty date

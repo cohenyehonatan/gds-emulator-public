@@ -3,8 +3,8 @@ import { parseEntry } from '../../src/protocol/parser.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
-describe('flight info / verify parsing', () => {
-  it('parses FLIFO, V*, VA*, VI*', () => {
+describe('flight info / verify parsing', async () => {
+  it('parses FLIFO, V*, VA*, VI*', async () => {
     const flifo = parseEntry('2AA100/15JUN');
     expect(flifo.kind).toBe('flight_info');
     if (flifo.kind === 'flight_info') {
@@ -21,53 +21,53 @@ describe('flight info / verify parsing', () => {
   });
 });
 
-describe('flight info / verify in the work area', () => {
+describe('flight info / verify in the work area', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
   });
 
-  it('FLIFO looks up a flight from the schedule with elapsed time', () => {
-    const resp = host.process('2AA100/15JUN', wa); // JFK-LAX 0800-1100
+  it('FLIFO looks up a flight from the schedule with elapsed time', async () => {
+    const resp = await host.process('2AA100/15JUN', wa); // JFK-LAX 0800-1100
     expect(resp).toContain('AA100');
     expect(resp).toContain('JFKLAX 0800 1100 738');
     expect(resp).toContain('3.00'); // 3-hour elapsed
   });
 
-  it('reports an unknown flight', () => {
-    expect(host.process('2ZZ999/15JUN', wa)).toContain('FLIGHT NOT FOUND');
+  it('reports an unknown flight', async () => {
+    expect(await host.process('2ZZ999/15JUN', wa)).toContain('FLIGHT NOT FOUND');
   });
 
-  it('VI* verifies a booked segment, computing overnight elapsed', () => {
-    host.process('SI*4321', wa);
-    host.process('115JUNDFWLHR', wa); // BA 192 1720 -> 0800 next day
-    host.process('01Y1', wa);
-    const resp = host.process('VI*1', wa);
+  it('VI* verifies a booked segment, computing overnight elapsed', async () => {
+    await host.process('SI*4321', wa);
+    await host.process('115JUNDFWLHR', wa); // BA 192 1720 -> 0800 next day
+    await host.process('01Y1', wa);
+    const resp = await host.process('VI*1', wa);
     expect(resp).toContain('BA192');
     expect(resp).toContain('14.40'); // overnight elapsed
   });
 
-  it('VA* verifies an availability line', () => {
-    host.process('SI*4321', wa);
-    host.process('115JUNJFKLAX', wa);
-    expect(host.process('VA*2', wa)).toContain('AA100'); // line 2 is AA 100
+  it('VA* verifies an availability line', async () => {
+    await host.process('SI*4321', wa);
+    await host.process('115JUNJFKLAX', wa);
+    expect(await host.process('VA*2', wa)).toContain('AA100'); // line 2 is AA 100
   });
 
-  it('VCT* validates a healthy connection', () => {
-    host.process('SI*4321', wa);
-    host.process('115JUNJFKSFO', wa);
-    host.process('01Y1*', wa); // AA300 + AA350, 90-min connect
-    expect(host.process('VCT*', wa)).toBe('MINIMUM CONNECT TIME EDIT VALID FOR ALL CONNECTIONS');
+  it('VCT* validates a healthy connection', async () => {
+    await host.process('SI*4321', wa);
+    await host.process('115JUNJFKSFO', wa);
+    await host.process('01Y1*', wa); // AA300 + AA350, 90-min connect
+    expect(await host.process('VCT*', wa)).toBe('MINIMUM CONNECT TIME EDIT VALID FOR ALL CONNECTIONS');
   });
 
-  it('VCT* flags a too-short connection', () => {
-    host.process('SI*4321', wa);
-    host.process('115JUNJFKORD', wa);
-    host.process('01Y1', wa); // AA300 arrives ORD 1000A
-    host.process('0AA360Y15JUNORDSFOSS1', wa); // AA360 departs ORD 1020A (20 min)
-    expect(host.process('VCT*', wa)).toBe('INVALID CONNECT TIME SEGS 1 AND 2 - MINIMUM IS 45 MINUTES');
+  it('VCT* flags a too-short connection', async () => {
+    await host.process('SI*4321', wa);
+    await host.process('115JUNJFKORD', wa);
+    await host.process('01Y1', wa); // AA300 arrives ORD 1000A
+    await host.process('0AA360Y15JUNORDSFOSS1', wa); // AA360 departs ORD 1020A (20 min)
+    expect(await host.process('VCT*', wa)).toBe('INVALID CONNECT TIME SEGS 1 AND 2 - MINIMUM IS 45 MINUTES');
   });
 });

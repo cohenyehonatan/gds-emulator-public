@@ -67,8 +67,13 @@ export class GdsHost {
    * chain splitting (Sabre's `§` end-item, Amadeus's `;`, …), parse +
    * dispatch, and error classification to the dialect — stopping a chain
    * at the first dialect-recognized error, like a real host transmission.
+   *
+   * Returns `Promise<string>` to support backends that need to call out
+   * to a vendor REST API (LiveTravelportBackend's TripServices flow).
+   * EmulatedBackend handlers stay synchronous internally; the promise is
+   * just a uniform wrapper. Tests must `await host.process(...)`.
    */
-  process(raw: string, wa: WorkArea): string {
+  async process(raw: string, wa: WorkArea): Promise<string> {
     const entries = this.dialect.splitChain(this.dialect.normalizeKeyboard(raw));
     if (entries.length <= 1) return this.processOne(entries[0] ?? raw, wa);
 
@@ -76,15 +81,15 @@ export class GdsHost {
     // mirroring a real end-item transmission.
     let last = '';
     for (const e of entries) {
-      last = this.processOne(e, wa);
+      last = await this.processOne(e, wa);
       if (this.dialect.isErrorResponse(last)) break;
     }
     return last;
   }
 
   /** Parse → dispatch a single (already keyboard-normalized) entry. */
-  private processOne(raw: string, wa: WorkArea): string {
-    return this.dialect.processEntry(raw, wa, this.context);
+  private async processOne(raw: string, wa: WorkArea): Promise<string> {
+    return await this.dialect.processEntry(raw, wa, this.context);
   }
 
   /** A fresh work area, e.g. for the in-process REPL. */
@@ -97,9 +102,9 @@ export class GdsHost {
     this.workAreas.set(conn, wa);
     this.logger.info(`Terminal connected: ${conn.getRemoteAddress()}`);
 
-    conn.onMessage((raw: string) => {
+    conn.onMessage(async (raw: string) => {
       this.logger.protocol('send', 'ENTRY', raw);
-      const response = this.process(raw, wa);
+      const response = await this.process(raw, wa);
       this.logger.protocol('receive', 'RESP', response.split('\n')[0]);
       conn.send(response);
     });

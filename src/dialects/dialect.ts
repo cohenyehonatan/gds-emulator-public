@@ -50,11 +50,12 @@ export interface Dialect {
 
   /**
    * Parse → dispatch a single (already keyboard-normalized) entry against
-   * the given work area + handler context. Sync today (Sabre, emulated);
-   * future live backends will widen this to `string | Promise<string>`
-   * along with the GdsHost.process call sites.
+   * the given work area + handler context. Return type is `string |
+   * Promise<string>` — EmulatedBackend dialects can stay sync (return a
+   * string directly), live-REST dialects return a promise. `GdsHost.process`
+   * awaits the result uniformly.
    */
-  processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string;
+  processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string>;
 
   /**
    * True iff `response` is a chain-halting error string in this dialect.

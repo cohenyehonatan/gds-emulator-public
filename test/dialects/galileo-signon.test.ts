@@ -5,35 +5,35 @@ import { GdsHost } from '../../src/session/gds-host.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 import { SessionState } from '../../src/session/session-state.js';
 
-describe('Galileo parser — SON / SOF', () => {
-  it('parses SON/Z<usercode> as sign_in', () => {
+describe('Galileo parser — SON / SOF', async () => {
+  it('parses SON/Z<usercode> as sign_in', async () => {
     const r = parseGalileoEntry('SON/ZHA');
     expect(r.kind).toBe('sign_in');
     if (r.kind === 'sign_in') expect(r.argument).toBe('HA');
   });
 
-  it('captures PCC+initials in the argument when present (legacy form)', () => {
+  it('captures PCC+initials in the argument when present (legacy form)', async () => {
     const r = parseGalileoEntry('SON/ZGL4HA');
     if (r.kind === 'sign_in') expect(r.argument).toBe('GL4HA');
   });
 
-  it('tolerates internal whitespace ("SON / ZHA")', () => {
+  it('tolerates internal whitespace ("SON / ZHA")', async () => {
     const r = parseGalileoEntry('SON / ZHA');
     if (r.kind === 'sign_in') expect(r.argument).toBe('HA');
   });
 
-  it('parses SOF as sign_out (single area, not all)', () => {
+  it('parses SOF as sign_out (single area, not all)', async () => {
     const r = parseGalileoEntry('SOF');
     expect(r.kind).toBe('sign_out');
     if (r.kind === 'sign_out') expect(r.allAreas).toBe(false);
   });
 
-  it('parses SOF/Z<override> as sign_out (override form, also single-area)', () => {
+  it('parses SOF/Z<override> as sign_out (override form, also single-area)', async () => {
     const r = parseGalileoEntry('SOF/ZGL4HA');
     if (r.kind === 'sign_out') expect(r.allAreas).toBe(false);
   });
 
-  it('rejects malformed sign-on entries', () => {
+  it('rejects malformed sign-on entries', async () => {
     expect(() => parseGalileoEntry('SON/Z')).toThrow(); // empty usercode
     expect(() => parseGalileoEntry('SON')).toThrow(); // missing /Z
     expect(() => parseGalileoEntry('SOX')).toThrow(); // wrong sigil
@@ -41,7 +41,7 @@ describe('Galileo parser — SON / SOF', () => {
   });
 });
 
-describe('Galileo dialect — SON / SOF through the host', () => {
+describe('Galileo dialect — SON / SOF through the host', async () => {
   function newHost(): { host: GdsHost; wa: WorkArea } {
     const host = new GdsHost({
       port: 0,
@@ -52,10 +52,10 @@ describe('Galileo dialect — SON / SOF through the host', () => {
     return { host, wa: host.newWorkArea() };
   }
 
-  it('SON/Z transitions session to EMPTY (signed in, no PNR) and returns a signature line', () => {
+  it('SON/Z transitions session to EMPTY (signed in, no PNR) and returns a signature line', async () => {
     const { host, wa } = newHost();
     expect(wa.state()).toBe(SessionState.SIGNED_OFF);
-    const resp = host.process('SON/ZHA', wa);
+    const resp = await host.process('SON/ZHA', wa);
     expect(wa.state()).toBe(SessionState.EMPTY); // FSM's name for "signed in, work area empty"
     expect(wa.agent).toBe('HA');
     expect(resp).toContain('HA');
@@ -63,11 +63,11 @@ describe('Galileo dialect — SON / SOF through the host', () => {
     expect(resp).toContain('SIGNED ON');
   });
 
-  it('SOF transitions back to SIGNED_OFF, resets the work area, returns a signoff line', () => {
+  it('SOF transitions back to SIGNED_OFF, resets the work area, returns a signoff line', async () => {
     const { host, wa } = newHost();
-    host.process('SON/ZHA', wa);
+    await host.process('SON/ZHA', wa);
     expect(wa.agent).toBe('HA');
-    const resp = host.process('SOF', wa);
+    const resp = await host.process('SOF', wa);
     expect(wa.state()).toBe(SessionState.SIGNED_OFF);
     // wa.reset() doesn't currently clear `agent` — the signoff response is rendered
     // with the captured agent before reset, which is what we test next.
@@ -76,36 +76,36 @@ describe('Galileo dialect — SON / SOF through the host', () => {
     expect(resp).toContain('HA'); // agent name preserved in the signoff line
   });
 
-  it('SOF/Z<override> also signs off (override form acts like plain SOF)', () => {
+  it('SOF/Z<override> also signs off (override form acts like plain SOF)', async () => {
     const { host, wa } = newHost();
-    host.process('SON/ZHA', wa);
-    const resp = host.process('SOF/ZGL4HA', wa);
+    await host.process('SON/ZHA', wa);
+    const resp = await host.process('SOF/ZGL4HA', wa);
     expect(wa.state()).toBe(SessionState.SIGNED_OFF);
     expect(resp).toContain('SIGNED OFF');
   });
 
-  it('unrecognized entry returns FORMAT', () => {
+  it('unrecognized entry returns FORMAT', async () => {
     const { host, wa } = newHost();
-    expect(host.process('NOPE', wa)).toBe('FORMAT');
+    expect(await host.process('NOPE', wa)).toBe('FORMAT');
   });
 
-  it('a now-supported verb (availability) no longer returns FORMAT', () => {
+  it('a now-supported verb (availability) no longer returns FORMAT', async () => {
     const { host, wa } = newHost();
-    host.process('SON/ZHA', wa);
-    const resp = host.process('A15JUNJFKLAX', wa);
+    await host.process('SON/ZHA', wa);
+    const resp = await host.process('A15JUNJFKLAX', wa);
     expect(resp).not.toBe('FORMAT');
     expect(resp).toContain('JFK');
     expect(resp).toContain('LAX');
   });
 
-  it("the dialect's chain-halting set includes FORMAT and NOT IMPLEMENTED", () => {
+  it("the dialect's chain-halting set includes FORMAT and NOT IMPLEMENTED", async () => {
     const d = new GalileoDialect();
     expect(d.isErrorResponse('FORMAT')).toBe(true);
     expect(d.isErrorResponse('NOT IMPLEMENTED — galileo dialect')).toBe(true);
     expect(d.isErrorResponse('HA SIGNED ON AT 7K9S')).toBe(false);
   });
 
-  it('GdsHost still defaults to Sabre when no dialect is injected', () => {
+  it('GdsHost still defaults to Sabre when no dialect is injected', async () => {
     const host = new GdsHost({ port: 0, logLevel: 'error' });
     expect(host.dialect.id).toBe('sabre');
   });

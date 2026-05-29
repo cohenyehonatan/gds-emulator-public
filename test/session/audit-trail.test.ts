@@ -3,8 +3,8 @@ import { parseEntry } from '../../src/protocol/parser.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
-describe('audit trail parsing (DQB* family)', () => {
-  it('parses today / specific day / previous-year / branch / combined forms', () => {
+describe('audit trail parsing (DQB* family)', async () => {
+  it('parses today / specific day / previous-year / branch / combined forms', async () => {
     const today = parseEntry('DQB*');
     if (today.kind === 'audit_trail') expect(today).toMatchObject({ mode: 'display' });
 
@@ -23,62 +23,62 @@ describe('audit trail parsing (DQB* family)', () => {
     }
   });
 
-  it('parses DQB*DELETE and DQB*YES as the two-step delete', () => {
+  it('parses DQB*DELETE and DQB*YES as the two-step delete', async () => {
     const del = parseEntry('DQB*DELETE');
     if (del.kind === 'audit_trail') expect(del.mode).toBe('delete_request');
     const yes = parseEntry('DQB*YES');
     if (yes.kind === 'audit_trail') expect(yes.mode).toBe('delete_confirm');
   });
 
-  it('rejects a malformed date token in DQB*', () => {
+  it('rejects a malformed date token in DQB*', async () => {
     expect(() => parseEntry('DQB*XXXX')).toThrow();
   });
 });
 
-describe('audit trail report (DQB*)', () => {
+describe('audit trail report (DQB*)', async () => {
   let host: GdsHost;
   let wa: WorkArea;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     host = new GdsHost({ port: 0, logLevel: 'error' });
     wa = host.newWorkArea();
-    host.process('SI*4321', wa);
+    await host.process('SI*4321', wa);
   });
 
-  function bookAndIssue(surname: string): string {
-    host.process('IG', wa);
-    host.process('115JUNJFKLAX', wa);
-    host.process('01Y1', wa);
-    host.process(`-${surname}/JOHN MR`, wa);
-    host.process('9305-555-1212-H', wa);
-    host.process('7TAW15JUN/', wa);
-    host.process('6P', wa);
-    const locator = host.process('E', wa);
+  async function bookAndIssue(surname: string): string {
+    await host.process('IG', wa);
+    await host.process('115JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    await host.process(`-${surname}/JOHN MR`, wa);
+    await host.process('9305-555-1212-H', wa);
+    await host.process('7TAW15JUN/', wa);
+    await host.process('6P', wa);
+    const locator = await host.process('E', wa);
     // Retrieve, issue, end-tx — so the PNR survives in the store with the ticket.
-    host.process(`*${locator}`, wa);
-    host.process('W¥', wa);
-    host.process('ER', wa);
+    await host.process(`*${locator}`, wa);
+    await host.process('W¥', wa);
+    await host.process('ER', wa);
     return locator;
   }
 
-  it('returns NO AUDIT TRAIL DATA before any tickets are issued', () => {
-    expect(host.process('DQB*', wa)).toBe('NO AUDIT TRAIL DATA');
+  it('returns NO AUDIT TRAIL DATA before any tickets are issued', async () => {
+    expect(await host.process('DQB*', wa)).toBe('NO AUDIT TRAIL DATA');
   });
 
-  it("renders today's tickets in the report", () => {
-    bookAndIssue('SMITH');
-    bookAndIssue('DOE');
-    const rep = host.process('DQB*', wa);
+  it("renders today's tickets in the report", async () => {
+    await bookAndIssue('SMITH');
+    await bookAndIssue('DOE');
+    const rep = await host.process('DQB*', wa);
     expect(rep).toContain('AUDIT TRAIL');
     expect(rep).toContain('TOTAL: 2 TKT(S)');
   });
 
-  it('rejects a branch PCC that is not the host PCC', () => {
-    expect(host.process('DQB*/ZZZZ', wa)).toBe('BRANCH NOT AUTHORIZED');
+  it('rejects a branch PCC that is not the host PCC', async () => {
+    expect(await host.process('DQB*/ZZZZ', wa)).toBe('BRANCH NOT AUTHORIZED');
   });
 
-  it('two-step DELETE / YES is a no-op stub but returns the documented strings', () => {
-    expect(host.process('DQB*DELETE', wa)).toContain('OK TO DELETE');
-    expect(host.process('DQB*YES', wa)).toContain('AUDIT TRAIL DELETED');
+  it('two-step DELETE / YES is a no-op stub but returns the documented strings', async () => {
+    expect(await host.process('DQB*DELETE', wa)).toContain('OK TO DELETE');
+    expect(await host.process('DQB*YES', wa)).toContain('AUDIT TRAIL DELETED');
   });
 });
