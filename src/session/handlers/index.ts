@@ -8,7 +8,7 @@ import type { WorkArea } from '../work-area.js';
 import { SessionEvent } from '../session-state.js';
 import { InvalidTransitionError } from '../session-machine.js';
 import { Response } from '../../dialects/sabre/responses.js';
-import { renderSignInResponse } from '../../protocol/serializer.js';
+import { renderSignInResponse, renderSwitchAreaResponse } from '../../protocol/serializer.js';
 import type { HandlerContext } from './context.js';
 import { handleAvailability } from './availability-handler.js';
 import {
@@ -130,6 +130,9 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleTicketDocumentDisplay(entry, wa, ctx);
       case 'void':
         return handleVoid(entry, wa, ctx);
+      case 'switch_area':
+        if (!wa.switchTo(entry.targetArea)) return Response.FORMAT;
+        return renderSwitchAreaResponse({ pcc: ctx.pcc, agent: wa.agent }, wa.area);
       case 'end_transaction':
         return handleEndTransaction(entry, wa, ctx);
 

@@ -454,6 +454,16 @@ export function renderSignInResponse(sig: PnrSignature): string {
 }
 
 /**
+ * Area-switch response, e.g. "PCC0.PCC0*ALJ..D" — the signature line
+ * tailing with the active area letter rather than the full A-F list.
+ * Source: Sabre Basic Reservation Course p.7 ("System Response:
+ * PCC0.PCC0*ALJ..D" for `¤D`).
+ */
+export function renderSwitchAreaResponse(sig: PnrSignature, area: string): string {
+  return `${sig.pcc}.${sig.pcc}*${sig.agent ?? 'AGT'}..${area}`;
+}
+
+/**
  * Fare quote display (WP). Modeled on the Basic Pricing QR response: header,
  * a BASE FARE / TAXES / TOTAL row per passenger type, the tax breakdown,
  * fare-basis line, and validating carrier.

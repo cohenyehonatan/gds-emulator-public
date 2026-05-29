@@ -41,6 +41,7 @@ import { parseRefund, parseCancelRefund } from './commands/refund.js';
 import { parseAccounting } from './commands/accounting.js';
 import { parseTicketDocumentDisplay } from './commands/ticket-display.js';
 import { parseVoid } from './commands/void.js';
+import { parseSwitchArea } from './commands/switch-area.js';
 
 type EntryParser = (raw: string) => ParsedEntry;
 
@@ -84,6 +85,9 @@ const RULES: DispatchRule[] = [
   { match: startsWith('DQB'), parse: parseAuditTrail }, // audit trail before D-divide
   { match: firstChar('D'), parse: parseDivide }, // divide a PNR
   { match: firstChar('Q'), parse: parseQueue }, // queue place/access/work
+  // ¤<letter> work-area switch — single letter form. Must beat isModifyEntry
+  // which would otherwise reject it (¤A has nothing after the sigil to modify).
+  { match: (raw) => /^¤[A-Z]$/i.test(raw), parse: parseSwitchArea },
   // Field change/delete via '¤' must beat the plain field sigils below.
   { match: isModifyEntry, parse: parseModify },
   // Single-char sigils.

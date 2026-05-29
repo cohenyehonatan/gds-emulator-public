@@ -407,6 +407,7 @@ export type ParsedEntry =
   | AccountingModifyEntry
   | TicketDocumentDisplayEntry
   | VoidEntry
+  | SwitchAreaEntry
   | UnsupportedEntry;
 
 /**
@@ -562,6 +563,23 @@ export interface AuditTrailEntry extends BaseEntry {
   date?: string;
   /** Branch PCC argument — the `B4T0` in `DQB*` + `/B4T0`. */
   branch?: string;
+}
+
+/**
+ * Switch to a different work area. Sabre form: `¤<letter>` per the
+ * Basic Reservation Course p.7 ("Change to a different work area:
+ * A,B,C,D,E, or F", response e.g. `PCC0.PCC0*ALJ..D`). Galileo form:
+ * `SA`/`SB`/`SC`/`SD`/`SE` per the Travelport+ Mini Format Guide v2
+ * p.5 ("SB — Change to work area B"). Both dialects produce the same
+ * semantic kind here; only the parsed surface syntax differs.
+ *
+ * `targetArea` is uppercased to a single letter. The handler delegates
+ * to `WorkArea.switchTo()` which returns false on an invalid letter;
+ * the response in that case is dialect-specific (FORMAT).
+ */
+export interface SwitchAreaEntry extends BaseEntry {
+  kind: 'switch_area';
+  targetArea: string;
 }
 
 /**
