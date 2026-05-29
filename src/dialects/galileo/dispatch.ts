@@ -33,6 +33,7 @@ import type {
   TicketEntry,
   FlightInfoEntry,
   VoidEntry,
+  QueueEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -144,6 +145,9 @@ export function dispatchGalileo(
 
       case 'void':
         return handleGalileoVoid(entry, wa, ctx);
+
+      case 'queue':
+        return handleGalileoQueue(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1020,4 +1024,88 @@ async function handleGalileoVoid(
   found.status = 'VOIDED';
   found.voidedAt = new Date();
   return `OK-VOID TKT ${ticketNumber}`; // reconstructed (Sabre voice)
+}
+
+/**
+ * `QEB/<n>` — Place BF on queue `<n>` AND end transaction (Pocket Guide
+ * p.3). Two ops in one verb: commit (if workbench in-flight) then queue
+ * place against the resulting/existing locator. Live path POSTs /queue/
+ * queue; emulated path appends to the shared backend.queues map.
+ *
+ * v1: place op only (`op === 'place'`, which is what the QEB parser
+ * emits). Other queue ops (access / remove / exit) come with their own
+ * cryptic verbs.
+ */
+async function handleGalileoQueue(
+  entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (entry.op !== 'place' || !entry.queue) return GalileoResponse.FORMAT;
+  const queue = entry.queue;
+
+  // Need a locator to place on a queue. If we're mid-build (workbench
+  // in-flight, no locator yet), commit first to get one. The commit
+  // semantics mirror E: enforce mandatory fields, run the commit, stamp
+  // locator on PNR.
+  if (!wa.pnr.locator) {
+    const commitResp = await commitForQueueEnd(wa, ctx);
+    if (commitResp.error) return commitResp.error;
+  }
+  const locator = wa.pnr.locator!;
+
+  // Live queue placement.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      await ctx.backend.placeOnQueue(locator, queue);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
+  // Emulated mirror: append the locator to the shared backend.queues map.
+  const list = ctx.backend.queues.get(queue) ?? [];
+  if (!list.includes(locator)) list.push(locator);
+  ctx.backend.queues.set(queue, list);
+
+  return `OK-QUEUE ${queue}`; // reconstructed
+}
+
+/**
+ * Run the same commit logic the End-Transaction handler does, but
+ * without returning the rendered BF — the QEB response is the queue
+ * confirmation, not the BF display. Returns `{ error }` to short-circuit
+ * QEB if the commit can't happen.
+ */
+async function commitForQueueEnd(
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<{ error?: string }> {
+  const missing = wa.pnr.missingMandatory();
+  if (missing.length > 0) return { error: GALILEO_MISSING_RESPONSE[missing[0]] };
+  const pax = wa.pnr.passengerCount();
+  if (wa.pnr.segments.some((s) => s.seats !== pax)) {
+    return { error: GalileoResponse.NAMES_NOT_EQUAL };
+  }
+  wa.pnr.segments.forEach((s) => {
+    if (s.status === 'LL') s.status = 'HL';
+  });
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    if (!wa.liveWorkbenchId) return { error: 'LIVE WORKBENCH MISSING' }; // reconstructed
+    let locator: string;
+    try {
+      locator = await ctx.backend.commitWorkbench(wa.liveWorkbenchId, {
+        ticketing: wa.pnr.ticketing,
+      });
+    } catch (err) {
+      return { error: `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}` }; // reconstructed
+    }
+    wa.pnr.locator = locator;
+    ctx.backend.pnrs.commit(wa.pnr);
+    wa.liveWorkbenchId = undefined;
+  } else {
+    wa.pnr.locator = ctx.backend.pnrs.commit(wa.pnr);
+  }
+  wa.machine.transition(SessionEvent.END_TX);
+  return {};
 }

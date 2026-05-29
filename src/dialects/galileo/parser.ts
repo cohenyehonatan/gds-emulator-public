@@ -46,6 +46,7 @@ import type {
   TicketEntry,
   FlightInfoEntry,
   VoidEntry,
+  QueueEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -98,6 +99,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'FQ') return parsePricing(trimmed);
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
+  if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
@@ -550,5 +552,25 @@ function parseVoid(raw: string, u: string): VoidEntry {
     timestamp: new Date(),
     mode: 'manual',
     ticketNumber: m[1],
+  };
+}
+
+/**
+ * `QEB/<n>` — End transaction and place BF on queue `<n>`. Source:
+ * Galileo Pocket Guide p.3. Combines two ops: commit + queue-place.
+ *
+ * Deferred:
+ *   - QEB/<PCC>/<n>    branch-PCC queue placement
+ *   - QP/<n>           queue place without ending transaction (separate verb)
+ */
+function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
+  const m = /^QEB\/([A-Z0-9]+)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo QEB: expected QEB/<queue> in "${raw}"`);
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: 'place',
+    queue: m[1],
   };
 }

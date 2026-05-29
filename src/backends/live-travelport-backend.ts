@@ -512,6 +512,28 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Place a booking on a queue.
+   *
+   * Source: POST /11/air/queue/queue. Used by Galileo `QEB/<n>` (Pocket
+   * Guide p.3: "End transaction and place BF on queue <n>"). v1 takes
+   * the queue id only; queue PCC and category code (QP/100/75 PIC)
+   * forms aren't wired on the Galileo cryptic side yet.
+   */
+  async placeOnQueue(locator: string, queue: string): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/queue/queue`;
+    return this.postJson(
+      url,
+      {
+        QueuePlaceQuery: {
+          LocatorCode: locator,
+          QueueNumber: queue,
+        },
+      },
+      'placeOnQueue'
+    );
+  }
+
+  /**
    * Cancel offers / segments inside an in-flight workbench (BEFORE
    * commit). Used by Galileo `XI` / `XA` / `X<n>` while the agent is
    * still building.
