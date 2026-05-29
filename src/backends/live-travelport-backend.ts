@@ -308,6 +308,82 @@ export class LiveTravelportBackend implements Backend {
     };
     return this.postJson(url, body, 'addOffer');
   }
+
+  /**
+   * Add one ADT traveler to an existing workbench.
+   *
+   * Source: POST /11/air/book/traveler/reservationworkbench/{workbenchID}
+   * /travelers — body `{ Traveler: [{ passengerTypeCode, PersonName:
+   * { Given, Surname }, Telephone?, Email? }] }`.
+   *
+   * Multi-traveler entries (`N.3SMITH/JOHN MR/JANE MRS/...`) post one
+   * Traveler element per passenger; this v1 emits exactly one and the
+   * caller is responsible for one-name-per-call sequencing. Multi-pax
+   * Travelport batching deferred (the multi-traveler endpoint is
+   * `/travelers/list`).
+   */
+  async addTraveler(
+    workbenchId: string,
+    traveler: { givenName: string; surname: string; phone?: string; email?: string }
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/traveler/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/travelers`;
+    const t: Record<string, unknown> = {
+      passengerTypeCode: 'ADT',
+      PersonName: { Given: traveler.givenName, Surname: traveler.surname },
+    };
+    if (traveler.phone) {
+      t.Telephone = [{ phoneNumber: traveler.phone, role: 'Mobile' }];
+    }
+    if (traveler.email) {
+      t.Email = [{ value: traveler.email }];
+    }
+    return this.postJson(url, { Traveler: [t] }, 'addTraveler');
+  }
+
+  /**
+   * Commit a workbench — materialize the reservation, return the
+   * locator. After this call the workbench is gone server-side and
+   * the caller should clear `wa.liveWorkbenchId` and (separately)
+   * stamp the locator on the in-memory PNR.
+   *
+   * Source: POST /11/air/book/reservation/reservations/{workbenchID}
+   * — body `{ ReservationQueryCommitReservation: {
+   *      enableTwoStepCommitInd: false,
+   *      autoDeleteDate?: "YYYY-MM-DD"
+   * } }` — response `{ Receipt: [{ Confirmation: { Locator: {
+   *      value: "<6-char>", authority: "Travelport"
+   * } } }] }`.
+   *
+   * Defensive extraction tolerates the documented Receipt-array shape
+   * plus a flat `Locator.value` fallback some pre-prod tenants return.
+   * Throws if the server's response is missing a locator entirely —
+   * we'd rather the agent see a clear error than a fake commit.
+   */
+  async commitWorkbench(
+    workbenchId: string,
+    opts?: { autoDeleteDate?: string }
+  ): Promise<string> {
+    const url =
+      `${this.opts.apiBase}/air/book/reservation/reservations/${encodeURIComponent(workbenchId)}`;
+    const body = {
+      ReservationQueryCommitReservation: {
+        enableTwoStepCommitInd: false,
+        ...(opts?.autoDeleteDate ? { autoDeleteDate: opts.autoDeleteDate } : {}),
+      },
+    };
+    const json = (await this.postJson(url, body, 'commitWorkbench')) as any;
+    const locator =
+      json?.Receipt?.[0]?.Confirmation?.Locator?.value ??
+      json?.Confirmation?.Locator?.value ??
+      json?.Locator?.value ??
+      json?.locator;
+    if (typeof locator !== 'string' || locator.length === 0) {
+      throw new Error('LiveTravelportBackend commitWorkbench: response missing locator');
+    }
+    return locator;
+  }
 }
 
 /**

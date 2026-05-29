@@ -1,10 +1,10 @@
 /**
- * Record locator (PNR "Sabre Record Locator"). Six alphabetic characters,
- * matching the workbook examples (`VZRAFH`, `5UXHHO`). We keep A-Z; uniqueness
- * is enforced by the caller (pnr-store) via the `exists` predicate.
- *
- * Note: modern Sabre locators can include digits, but the classic all-alpha
- * form matches every example in the course, so we stay with it.
+ * Record locator (PNR "Sabre Record Locator"). Six characters. The
+ * EmulatedBackend generator uses A-Z only — matches the course
+ * examples (`VZRAFH`, `5UXHHO`) for readability of test fixtures.
+ * `isRecordLocator` accepts the broader A-Z0-9 form because live
+ * GDS locators (Travelport included) are alphanumeric, and the
+ * predicate runs against both emulated and live PNRs.
  */
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -21,5 +21,5 @@ export function generateRecordLocator(exists: (loc: string) => boolean): string 
 }
 
 export function isRecordLocator(s: string): boolean {
-  return /^[A-Z]{6}$/.test(s);
+  return /^[A-Z0-9]{6}$/.test(s);
 }

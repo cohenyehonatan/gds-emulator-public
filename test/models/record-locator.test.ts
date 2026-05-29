@@ -17,9 +17,16 @@ describe('record locator', async () => {
     expect(taken.size).toBe(200);
   });
 
-  it('rejects malformed locators', async () => {
-    expect(isRecordLocator('ABC12')).toBe(false);
-    expect(isRecordLocator('ABCDE1')).toBe(false);
-    expect(isRecordLocator('ABCDEFG')).toBe(false);
+  it('rejects malformed locators (wrong length / lowercase / non-alphanumeric)', async () => {
+    expect(isRecordLocator('ABC12')).toBe(false); // 5 chars
+    expect(isRecordLocator('ABCDEFG')).toBe(false); // 7 chars
+    expect(isRecordLocator('abcdef')).toBe(false); // lowercase
+    expect(isRecordLocator('ABCD-1')).toBe(false); // dash not alphanumeric
+  });
+
+  it('accepts alphanumeric locators (matches live Travelport format)', async () => {
+    expect(isRecordLocator('ABCDE1')).toBe(true); // 5 letters + 1 digit
+    expect(isRecordLocator('ABC123')).toBe(true);
+    expect(isRecordLocator('123456')).toBe(true);
   });
 });

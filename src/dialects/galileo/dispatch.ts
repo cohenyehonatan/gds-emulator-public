@@ -95,7 +95,7 @@ export function dispatchGalileo(
         return handleGalileoSell(entry, wa, ctx);
 
       case 'name':
-        return handleGalileoName(entry, wa);
+        return handleGalileoName(entry, wa, ctx);
 
       case 'phone':
         return handleGalileoPhone(entry, wa);
@@ -314,10 +314,43 @@ async function handleGalileoSell(
  * `N.<surname>/<given>[<title>]` — name field. Sources the same
  * parseNameText that Sabre's `-SURNAME/GIVEN` handler uses, since the
  * post-prefix shape is identical (Mini Format Guide v2 p.14-15).
+ *
+ * Live path: ensure a workbench (creating one if name comes before any
+ * sell), then POST one Traveler element per parsed passenger via
+ * /11/air/book/traveler/.../travelers. The local NameItem still gets
+ * pushed to wa.pnr.names so cryptic-side queries (*R, FQ) operate on
+ * a coherent view.
+ *
+ * Multi-passenger names (`N.3SMITH/JOHN MR/JANE MRS/...`) emit one
+ * Traveler call per passenger sequentially. The Travelport batch
+ * endpoint (`/travelers/list`) would be the optimization.
  */
-function handleGalileoName(entry: NameEntry, wa: WorkArea): string {
+async function handleGalileoName(
+  entry: NameEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const nameItem = parseNameText(entry.text);
+
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const liveBackend = ctx.backend;
+    try {
+      if (!wa.liveWorkbenchId) {
+        wa.liveWorkbenchId = await liveBackend.createWorkbench();
+      }
+      for (const pax of nameItem.passengers) {
+        await liveBackend.addTraveler(wa.liveWorkbenchId, {
+          givenName: pax.firstName,
+          surname: nameItem.surname,
+        });
+      }
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
   wa.machine.transition(SessionEvent.ADD_FIELD);
-  wa.pnr.names.push(parseNameText(entry.text));
+  wa.pnr.names.push(nameItem);
   return GalileoResponse.OK;
 }
 
@@ -381,7 +414,7 @@ function handleGalileoEndTransaction(
   entry: EndTransactionEntry,
   wa: WorkArea,
   ctx: HandlerContext
-): string {
+): Promise<string> | string {
   const missing = wa.pnr.missingMandatory();
   if (missing.length > 0) return GALILEO_MISSING_RESPONSE[missing[0]];
 
@@ -396,7 +429,48 @@ function handleGalileoEndTransaction(
     if (s.status === 'LL') s.status = 'HL';
   });
 
+  // Live path: commit the workbench → server returns the real locator
+  // → we stamp it on the in-memory PNR and ALSO write to the local
+  // pnrStore so a follow-up *<locator> retrieve finds it locally until
+  // live retrieve lands. The workbench is consumed server-side; clear
+  // wa.liveWorkbenchId so a future build starts a fresh one.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    if (!wa.liveWorkbenchId) {
+      // The mandatory-field check above should have caught the no-itinerary
+      // case, but if somehow we get here without a workbench, the live
+      // commit has nothing to commit. Refuse rather than silently committing
+      // a phantom local PNR.
+      return 'LIVE WORKBENCH MISSING'; // reconstructed
+    }
+    return commitGalileoLive(entry, wa, ctx, ctx.backend, wa.liveWorkbenchId);
+  }
+
   const locator = ctx.backend.pnrs.commit(wa.pnr);
+  const committed = wa.pnr;
+  const agent = wa.agent;
+  wa.machine.transition(SessionEvent.END_TX);
+  wa.reset();
+  return entry.redisplay ? renderGalileoPnr(committed, { pcc: ctx.pcc, agent }) : locator;
+}
+
+async function commitGalileoLive(
+  entry: EndTransactionEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+  backend: LiveTravelportBackend,
+  workbenchId: string
+): Promise<string> {
+  let locator: string;
+  try {
+    locator = await backend.commitWorkbench(workbenchId);
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
+  wa.pnr.locator = locator;
+  // Pragmatic: also write to local pnrs store so *<locator> retrieve
+  // finds it until live retrieve lands. The committed PNR is then
+  // available both via the live backend and the local cache.
+  ctx.backend.pnrs.commit(wa.pnr);
   const committed = wa.pnr;
   const agent = wa.agent;
   wa.machine.transition(SessionEvent.END_TX);
