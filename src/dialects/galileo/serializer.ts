@@ -16,6 +16,8 @@
 import type { AvailabilityResult, AvailabilityLine } from '../../models/availability-result.js';
 import type { AirSegment } from '../../models/segment.js';
 import type { Pnr } from '../../models/pnr.js';
+import type { FareQuote } from '../../models/fare.js';
+import type { TicketRecord } from '../../models/ticket.js';
 import { formatNameItem } from '../../models/name-element.js';
 import { to24h } from '../../utils/validation.js';
 
@@ -137,4 +139,36 @@ function renderGalileoBfHeader(pnr: Pnr, sig: GalileoSignature): string {
 /** Name lines, Galileo-style. `1.1SMITH/JOHN MR` per industry convention. */
 function renderGalileoNames(pnr: Pnr): string {
   return pnr.names.map((n, i) => `${i + 1}.${formatNameItem(n)}`).join('   ');
+}
+
+/**
+ * `FQ` response: stored filed-fare display. Reconstructed — Mini Guide
+ * v2 documents the entry but the response is Smartpoint GUI. Shape
+ * follows training-doc conventions: header with filed-fare number,
+ * one line per passenger block with type/count/base/taxes/total.
+ */
+export function renderGalileoFareQuote(fq: FareQuote, filedFareNumber: number): string {
+  const out: string[] = [];
+  out.push(`FILED FARE ${filedFareNumber}  ${fq.validatingCarrier}  ${fq.currency}`); // reconstructed
+  for (const p of fq.passengers) {
+    const total = p.total.toFixed(2);
+    const base = p.base.toFixed(2);
+    const tax = p.taxTotal.toFixed(2);
+    out.push(
+      ` ${p.passengerType.padEnd(4)} ${String(p.count).padStart(2)}  ${base.padStart(8)}  ${tax.padStart(7)}  ${total.padStart(9)}`
+    );
+  }
+  return out.join('\n');
+}
+
+/**
+ * `TKP<n>` response: ticket-issuance echo. Reconstructed — Mini Guide
+ * v2 doesn't quote the host text. One line per issued ticket with
+ * number / passenger / carrier / total.
+ */
+export function renderGalileoIssuedTickets(tickets: TicketRecord[]): string {
+  if (tickets.length === 0) return 'NO TICKETS ISSUED'; // reconstructed
+  return tickets
+    .map((t) => `TKT ${t.number}  ${t.passenger}  ${t.validatingCarrier}  ${t.total.toFixed(2)}`)
+    .join('\n');
 }

@@ -29,8 +29,13 @@ import type {
   CancelEntry,
   SegmentStatusEntry,
   PassiveCancelEntry,
+  PricingEntry,
+  TicketEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
+import type { TicketRecord } from '../../models/ticket.js';
+import { ticketNumber } from '../../models/ticket.js';
+import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -49,6 +54,8 @@ import {
   renderGalileoSoldSegment,
   renderGalileoPnr,
   renderGalileoItinerary,
+  renderGalileoFareQuote,
+  renderGalileoIssuedTickets,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 
@@ -114,6 +121,12 @@ export function dispatchGalileo(
 
       case 'passive_cancel':
         return handleGalileoPassiveCancel(entry, wa);
+
+      case 'pricing':
+        return handleGalileoPricing(entry, wa);
+
+      case 'ticket':
+        return handleGalileoTicket(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -419,4 +432,78 @@ function handleGalileoPassiveCancel(entry: PassiveCancelEntry, wa: WorkArea): st
   return wa.pnr.segments.length > 0
     ? renderGalileoItinerary(wa.pnr)
     : 'ITINERARY CANCELLED'; // reconstructed
+}
+
+/**
+ * `FQ` — Fare Quote. Source: Mini Format Guide v2 p.27. The Sabre
+ * pricing engine (priceItinerary) is reused — it's tariff-driven and
+ * dialect-agnostic. FQ always stores the resulting quote on the PNR
+ * so a later `TKP<n>` can issue from it.
+ */
+function handleGalileoPricing(_entry: PricingEntry, wa: WorkArea): string {
+  if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+  if (wa.pnr.names.length === 0) return GalileoResponse.NEED_NAME;
+  const fq = priceItinerary(wa.pnr, {});
+  if (!fq) return 'FARE QUOTE NOT AVAILABLE'; // reconstructed
+  wa.pnr.priceQuotes.push(fq);
+  wa.lastPricing = fq;
+  return renderGalileoFareQuote(fq, wa.pnr.priceQuotes.length);
+}
+
+/**
+ * `TKP<n>` — Issue ticket and associated documents for filed fare `<n>`.
+ * Source: Mini Format Guide v2 p.53. Constructs one TicketRecord per
+ * passenger for each priced segment block, pushes to pnr.tickets, and
+ * returns a Galileo-style ticket-issue echo.
+ *
+ * v1 limitations:
+ *   - issues for ALL passenger blocks in the quote; per-passenger
+ *     TKP<n>P<m> deferred.
+ *   - no FOP / commission / ticket modifiers (TMU<n>...) — those come
+ *     in a follow-up commit.
+ *   - issuance does not depend on `T.` ticketing-field state.
+ */
+function handleGalileoTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerContext): string {
+  if (entry.source !== 'pq') return GalileoResponse.FORMAT; // shouldn't happen via Galileo parser
+  const idx = (entry.pqRecord ?? 1) - 1;
+  if (idx < 0 || idx >= wa.pnr.priceQuotes.length) {
+    return 'FILED FARE NOT FOUND'; // reconstructed
+  }
+  const fq = wa.pnr.priceQuotes[idx];
+
+  // Determine which segments to issue — for FQ-stored quotes, that's
+  // every segment the quote covers. We use pnr.segments since FQ
+  // priced the whole itinerary.
+  const segments = wa.pnr.segments;
+  if (segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+
+  // One ticket per passenger, per the Sabre ticketing convention.
+  // Each ticket lumps every priced segment's tariff into a single base/tax.
+  const tariff: 'D' | 'I' = 'D'; // v1: assume domestic; international tariff comes with international markets
+  const issued: TicketRecord[] = [];
+  for (const block of fq.passengers) {
+    for (let i = 0; i < block.count; i++) {
+      const name = wa.pnr.names[0]?.passengers[i];
+      const passenger = name
+        ? `${wa.pnr.names[0].surname}/${name.firstName.charAt(0)}`
+        : `${block.passengerType}/${i + 1}`;
+      const record: TicketRecord = {
+        number: ticketNumber(fq.validatingCarrier, ctx.backend.nextTicketSerial()),
+        type: 'TE',
+        stock: 'AT',
+        passenger,
+        pcc: ctx.pcc,
+        agent: wa.agent,
+        issuedAt: new Date(),
+        tariff,
+        validatingCarrier: fq.validatingCarrier,
+        base: block.base,
+        taxTotal: block.taxTotal,
+        total: block.total,
+      };
+      wa.pnr.tickets.push(record);
+      issued.push(record);
+    }
+  }
+  return renderGalileoIssuedTickets(issued);
 }

@@ -42,6 +42,8 @@ import type {
   CancelEntry,
   SegmentStatusEntry,
   PassiveCancelEntry,
+  PricingEntry,
+  TicketEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -88,6 +90,11 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // as availability-without-date (they wouldn't match the AVAIL_RE
   // anyway, but ordering keeps the intent explicit).
   if (u.startsWith('X')) return parseCancel(trimmed, u);
+  // FQ / TKP must come BEFORE the regex-matching availability so they
+  // don't get mis-parsed. (FQ doesn't match AVAIL_RE anyway, but the
+  // ordering keeps intent explicit.)
+  if (u === 'FQ') return parsePricing(trimmed);
+  if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
 
@@ -415,4 +422,71 @@ function parseModify(
   }
   // Default: status change. The handler validates against a known-status set.
   return { kind: 'segment_status', raw, timestamp: new Date(), segment, status };
+}
+
+/**
+ * `FQ` — Fare Quote. Source: Mini Format Guide v2 p.27 verbatim:
+ * "Quote applicable adult fare (private or public) for all passengers,
+ * all segments, in the class booked. Plating carrier logic will be
+ * used."
+ *
+ * The Sabre PricingEntry kind is reused. Galileo's FQ behaves like
+ * Sabre's WPRQ (price-and-store) — it both produces a quote and files
+ * it on the PNR for later ticketing.
+ *
+ * Deferred (Mini Guide p.27-31 lists many qualifier forms — passenger
+ * type, segment selection, validating carrier, currency, best-buy,
+ * private fares with account codes, etc.):
+ *   FQBB / FQBC / FQBA / FQA / FQBB++...
+ *   FQP<n>/<carrier>             plating per passenger
+ *   FQP<n>-<m>.<p>               passenger selection
+ *   FQP<n>*C07 / FQ*C05/ACC      passenger-type (child / accompanied)
+ *   FQS<segs>                    segment-selection
+ *   FQ-TO, FQ-:TO, FQ*ITX        private-fare qualifiers
+ *   FQTE / FQTE-00 / FQCDL/TE-00 tax-exempt variants
+ */
+function parsePricing(raw: string): PricingEntry {
+  return {
+    kind: 'pricing',
+    raw,
+    timestamp: new Date(),
+    mode: 'price', // Sabre's "price-as-booked"; FQ behaves the same way
+    store: true, // FQ files the quote so a later TKP<n> can reference it
+  };
+}
+
+/**
+ * `TKP<n>` — Issue ticket and associated documents for filed fare `<n>`.
+ * Source: Mini Format Guide v2 p.53.
+ *
+ *   TKP1                     issue from filed fare 1
+ *   TKP2                     issue from filed fare 2
+ *   TKP (no number)          shorthand for filed fare 1 (most recent)
+ *
+ * The Sabre TicketEntry kind is reused; source='pq' indicates issuance
+ * from a stored quote (vs Sabre's price-as-booked W¥).
+ *
+ * Deferred:
+ *   TKP1P2                   issue for specific passenger
+ *   TKP1OKX                  issue expired filed fare (guarantee code)
+ *   TKP<n>/<modifiers>       commission, FOP, ticket-designator, etc.
+ *                            (Mini Guide p.53-56 ticket modifiers section)
+ */
+function parseTicketIssue(raw: string, u: string): TicketEntry {
+  const rest = u.slice(3); // drop 'TKP'
+  let pqRecord = 1;
+  if (rest.length > 0) {
+    if (!/^\d+$/.test(rest)) {
+      throw new ParseError(`Galileo TKP: unsupported modifier "${rest}" in "${raw}"`);
+    }
+    pqRecord = parseInt(rest, 10);
+    if (pqRecord <= 0) throw new ParseError(`Galileo TKP: filed-fare index must be ≥ 1 in "${raw}"`);
+  }
+  return {
+    kind: 'ticket',
+    raw,
+    timestamp: new Date(),
+    source: 'pq',
+    pqRecord,
+  };
 }
