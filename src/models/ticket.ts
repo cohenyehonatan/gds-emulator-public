@@ -38,6 +38,12 @@ export interface TicketRecord {
    * (e.g. voided, refunded, exchanged). Defaults to OPEN at issuance.
    */
   status?: 'OPEN' | 'ACTL' | 'VOIDED' | 'REFUNDED' | 'EXCHANGED';
+  /**
+   * When the ticket was voided (status === 'VOIDED'). Drives the WV*
+   * date-window queries (Sabre Middle East QR p.13). Undefined for
+   * non-voided tickets and for voided tickets that predate the field.
+   */
+  voidedAt?: Date;
 }
 
 /** Set of statuses considered "active" for the *TA display (QR p.1). */

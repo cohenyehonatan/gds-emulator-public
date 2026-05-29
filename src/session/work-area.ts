@@ -46,6 +46,15 @@ export class WorkArea {
   lastRefundResponse?: string;
   /** Last ETR/ticket-image rendering; redisplayed by `WETR*`. */
   lastTicketDocument?: string;
+  /**
+   * Pending WV void — captured on the first WV<n> / WV‡<…>, awaiting the
+   * agent's identical re-entry to confirm. Per QR p.13 ("WV2 (Twice)").
+   * Keyed by `kind:'by_item'|'manual'` + selector so a different selector
+   * resets to step 1 (treats it as a fresh request, mirroring WTRX).
+   */
+  pendingVoid?:
+    | { kind: 'by_item'; itemNumber: number }
+    | { kind: 'manual'; ticketNumber: string };
   agent?: string;
   /** Work-area letter (A–F); single area per session in v1. */
   area = 'A';
@@ -66,5 +75,6 @@ export class WorkArea {
     this.pendingCancelRefundTicket = undefined;
     this.lastRefundResponse = undefined;
     this.lastTicketDocument = undefined;
+    this.pendingVoid = undefined;
   }
 }
