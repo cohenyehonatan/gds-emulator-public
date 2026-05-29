@@ -103,7 +103,9 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('QP/')) return parseQueuePlace(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
-  if (u === 'QX' || u === 'QXI' || u === 'QXE') return parseQueueExit(trimmed, u);
+  if (u === 'QX' || u === 'QXI' || u === 'QXE' || u === 'QXIR' || u === 'QXER') {
+    return parseQueueExit(trimmed, u);
+  }
   if (u === 'QR') return parseQueueRemove(trimmed);
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
@@ -657,8 +659,11 @@ function parseQueueRemoveAll(raw: string): QueueEntry {
 }
 
 function parseQueueExit(raw: string, u: string): QueueEntry {
-  const op: QueueEntry['op'] = u === 'QXI' ? 'exit_ignore'
+  const op: QueueEntry['op'] =
+    u === 'QXI' ? 'exit_ignore'
     : u === 'QXE' ? 'exit_end_tx'
+    : u === 'QXIR' ? 'exit_ignore_redisplay'
+    : u === 'QXER' ? 'exit_end_redisplay'
     : 'exit';
   return {
     kind: 'queue',

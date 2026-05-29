@@ -1193,7 +1193,13 @@ async function handleGalileoQueue(
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
-  if (entry.op === 'exit' || entry.op === 'exit_ignore' || entry.op === 'exit_end_tx') {
+  if (
+    entry.op === 'exit' ||
+    entry.op === 'exit_ignore' ||
+    entry.op === 'exit_end_tx' ||
+    entry.op === 'exit_ignore_redisplay' ||
+    entry.op === 'exit_end_redisplay'
+  ) {
     return handleGalileoQueueExit(entry, wa, ctx);
   }
   if (entry.op === 'remove') return handleGalileoQueueRemove(entry, wa, ctx);
@@ -1325,17 +1331,23 @@ async function handleGalileoQueueRemoveAll(
 }
 
 /**
- * `QX` / `QXI` / `QXE` — Sign out of the queue cursor.
+ * `QX` / `QXI` / `QXE` / `QXIR` / `QXER` — Sign out of the queue cursor.
  *
- *  - QX:  pure exit. Clear `wa.currentQueue` and `wa.queueCursor`,
- *         return `OK-QUEUE EXIT`. Work area is untouched.
- *  - QXI: exit + ignore. Routes through the same path as `I` (live
- *         workbench DELETE + reset WA). Returns `IGNORED`.
- *  - QXE: exit + end-tx. Routes through the same path as `E`
- *         (mandatory-field check + commit). Returns the locator.
+ *  - QX:   pure exit. Clear `wa.currentQueue` and `wa.queueCursor`,
+ *          return `OK-QUEUE EXIT`. Work area is untouched.
+ *  - QXI:  exit + ignore. Routes through the same path as `I` (live
+ *          workbench DELETE + reset WA). Returns `IGNORED`.
+ *  - QXE:  exit + end-tx. Routes through the same path as `E`
+ *          (mandatory-field check + commit). Returns the locator.
+ *  - QXIR: exit + ignore + REDISPLAY the on-screen BF. Composes QXI
+ *          with a re-retrieve via the same path `*<locator>` uses.
+ *          Source: Zenon course p.54.
+ *  - QXER: exit + end-tx + REDISPLAY the resulting BF. Composes QXE
+ *          with the existing `EndTransactionEntry.redisplay` flag.
  *
  * No REST equivalent for the exit itself — pure cursor op. The
- * composed forms reuse the I/E handlers so behaviour stays in sync.
+ * composed forms reuse the I/E/retrieve handlers so behaviour stays
+ * in sync.
  *
  * `OK-QUEUE EXIT` is reconstructed — Pocket Guide documents the entry
  * forms (`QX`, `QX+I`, `QX+E`) but not the response wording.
@@ -1357,6 +1369,27 @@ async function handleGalileoQueueExit(
   if (entry.op === 'exit_end_tx') {
     return handleGalileoEndTransaction(
       { kind: 'end_transaction', raw: entry.raw, timestamp: entry.timestamp, redisplay: false },
+      wa,
+      ctx
+    );
+  }
+  if (entry.op === 'exit_ignore_redisplay') {
+    // QXIR — same as QXI, but then re-retrieve the prior locator so
+    // the agent sees the pristine BF. Delegate to `handleGalileoIgnore`
+    // with `retrieve: true` — that's exactly the IR semantics.
+    return handleGalileoIgnore(
+      { kind: 'ignore', raw: entry.raw, timestamp: entry.timestamp, retrieve: true },
+      wa,
+      ctx
+    );
+  }
+  if (entry.op === 'exit_end_redisplay') {
+    // QXER — commit AND redisplay the BF. Reuse handleGalileoEndTransaction
+    // with `redisplay: true`. If the commit fails (missing field, names
+    // mismatch), the handler returns the rejection string and leaves the
+    // WA intact for correction.
+    return handleGalileoEndTransaction(
+      { kind: 'end_transaction', raw: entry.raw, timestamp: entry.timestamp, redisplay: true },
       wa,
       ctx
     );

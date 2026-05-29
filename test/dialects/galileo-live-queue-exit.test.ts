@@ -23,6 +23,18 @@ describe('Galileo QX / QXI / QXE parsing', () => {
     expect(r.kind).toBe('queue');
     if (r.kind === 'queue') expect(r.op).toBe('exit_end_tx');
   });
+
+  it('parses QXIR as queue exit + ignore + redisplay', () => {
+    const r = parseGalileoEntry('QXIR');
+    expect(r.kind).toBe('queue');
+    if (r.kind === 'queue') expect(r.op).toBe('exit_ignore_redisplay');
+  });
+
+  it('parses QXER as queue exit + end-tx + redisplay', () => {
+    const r = parseGalileoEntry('QXER');
+    expect(r.kind).toBe('queue');
+    if (r.kind === 'queue') expect(r.op).toBe('exit_end_redisplay');
+  });
 });
 
 describe('Galileo QX family — semantics', () => {
@@ -195,5 +207,109 @@ describe('Galileo QX family — semantics', () => {
     expect(resp).toMatch(/USE [PRINT.\s]/); // missing-field marker (PHONE first)
     // Queue cursor cleared even on commit failure — QX is local-only.
     expect(wa.currentQueue).toBeUndefined();
+  });
+
+  it('QXIR exits queue, ignores changes, and re-retrieves the on-screen BF', async () => {
+    const reservationResp = (loc: string) =>
+      new Response(
+        JSON.stringify({
+          Reservation: {
+            Identifier: { value: loc },
+            Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+            AirReservation: {
+              Flights: [
+                {
+                  carrier: 'UA',
+                  number: '1234',
+                  Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                  Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(reservationResp('ABC123')) // *ABC123
+      .mockResolvedValueOnce(listResp())                // Q/43
+      .mockResolvedValueOnce(reservationResp('ABC123')); // QXIR re-retrieve
+
+    await host.process('*ABC123', wa);
+    await host.process('Q/43', wa);
+    expect(wa.currentQueue).toBe('43');
+    expect(wa.pnr.locator).toBe('ABC123');
+
+    const resp = await host.process('QXIR', wa);
+    expect(resp).toContain('ABC123');
+    expect(wa.currentQueue).toBeUndefined();
+    expect(wa.pnr.locator).toBe('ABC123');
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it('QXIR with no prior locator falls through to plain IGNORED', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(listResp());
+
+    await host.process('Q/43', wa);
+    expect(wa.currentQueue).toBe('43');
+    expect(wa.pnr.locator).toBeUndefined();
+
+    const resp = await host.process('QXIR', wa);
+    expect(resp).toBe('IGNORED');
+    expect(wa.currentQueue).toBeUndefined();
+  });
+
+  it('QXER commits + redisplays the BF (locator + itinerary visible)', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok()) // addOffer
+      .mockResolvedValueOnce(ok()) // addTraveler
+      .mockResolvedValueOnce(ok()) // primaryContact
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            Receipt: [
+              { Confirmation: { Locator: { value: 'XER001', authority: 'Travelport' } } },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+    wa.currentQueue = '99';
+
+    const resp = await host.process('QXER', wa);
+    // Redisplay surfaces the rendered BF (header + itinerary), not just the locator.
+    expect(resp).toContain('XER001');
+    expect(resp).toContain('UA');
+    expect(wa.currentQueue).toBeUndefined();
+  });
+
+  it('QXER with mandatory field missing leaves queue cursor cleared but WA intact', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok());
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    wa.currentQueue = '99';
+
+    const resp = await host.process('QXER', wa);
+    expect(resp).toMatch(/USE [PRINT.\s]/);
+    expect(wa.currentQueue).toBeUndefined();
+    // The WA still has the in-flight segments — agent can fix and retry.
+    expect(wa.pnr.segments.length).toBe(1);
   });
 });
