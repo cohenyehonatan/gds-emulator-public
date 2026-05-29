@@ -1224,30 +1224,40 @@ async function handleGalileoQueue(
   }
   const locator = wa.pnr.locator!;
 
-  // Multi-queue chain (`QEB/35+40+45` / `QP/35+40`). v11 place endpoint
-  // takes one queue per request — fan out N round-trips. We post the
-  // primary first; if it succeeds, every additional target gets its
-  // own POST. Any failure mid-chain short-circuits and surfaces the
-  // backend error; queues already placed stay placed (we don't undo).
-  const queues = [queue, ...(entry.additionalTargets ?? []).map((t) => t.queue)];
+  // Multi-queue chain (`QEB/35+40+45` / `QP/35+40`) and branch-PCC
+  // (`QEB/<PCC>/<n>`, plus its multi-queue extension). v11 place
+  // endpoint accepts a `Queue[]` array — one POST covers every
+  // target. Each entry carries its own `pccOverride` when set.
+  const branchPcc = entry.pic; // parser stows branch-PCC in `pic` (reused field)
+  const queues: Array<{ value: string; pccOverride?: string }> = [
+    { value: queue, ...(branchPcc ? { pccOverride: branchPcc } : {}) },
+    ...(entry.additionalTargets ?? []).map((t) => ({
+      value: t.queue,
+      ...(branchPcc ? { pccOverride: branchPcc } : {}),
+    })),
+  ];
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
-      for (const q of queues) {
-        await ctx.backend.placeOnQueue(locator, q);
-      }
+      await ctx.backend.placeOnQueue(locator, queues);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
 
-  // Emulated mirror: append the locator to every target queue.
+  // Emulated mirror: append the locator to every target queue. Branch-
+  // PCC isn't modelled locally (the mirror is a flat Map<queueId,
+  // locator[]> regardless of PCC), so multi-PCC bookings see all
+  // placements coalesce by queue id. Pragmatic for v1.
   for (const q of queues) {
-    const list = ctx.backend.queues.get(q) ?? [];
+    const list = ctx.backend.queues.get(q.value) ?? [];
     if (!list.includes(locator)) list.push(locator);
-    ctx.backend.queues.set(q, list);
+    ctx.backend.queues.set(q.value, list);
   }
 
-  return `OK-QUEUE ${queues.join('+')}`; // reconstructed
+  const label = branchPcc
+    ? `${branchPcc}/${queues.map((q) => q.value).join('+')}`
+    : queues.map((q) => q.value).join('+');
+  return `OK-QUEUE ${label}`; // reconstructed
 }
 
 /**

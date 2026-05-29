@@ -564,14 +564,57 @@ export class LiveTravelportBackend implements Backend {
    * the queue id only; queue PCC and category code (QP/100/75 PIC)
    * forms aren't wired on the Galileo cryptic side yet.
    */
-  async placeOnQueue(locator: string, queue: string): Promise<unknown> {
+  /**
+   * Place a booking on one or more agency queues. Used by Galileo
+   * `QEB/<n>` and `QP/<n>` (plus their `+`-list and branch-PCC forms).
+   *
+   * Source: POST /11/air/queue/queue — body shape verified verbatim
+   * from `APIRef_Queue.htm` 2026-05-29:
+   *
+   *   {
+   *     "AgencyQueue": {
+   *       "ReservationIdentifier": { "value": "<locator>" },
+   *       "Queue": [{ "value": "<queue>", "pccOverride"?, ... }]
+   *     }
+   *   }
+   *
+   * Each `Queue[]` element supports per-queue `pccOverride`,
+   * `category`, `dateOffset`, `date` — `pccOverride` is what makes
+   * branch-PCC placement (`QEB/<PCC>/<n>`) a single call.
+   *
+   * v1 in this commit: the cryptic surface drives `value` and
+   * `pccOverride`. The other Queue[] options are accepted as opts
+   * for forward-compat; no cryptic form exposes them yet.
+   *
+   * NOTE: this replaces the old single-queue `QueuePlaceQuery` body
+   * we'd been posting since `bdb6146` — that shape was a guess that
+   * mocked tests accepted but pre-prod would reject. Same class of
+   * bug as the cancel-body fix in `c2fc1a1`.
+   */
+  async placeOnQueue(
+    locator: string,
+    queues: Array<{
+      value: string;
+      pccOverride?: string;
+      category?: string;
+      dateOffset?: number;
+      date?: string;
+    }>
+  ): Promise<unknown> {
     const url = `${this.opts.apiBase}/air/queue/queue`;
     return this.postJson(
       url,
       {
-        QueuePlaceQuery: {
-          LocatorCode: locator,
-          QueueNumber: queue,
+        AgencyQueue: {
+          ReservationIdentifier: { value: locator },
+          Queue: queues.map((q) => {
+            const out: Record<string, unknown> = { value: q.value };
+            if (q.pccOverride) out.pccOverride = q.pccOverride;
+            if (q.category) out.category = q.category;
+            if (q.dateOffset != null) out.dateOffset = q.dateOffset;
+            if (q.date) out.date = q.date;
+            return out;
+          }),
         },
       },
       'placeOnQueue'

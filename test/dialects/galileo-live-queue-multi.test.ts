@@ -55,6 +55,27 @@ describe('Galileo multi-queue `+` parsing', () => {
     expect(() => parseGalileoEntry('QEB/35+')).toThrow();
     expect(() => parseGalileoEntry('QEB/+35')).toThrow();
   });
+
+  it('QEB/71MG/50 → branch-PCC 71MG, queue 50', () => {
+    const r = parseGalileoEntry('QEB/71MG/50');
+    expect(r.kind).toBe('queue');
+    if (r.kind === 'queue') {
+      expect(r.queue).toBe('50');
+      expect(r.pic).toBe('71MG');
+      expect(r.endTransaction).toBe(true);
+      expect(r.additionalTargets).toBeUndefined();
+    }
+  });
+
+  it('QEB/71MG/50+60 → branch-PCC 71MG, queues 50 then 60', () => {
+    const r = parseGalileoEntry('QEB/71MG/50+60');
+    expect(r.kind).toBe('queue');
+    if (r.kind === 'queue') {
+      expect(r.queue).toBe('50');
+      expect(r.pic).toBe('71MG');
+      expect(r.additionalTargets).toEqual([{ queue: '60' }]);
+    }
+  });
 });
 
 describe('Galileo live QEB multi-queue place — N round-trips', () => {
@@ -134,7 +155,7 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('QEB/35+40+45 commits once and POSTs /queue/queue three times', async () => {
+  it('QEB/35+40+45 commits once and POSTs /queue/queue ONCE with three Queue[] elements', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -143,9 +164,7 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
       .mockResolvedValueOnce(ok()) // addTraveler
       .mockResolvedValueOnce(ok()) // primaryContact
       .mockResolvedValueOnce(commitResp('MQ001')) // commit
-      .mockResolvedValueOnce(ok()) // place 35
-      .mockResolvedValueOnce(ok()) // place 40
-      .mockResolvedValueOnce(ok()); // place 45
+      .mockResolvedValueOnce(ok()); // single multi-queue place
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
@@ -158,16 +177,20 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
     expect(resp).toBe('OK-QUEUE 35+40+45');
     expect(wa.pnr.locator).toBe('MQ001');
 
-    // Three /queue/queue calls (after the commit at index 6).
-    for (let i = 0; i < 3; i++) {
-      const [url, init] = fetchSpy.mock.calls[7 + i];
-      expect(url).toContain('/air/queue/queue');
-      expect(url).not.toContain('/list');
-      expect(url).not.toContain('/remove');
-      const body = JSON.parse((init?.body as string) ?? '{}');
-      expect(body.QueuePlaceQuery?.LocatorCode).toBe('MQ001');
-      expect(body.QueuePlaceQuery?.QueueNumber).toBe(['35', '40', '45'][i]);
-    }
+    // Exactly 8 calls — no per-queue fanout. The 7-index call is the
+    // single multi-queue place.
+    expect(fetchSpy).toHaveBeenCalledTimes(8);
+    const [url, init] = fetchSpy.mock.calls[7];
+    expect(url).toContain('/air/queue/queue');
+    expect(url).not.toContain('/list');
+    expect(url).not.toContain('/remove');
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    expect(body.AgencyQueue?.ReservationIdentifier).toEqual({ value: 'MQ001' });
+    expect(body.AgencyQueue?.Queue).toEqual([
+      { value: '35' },
+      { value: '40' },
+      { value: '45' },
+    ]);
 
     // All three queues mirror the placement locally.
     expect(host.backend.queues.get('35')).toContain('MQ001');
@@ -175,7 +198,7 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
     expect(host.backend.queues.get('45')).toContain('MQ001');
   });
 
-  it('QEB/35+40 — second placement failure surfaces error, first stays placed', async () => {
+  it('QEB/35+40 — place 5xx surfaces LIVE BACKEND ERROR; mirror untouched (atomic)', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -184,10 +207,9 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
       .mockResolvedValueOnce(ok())
       .mockResolvedValueOnce(ok())
       .mockResolvedValueOnce(commitResp('MQ002'))
-      .mockResolvedValueOnce(ok()) // place 35 OK
       .mockResolvedValueOnce(
         new Response('"queue full"', { status: 503, statusText: 'Service Unavailable' })
-      ); // place 40 fails
+      ); // single multi-queue place fails
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
@@ -199,10 +221,64 @@ describe('Galileo live QEB multi-queue place — N round-trips', () => {
     const resp = await host.process('QEB/35+40', wa);
     expect(resp).toContain('LIVE BACKEND ERROR');
     expect(resp).toContain('503');
-    // Mirror reflects the partial state — short-circuit means no local
-    // mirror write for either queue (writes happen after the REST loop).
+    // Single-call atomic: neither queue mirrored on REST failure.
     expect(host.backend.queues.get('35') ?? []).not.toContain('MQ002');
     expect(host.backend.queues.get('40') ?? []).not.toContain('MQ002');
+  });
+
+  it('QEB/<PCC>/<n> places via branch-PCC: pccOverride on each Queue element', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(commitResp('MQ003'))
+      .mockResolvedValueOnce(ok());
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+
+    const resp = await host.process('QEB/71MG/50', wa);
+    expect(resp).toBe('OK-QUEUE 71MG/50');
+
+    const [, init] = fetchSpy.mock.calls[7];
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    expect(body.AgencyQueue?.Queue).toEqual([{ value: '50', pccOverride: '71MG' }]);
+  });
+
+  it('QEB/<PCC>/<n>+<n> branch-PCC combined with multi-queue: pccOverride on each', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(commitResp('MQ004'))
+      .mockResolvedValueOnce(ok());
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+
+    const resp = await host.process('QEB/71MG/50+60', wa);
+    expect(resp).toBe('OK-QUEUE 71MG/50+60');
+
+    const [, init] = fetchSpy.mock.calls[7];
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    expect(body.AgencyQueue?.Queue).toEqual([
+      { value: '50', pccOverride: '71MG' },
+      { value: '60', pccOverride: '71MG' },
+    ]);
   });
 });
 

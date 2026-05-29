@@ -574,17 +574,41 @@ function parseVoid(raw: string, u: string): VoidEntry {
  * `QEB/<n>` — End transaction and place BF on queue `<n>`. Source:
  * Galileo Pocket Guide p.3. Combines two ops: commit + queue-place.
  *
- * Multi-queue form: `QEB/35+40+45` (Pocket Guide p.31) places on every
- * queue in the chain. First queue is primary; remainder land in
- * `additionalTargets`. Backed by N round-trips because the v11 place
- * endpoint takes one queue per request.
+ * Forms:
+ *   QEB/<n>              single queue
+ *   QEB/<n>+<n>+<n>      multi-queue chain (Pocket Guide p.31)
+ *   QEB/<PCC>/<n>        branch-PCC placement (Mini Guide v2 p.45)
+ *   QEB/<PCC>/<n>+<n>... branch-PCC + multi-queue (combination)
  *
- * Deferred:
- *   - QEB/<PCC>/<n>    branch-PCC queue placement
+ * Branch-PCC is disambiguated by structure: a two-segment form
+ * (`QEB/A/B`) treats A as the PCC and B as the queue chain. Single-
+ * segment (`QEB/A`) treats A as the queue chain (PCC unset). The
+ * branch PCC rides on `entry.pic` (we reuse the existing field — the
+ * Sabre PIC is queue-internal "placement instruction code" which we
+ * don't use in Galileo, freeing the field for this purpose).
  */
 function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
+  const branchMatch = /^QEB\/([A-Z0-9]+)\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
+  if (branchMatch) {
+    const [pcc, chain] = [branchMatch[1], branchMatch[2]];
+    const [primary, ...rest] = chain.split('+');
+    return {
+      kind: 'queue',
+      raw,
+      timestamp: new Date(),
+      op: 'place',
+      queue: primary,
+      pic: pcc,
+      endTransaction: true,
+      additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
+    };
+  }
   const m = /^QEB\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
-  if (!m) throw new ParseError(`Galileo QEB: expected QEB/<queue>[+<queue>...] in "${raw}"`);
+  if (!m) {
+    throw new ParseError(
+      `Galileo QEB: expected QEB/<queue>[+<queue>...] or QEB/<PCC>/<queue>[+<queue>...] in "${raw}"`
+    );
+  }
   const [primary, ...rest] = m[1].split('+');
   return {
     kind: 'queue',

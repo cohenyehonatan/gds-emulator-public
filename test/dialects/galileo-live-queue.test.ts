@@ -97,12 +97,14 @@ describe('Galileo live QEB/<queue> — end-tx + queue place', () => {
     expect(resp).toBe('OK-QUEUE 43');
     expect(wa.pnr.locator).toBe('QBF001');
 
-    // Inspect the queue-place POST:
+    // Inspect the queue-place POST — canonical AgencyQueue envelope.
     const [queueUrl, queueInit] = fetchSpy.mock.calls[7];
     expect(queueUrl).toContain('/air/queue/queue');
+    expect(queueUrl).not.toContain('/list');
+    expect(queueUrl).not.toContain('/remove');
     const body = JSON.parse((queueInit?.body as string) ?? '{}');
-    expect(body.QueuePlaceQuery?.LocatorCode).toBe('QBF001');
-    expect(body.QueuePlaceQuery?.QueueNumber).toBe('43');
+    expect(body.AgencyQueue?.ReservationIdentifier).toEqual({ value: 'QBF001' });
+    expect(body.AgencyQueue?.Queue).toEqual([{ value: '43' }]);
   });
 
   it('QEB/<n> without any built BF rejects via the mandatory-field check (no commit attempted)', async () => {
