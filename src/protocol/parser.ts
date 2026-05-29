@@ -59,6 +59,7 @@ const RULES: DispatchRule[] = [
   // Multi-char alphabetic sigils first (longest / most specific).
   { match: startsWith('AC¤'), parse: parseAccounting }, // accounting-line delete (¤ separator)
   { match: startsWith('AC/'), parse: parseAccounting }, // accounting-line add (manual)
+  { match: (raw) => /^AC\d+\//.test(raw), parse: parseAccounting }, // accounting-line modify
   { match: startsWith('SI'), parse: parseSignIn },
   { match: startsWith('SO'), parse: parseSignOut },
   { match: startsWith('WP'), parse: parsePricing },

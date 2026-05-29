@@ -1,22 +1,31 @@
 /**
- * Accounting-line parser (`AC…`). Two forms today:
+ * Accounting-line parser (`AC…`). Three forms today:
  *
- *   AC¤…    soft-delete (line / ALL / range / list)
- *   AC/…    add a manual accounting line
+ *   AC¤…              soft-delete (line / ALL / range / list)
+ *   AC/…              add a manual accounting line
+ *   AC<n>/<carrier>   modify the carrier (optionally + commission)
  *
- * Sources: Sabre Accounting Lines QR p.1 verbatim — both forms quoted.
+ * Sources: Sabre Accounting Lines QR p.1 verbatim — all three forms quoted.
  *
- * Modify forms (AC<n>/<carrier>, AC<n>/<carrier>/<commission>,
- * AC<n>¤O/<text>) are deferred to a follow-up.
+ * Deferred: AC<n>¤O/<text> optional-info modify, AC<n>/<10-digit ticket>
+ * ticket-number update.
  */
 
-import type { AccountingDeleteEntry, AccountingAddEntry } from '../entry.js';
+import type {
+  AccountingDeleteEntry,
+  AccountingAddEntry,
+  AccountingModifyEntry,
+} from '../entry.js';
 import { ParseError } from '../errors.js';
 
-export function parseAccounting(raw: string): AccountingDeleteEntry | AccountingAddEntry {
+export function parseAccounting(
+  raw: string
+): AccountingDeleteEntry | AccountingAddEntry | AccountingModifyEntry {
   if (raw.startsWith('AC¤')) return parseDelete(raw);
   if (raw.startsWith('AC/')) return parseAdd(raw);
-  throw new ParseError(`Accounting: expected AC¤<…> or AC/<…> in "${raw}"`);
+  const modify = /^AC(\d+)\/(.+)$/.exec(raw);
+  if (modify) return parseModify(modify[1], modify[2], raw);
+  throw new ParseError(`Accounting: expected AC¤<…>, AC/<…>, or AC<n>/<…> in "${raw}"`);
 }
 
 function parseDelete(raw: string): AccountingDeleteEntry {
@@ -39,6 +48,39 @@ function parseDelete(raw: string): AccountingDeleteEntry {
   }
 
   throw new ParseError(`Accounting: unsupported AC¤ selection "${body}" in "${raw}"`);
+}
+
+/** Parse the modify form `AC<n>/<carrier>[/<commission>]`. */
+function parseModify(lineNum: string, rest: string, raw: string): AccountingModifyEntry {
+  const parts = rest.split('/');
+  if (parts.length < 1 || parts.length > 2) {
+    throw new ParseError(`Accounting: AC<n>/ expects 1 or 2 trailing fields in "${raw}"`);
+  }
+  const carrier = parts[0];
+  if (!/^[A-Z0-9]{2}$/i.test(carrier)) {
+    throw new ParseError(`Accounting: bad carrier "${carrier}" in "${raw}"`);
+  }
+  const entry: AccountingModifyEntry = {
+    kind: 'accounting_modify',
+    raw,
+    timestamp: new Date(),
+    lineNumber: parseInt(lineNum, 10),
+    newCarrier: carrier.toUpperCase(),
+  };
+  if (parts.length === 2) {
+    const c = parts[1];
+    const pct = /^P(\d+(?:\.\d+)?)$/.exec(c);
+    if (pct) {
+      entry.newCommission = parseFloat(pct[1]);
+      entry.newCommissionPercent = true;
+    } else if (/^\d+(?:\.\d+)?$/.test(c)) {
+      entry.newCommission = parseFloat(c);
+      entry.newCommissionPercent = false;
+    } else {
+      throw new ParseError(`Accounting: bad commission "${c}" in "${raw}"`);
+    }
+  }
+  return entry;
 }
 
 /**

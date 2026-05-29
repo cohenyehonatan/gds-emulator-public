@@ -404,6 +404,33 @@ describe('e-ticket issuance', () => {
       ).toThrow(/9 slash-fields/);
     });
 
+    it('AC<n>/<carrier> modifies the validating carrier on an accounting line', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      expect(host.process('*PAC', wa)).toContain('B6¥'); // B6 is JFKLAX seed carrier
+      expect(host.process('AC1/BA', wa)).toBe('OK');
+      const pac = host.process('*PAC', wa);
+      expect(pac).toContain('BA¥'); // changed
+      expect(pac).not.toContain('B6¥'); // gone
+    });
+
+    it('AC<n>/<carrier>/<commission> modifies both at once', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      expect(host.process('AC1/DL/20.00', wa)).toBe('OK');
+      expect(wa.pnr.tickets[0].validatingCarrier).toBe('DL');
+      expect(wa.pnr.tickets[0].commission).toBe(20);
+    });
+
+    it('AC<n>/ on an out-of-range line returns ACCOUNTING LINE NOT FOUND', () => {
+      book();
+      host.process('-SMITH/JOHN MR', wa);
+      host.process('W¥', wa);
+      expect(host.process('AC9/BA', wa)).toBe('ACCOUNTING LINE NOT FOUND');
+    });
+
     it('AC¤<range> and AC¤<list> both work', () => {
       book();
       host.process('-SMITH/JOHN MR', wa);

@@ -404,6 +404,7 @@ export type ParsedEntry =
   | CancelRefundEntry
   | AccountingDeleteEntry
   | AccountingAddEntry
+  | AccountingModifyEntry
   | UnsupportedEntry;
 
 /**
@@ -432,6 +433,27 @@ export interface AccountingDeleteEntry extends BaseEntry {
 export interface AccountingAddEntry extends BaseEntry {
   kind: 'accounting_add';
   line: import('../models/manual-accounting.js').ManualAccountingLine;
+}
+
+/**
+ * Modify an accounting line (`AC<n>/<carrier>[/<commission>]`). Source:
+ * Sabre Accounting Lines QR p.1 — the QR notes the modify forms are
+ * valid only for manual lines and NIET auto lines; the emulator allows
+ * modify on any line and updates either the ManualAccountingLine in
+ * place or the underlying TicketRecord depending on which range the
+ * line number falls into.
+ */
+export interface AccountingModifyEntry extends BaseEntry {
+  kind: 'accounting_modify';
+  lineNumber: number;
+  newCarrier: string;
+  /**
+   * Optional new commission. `commission` is the numeric value; the
+   * flag captures whether it was supplied as a percentage (`P<n>`)
+   * vs a flat amount.
+   */
+  newCommission?: number;
+  newCommissionPercent?: boolean;
 }
 
 /**
