@@ -224,6 +224,19 @@ export class LiveTravelportBackend implements Backend {
     return JSON.parse(text);
   }
 
+  /** Shared PUT helper for status-update endpoints (e.g. void). */
+  private async putJson(url: string, body: unknown, label: string): Promise<unknown> {
+    const headers = await this.tripServicesHeaders();
+    const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
+      );
+    }
+    return text ? JSON.parse(text) : {};
+  }
+
   /**
    * Air search against TripServices CatalogProductOfferings. Returns the
    * raw JSON response; the Galileo `availability` handler maps
@@ -478,6 +491,24 @@ export class LiveTravelportBackend implements Backend {
     const url =
       `${this.opts.apiBase}/air/receipt/reservations/${encodeURIComponent(locator)}/receipts`;
     return this.getJson(url, 'listReceipts');
+  }
+
+  /**
+   * Void a single ticket.
+   *
+   * Source: PUT /11/air/ticket/tickets/updatestatus/{ticketID}. Used by
+   * Galileo `TRV/<13-digit>` (Mini Guide v2 p.53). Same-day window
+   * (BSP) / next-business-day (ARC) is enforced server-side; the
+   * emulator doesn't model wall-clock cutoffs.
+   *
+   * Body is minimal — `{ status: 'VOIDED' }`. The exact request shape
+   * isn't deeply documented in the v11 endpoint list; if pre-prod
+   * returns a 4xx, we adjust.
+   */
+  async voidTicket(ticketNumber: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/ticket/tickets/updatestatus/${encodeURIComponent(ticketNumber)}`;
+    return this.putJson(url, { status: 'VOIDED' }, 'voidTicket');
   }
 
   /**

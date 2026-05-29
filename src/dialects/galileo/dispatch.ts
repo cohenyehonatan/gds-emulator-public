@@ -32,6 +32,7 @@ import type {
   PricingEntry,
   TicketEntry,
   FlightInfoEntry,
+  VoidEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -140,6 +141,9 @@ export function dispatchGalileo(
 
       case 'flight_info':
         return handleGalileoFlightInfo(entry, wa);
+
+      case 'void':
+        return handleGalileoVoid(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -965,4 +969,55 @@ async function liveTicketListGalileo(
   // Mirror locally so subsequent cryptic queries don't need another fetch.
   wa.pnr.tickets = tickets;
   return renderGalileoTicketList(tickets);
+}
+
+/**
+ * `TRV/<13-digit>` — void an eticket. Source: Mini Format Guide v2 p.53.
+ * Live path PUTs /tickets/updatestatus; emulated path marks the matching
+ * ticket VOIDED on the in-memory PNR.
+ *
+ * Only the manual mode (with `ticketNumber` set) is reachable through
+ * the Galileo parser; the Sabre `WV*` list and by-item modes don't
+ * have a Galileo cryptic equivalent.
+ */
+async function handleGalileoVoid(
+  entry: VoidEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (entry.mode !== 'manual' || !entry.ticketNumber) {
+    return GalileoResponse.FORMAT;
+  }
+  const ticketNumber = entry.ticketNumber;
+
+  // Live path: PUT to /tickets/updatestatus. Same-day cutoff
+  // is enforced server-side; the emulator doesn't model it.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      await ctx.backend.voidTicket(ticketNumber);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/HTTP 40[4]|HTTP 410/.test(msg)) return 'TKT NOT FOUND'; // reconstructed
+      return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
+    }
+  }
+
+  // Local mirror — mark matching ticket VOIDED across the local pnr.tickets.
+  // Find by ticket number across the in-memory PNR + all stored PNRs.
+  let found: TicketRecord | undefined;
+  found = wa.pnr.tickets.find((t) => t.number === ticketNumber);
+  if (!found) {
+    for (const pnr of ctx.backend.pnrs.values()) {
+      const t = pnr.tickets.find((t) => t.number === ticketNumber);
+      if (t) {
+        found = t;
+        break;
+      }
+    }
+  }
+  if (!found) return 'TKT NOT FOUND'; // reconstructed (consistent w/ Sabre WV)
+  if (found.status === 'VOIDED') return 'TKT ALREADY VOIDED'; // reconstructed
+  found.status = 'VOIDED';
+  found.voidedAt = new Date();
+  return `OK-VOID TKT ${ticketNumber}`; // reconstructed (Sabre voice)
 }

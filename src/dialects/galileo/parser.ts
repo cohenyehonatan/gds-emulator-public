@@ -45,6 +45,7 @@ import type {
   PricingEntry,
   TicketEntry,
   FlightInfoEntry,
+  VoidEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -96,6 +97,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // ordering keeps intent explicit.)
   if (u === 'FQ') return parsePricing(trimmed);
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
+  if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
@@ -527,5 +529,26 @@ function parseFlightInfo(raw: string, u: string): FlightInfoEntry {
     timestamp: new Date(),
     source: 'availability',
     lines: [line],
+  };
+}
+
+/**
+ * `TRV/<13-digit>` — Void an eticket by ticket number. Source: Mini
+ * Format Guide v2 p.53. Same-day window enforced server-side; the
+ * emulator doesn't model wall-clock cutoffs.
+ *
+ * Deferred:
+ *   - TRVE/<ticket> void a REISSUED ticket — Galileo-specific exchange
+ *     flow not yet wired
+ */
+function parseVoid(raw: string, u: string): VoidEntry {
+  const m = /^TRV\/(\d{13})$/.exec(u);
+  if (!m) throw new ParseError(`Galileo TRV: expected TRV/<13-digit ticket> in "${raw}"`);
+  return {
+    kind: 'void',
+    raw,
+    timestamp: new Date(),
+    mode: 'manual',
+    ticketNumber: m[1],
   };
 }
