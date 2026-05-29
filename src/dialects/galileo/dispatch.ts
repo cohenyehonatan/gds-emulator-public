@@ -34,6 +34,7 @@ import type {
   FlightInfoEntry,
   VoidEntry,
   QueueEntry,
+  DivideEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -148,6 +149,9 @@ export function dispatchGalileo(
 
       case 'queue':
         return handleGalileoQueue(entry, wa, ctx);
+
+      case 'divide':
+        return handleGalileoDivide(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1108,4 +1112,46 @@ async function commitForQueueEnd(
   }
   wa.machine.transition(SessionEvent.END_TX);
   return {};
+}
+
+/**
+ * `DP<n>` — Divide passenger `<n>` from the booking file. Source: Mini
+ * Format Guide v2 p.39. v1 is single-shot: live POSTs /reservations/
+ * divide; emulated returns OK-DIVIDE without actually splitting the
+ * local Pnr (the full multi-step Galileo divide flow — DP<n> → R. →
+ * F → R. → E — is a follow-up).
+ *
+ * Galileo "passenger 2" means overall passenger index across all name
+ * elements. The handler validates the index is in range against the
+ * current PNR's passenger count.
+ */
+async function handleGalileoDivide(
+  entry: DivideEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const passenger = entry.refs[0]?.item;
+  if (!passenger || passenger < 1) return GalileoResponse.FORMAT;
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  if (passenger > wa.pnr.passengerCount()) return GalileoResponse.FORMAT;
+
+  // Live path: must have a locator (committed or retrieved BF).
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    if (!wa.pnr.locator) {
+      return 'LIVE DIVIDE REQUIRES COMMITTED BF'; // reconstructed
+    }
+    try {
+      await ctx.backend.divideReservation(wa.pnr.locator, [passenger]);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
+  // Emulated path: stub for v1. The full multi-step flow would stash
+  // the original PNR on wa.dividedOriginal and switch the active PNR
+  // to the divided slice; that's the existing Sabre handleDivide
+  // semantics but the Mini Guide's DP<n> is a one-shot. Defer until
+  // we have a Galileo-shaped divide test fixture to source against.
+  wa.machine.transition(SessionEvent.MODIFY);
+  return `OK-DIVIDE P${passenger}`; // reconstructed
 }

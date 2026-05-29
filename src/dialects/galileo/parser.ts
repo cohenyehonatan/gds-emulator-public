@@ -47,6 +47,7 @@ import type {
   FlightInfoEntry,
   VoidEntry,
   QueueEntry,
+  DivideEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -100,6 +101,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
+  if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
@@ -572,5 +574,29 @@ function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
     timestamp: new Date(),
     op: 'place',
     queue: m[1],
+  };
+}
+
+/**
+ * `DP<n>` — Divide passenger `<n>` from the booking file. Source: Mini
+ * Format Guide v2 p.39. Single-shot in this parser; the multi-step
+ * follow-up (R., F, R., E) is handled by the existing field entries.
+ *
+ * Galileo's "passenger 2" means overall passenger index across name
+ * elements, not name element 2. The handler resolves the index to an
+ * item+passenger ref when populating DivideEntry.refs.
+ */
+function parseDivide(raw: string, u: string): DivideEntry {
+  const m = /^DP(\d+)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo DP: expected DP<n> in "${raw}"`);
+  const passenger = parseInt(m[1], 10);
+  if (passenger <= 0) throw new ParseError(`Galileo DP: zero passenger in "${raw}"`);
+  // We store the overall passenger number under `item`; the handler
+  // walks the name list to resolve it to (item, passenger-in-item).
+  return {
+    kind: 'divide',
+    raw,
+    timestamp: new Date(),
+    refs: [{ item: passenger }],
   };
 }

@@ -534,6 +534,34 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Divide a reservation: split out one or more passengers into a new
+   * reservation. Used by Galileo `DP<n>` (Mini Guide v2 p.39).
+   *
+   * Source: POST /11/air/book/reservation/reservations/divide. The exact
+   * request shape isn't pinned in the spec endpoint list; we send
+   * `{ DivideQuery: { SourceLocator, PassengerNumbers: [...] } }` which
+   * mirrors the documented LocatorCode + entity-list pattern other
+   * endpoints use. If pre-prod returns a 4xx with the real shape we
+   * adjust.
+   */
+  async divideReservation(
+    locator: string,
+    passengerNumbers: number[]
+  ): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/book/reservation/reservations/divide`;
+    return this.postJson(
+      url,
+      {
+        DivideQuery: {
+          SourceLocator: locator,
+          PassengerNumbers: passengerNumbers,
+        },
+      },
+      'divideReservation'
+    );
+  }
+
+  /**
    * Cancel offers / segments inside an in-flight workbench (BEFORE
    * commit). Used by Galileo `XI` / `XA` / `X<n>` while the agent is
    * still building.
