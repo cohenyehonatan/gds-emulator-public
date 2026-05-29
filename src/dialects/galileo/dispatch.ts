@@ -31,6 +31,7 @@ import type {
   PassiveCancelEntry,
   PricingEntry,
   TicketEntry,
+  FlightInfoEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -58,6 +59,7 @@ import {
   renderGalileoItinerary,
   renderGalileoFareQuote,
   renderGalileoIssuedTickets,
+  renderGalileoFlightInfo,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 
@@ -129,6 +131,9 @@ export function dispatchGalileo(
 
       case 'ticket':
         return handleGalileoTicket(entry, wa, ctx);
+
+      case 'flight_info':
+        return handleGalileoFlightInfo(entry, wa);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -562,4 +567,26 @@ function handleGalileoTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
     }
   }
   return renderGalileoIssuedTickets(issued);
+}
+
+/**
+ * `TTL<n>` — show flight info for line `<n>` of the cached availability.
+ * Source: Mini Format Guide v2 p.11. The handler:
+ *   1. Reads wa.lastAvailability (whatever the latest A<date>... cached)
+ *   2. Resolves line `<n>` to an AvailabilityLine
+ *   3. Renders carrier / flight / orig / dest / depart / arrive / equip
+ *   4. When the line has a vendorRef (came from a live backend), surfaces
+ *      the Travelport offerId so an operator can confirm which offer
+ *      the line maps to — useful when troubleshooting live-availability
+ *      drift between cached and re-queried results.
+ */
+function handleGalileoFlightInfo(entry: FlightInfoEntry, wa: WorkArea): string {
+  if (entry.source !== 'availability') return GALILEO_NOT_IMPLEMENTED;
+  const avail = wa.lastAvailability;
+  if (!avail) return 'NO AVAILABILITY DISPLAYED'; // reconstructed
+  const target = entry.lines?.[0];
+  if (target == null) return GalileoResponse.FORMAT;
+  const line = avail.lines.find((l) => l.line === target);
+  if (!line) return GalileoResponse.FORMAT;
+  return renderGalileoFlightInfo(line, avail.date);
 }

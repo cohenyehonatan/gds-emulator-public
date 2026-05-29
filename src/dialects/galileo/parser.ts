@@ -44,6 +44,7 @@ import type {
   PassiveCancelEntry,
   PricingEntry,
   TicketEntry,
+  FlightInfoEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -95,6 +96,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // ordering keeps intent explicit.)
   if (u === 'FQ') return parsePricing(trimmed);
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
+  if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
 
@@ -501,5 +503,29 @@ function parseTicketIssue(raw: string, u: string): TicketEntry {
     timestamp: new Date(),
     source: 'pq',
     pqRecord,
+  };
+}
+
+/**
+ * `TTL<n>` — Show flight information for flight on line `<n>` in the
+ * cached availability. Source: Mini Format Guide v2 p.11 verbatim
+ * ("TTL1 — Show flight information for flight on line 1 in
+ * availability"). Reuses the Sabre FlightInfoEntry kind with source =
+ * 'availability'.
+ *
+ * Multi-line `TTL1,2` / `TTL1-3` forms aren't documented in the Mini
+ * Guide; single-line v1.
+ */
+function parseFlightInfo(raw: string, u: string): FlightInfoEntry {
+  const m = /^TTL(\d+)$/.exec(u);
+  if (!m) throw new ParseError(`Galileo TTL: expected TTL<line> in "${raw}"`);
+  const line = parseInt(m[1], 10);
+  if (line <= 0) throw new ParseError(`Galileo TTL: zero line in "${raw}"`);
+  return {
+    kind: 'flight_info',
+    raw,
+    timestamp: new Date(),
+    source: 'availability',
+    lines: [line],
   };
 }

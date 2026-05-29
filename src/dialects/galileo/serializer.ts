@@ -172,3 +172,23 @@ export function renderGalileoIssuedTickets(tickets: TicketRecord[]): string {
     .map((t) => `TKT ${t.number}  ${t.passenger}  ${t.validatingCarrier}  ${t.total.toFixed(2)}`)
     .join('\n');
 }
+
+/**
+ * `TTL<n>` response — show flight details for one availability line.
+ * Reconstructed (Mini Guide v2 documents the entry, not the response).
+ * Layout: header with flight identity, then a body line with route +
+ * times + equipment. When the line came from a live backend and carries
+ * a vendorRef, the offerId is surfaced on a TVP line so an operator can
+ * confirm which Travelport offer the cached line maps to.
+ */
+export function renderGalileoFlightInfo(line: AvailabilityLine, date: string): string {
+  const out: string[] = [];
+  out.push(`FLIGHT ${line.carrier} ${line.flightNumber}  ${date}`);
+  out.push(
+    `${line.origin} ${to24h(line.departTime)} → ${line.destination} ${to24h(line.arriveTime)}  ${line.equipment}`
+  );
+  if (line.vendorRef?.offerId) {
+    out.push(`TVP OFFER ${line.vendorRef.offerId}`);
+  }
+  return out.join('\n');
+}
