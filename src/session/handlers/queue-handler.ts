@@ -193,5 +193,12 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
       wa.queueCursor = undefined;
       return result;
     }
+
+    case 'exit_ignore':
+    case 'exit_end_tx':
+      // Galileo-only QXI / QXE — the Galileo dispatcher routes these
+      // through its own `handleGalileoQueueExit`. Sabre's parser never
+      // emits them; if we ever see one here it's a programming error.
+      return 'FORMAT';
   }
 }

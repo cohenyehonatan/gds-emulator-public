@@ -103,6 +103,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('QP/')) return parseQueuePlace(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
+  if (u === 'QX' || u === 'QXI' || u === 'QXE') return parseQueueExit(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
@@ -602,6 +603,31 @@ function parseQueuePlace(raw: string, u: string): QueueEntry {
     timestamp: new Date(),
     op: 'place',
     queue: m[1],
+  };
+}
+
+/**
+ * `QX` / `QXI` / `QXE` — Sign out of the current queue cursor.
+ * Source: Mini Format Guide v2 p.45 (`QXI` "Sign out of the queue and
+ * ignore active booking file") + Galileo Pocket Guide p.13 (`QX`
+ * "Sign out of queue", `QX+I` / `QX+E` composed forms).
+ *
+ * No REST equivalent — this is a pure cursor/state op. QXI composes
+ * with `I` semantics (workbench DELETE + reset); QXE composes with
+ * `E` semantics (commit). Plain QX just clears `wa.currentQueue` and
+ * leaves the work area alone.
+ *
+ * Deferred: `QXIR` / `QXER` (Zenon-course redisplay variants).
+ */
+function parseQueueExit(raw: string, u: string): QueueEntry {
+  const op: QueueEntry['op'] = u === 'QXI' ? 'exit_ignore'
+    : u === 'QXE' ? 'exit_end_tx'
+    : 'exit';
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op,
   };
 }
 

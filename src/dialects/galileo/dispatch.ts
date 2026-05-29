@@ -1193,6 +1193,9 @@ async function handleGalileoQueue(
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
+  if (entry.op === 'exit' || entry.op === 'exit_ignore' || entry.op === 'exit_end_tx') {
+    return handleGalileoQueueExit(entry, wa, ctx);
+  }
   if (!entry.queue) return GalileoResponse.FORMAT;
   if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
@@ -1228,6 +1231,46 @@ async function handleGalileoQueue(
   ctx.backend.queues.set(queue, list);
 
   return `OK-QUEUE ${queue}`; // reconstructed
+}
+
+/**
+ * `QX` / `QXI` / `QXE` — Sign out of the queue cursor.
+ *
+ *  - QX:  pure exit. Clear `wa.currentQueue` and `wa.queueCursor`,
+ *         return `OK-QUEUE EXIT`. Work area is untouched.
+ *  - QXI: exit + ignore. Routes through the same path as `I` (live
+ *         workbench DELETE + reset WA). Returns `IGNORED`.
+ *  - QXE: exit + end-tx. Routes through the same path as `E`
+ *         (mandatory-field check + commit). Returns the locator.
+ *
+ * No REST equivalent for the exit itself — pure cursor op. The
+ * composed forms reuse the I/E handlers so behaviour stays in sync.
+ *
+ * `OK-QUEUE EXIT` is reconstructed — Pocket Guide documents the entry
+ * forms (`QX`, `QX+I`, `QX+E`) but not the response wording.
+ */
+async function handleGalileoQueueExit(
+  entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  wa.currentQueue = undefined;
+  wa.queueCursor = undefined;
+  if (entry.op === 'exit_ignore') {
+    return handleGalileoIgnore(
+      { kind: 'ignore', raw: entry.raw, timestamp: entry.timestamp },
+      wa,
+      ctx
+    );
+  }
+  if (entry.op === 'exit_end_tx') {
+    return handleGalileoEndTransaction(
+      { kind: 'end_transaction', raw: entry.raw, timestamp: entry.timestamp, redisplay: false },
+      wa,
+      ctx
+    );
+  }
+  return 'OK-QUEUE EXIT'; // reconstructed
 }
 
 /**

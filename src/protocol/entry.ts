@@ -263,6 +263,10 @@ export interface QueueEntry extends BaseEntry {
     | 'access'
     | 'remove'
     | 'exit'
+    /** `QXI` — exit + ignore active BF (composes with I semantics). */
+    | 'exit_ignore'
+    /** `QXE` — exit + end transaction (composes with E semantics). */
+    | 'exit_end_tx'
     | 'exit_ignore_redisplay'
     | 'exit_end_redisplay'
     | 'skip'
