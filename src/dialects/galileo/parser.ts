@@ -104,6 +104,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('QP/')) return parseQueuePlace(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
   if (u === 'QX' || u === 'QXI' || u === 'QXE') return parseQueueExit(trimmed, u);
+  if (u === 'QR') return parseQueueRemove(trimmed);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   if (isAvailability(u)) return parseAvailability(trimmed, u);
@@ -619,6 +620,23 @@ function parseQueuePlace(raw: string, u: string): QueueEntry {
  *
  * Deferred: `QXIR` / `QXER` (Zenon-course redisplay variants).
  */
+/**
+ * `QR` — Remove the on-screen BF from the current queue. Source:
+ * Galileo Pocket Guide p.13 ("QR  Remove BF from queue"). v1 covers
+ * the simple form only; `QRQ/ALL` (remove from all queues) deferred.
+ *
+ * Both `wa.currentQueue` and `wa.pnr.locator` must be present —
+ * dispatch returns `FORMAT` otherwise.
+ */
+function parseQueueRemove(raw: string): QueueEntry {
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: 'remove',
+  };
+}
+
 function parseQueueExit(raw: string, u: string): QueueEntry {
   const op: QueueEntry['op'] = u === 'QXI' ? 'exit_ignore'
     : u === 'QXE' ? 'exit_end_tx'

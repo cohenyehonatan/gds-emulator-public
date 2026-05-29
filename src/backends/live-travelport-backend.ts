@@ -606,6 +606,42 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Remove a booking from one or more agency queues. Used by Galileo `QR`.
+   *
+   * Source: POST /11/air/queue/queue/remove — body shape verified
+   * verbatim from `APIRef_QueueRemove.htm` (2026-05-29). The
+   * `ReservationIdentifier.value` is the BF locator; `Queue[]` is the
+   * list of queues to remove it from.
+   *
+   * Response is `BaseResponse.Result.status` ("Complete" on success);
+   * we just verify the call succeeded and return the raw response.
+   *
+   * v1: single queue, no qualifiers. Multi-queue and per-queue
+   * date/category/pcc filters surface via `opts` when the cryptic
+   * parser supports them (`QRQ/ALL` etc.).
+   */
+  async removeFromQueue(
+    locator: string,
+    queue: string,
+    opts?: { dateOffset?: number; pccOverride?: string; category?: string }
+  ): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/queue/queue/remove`;
+    const q: Record<string, unknown> = { value: queue };
+    if (opts?.dateOffset != null) q.dateOffset = opts.dateOffset;
+    if (opts?.pccOverride) q.pccOverride = opts.pccOverride;
+    if (opts?.category) q.category = opts.category;
+    return this.postJson(
+      url,
+      {
+        '@type': 'AgencyQueueSummary',
+        ReservationIdentifier: { value: locator },
+        Queue: [q],
+      },
+      'removeFromQueue'
+    );
+  }
+
+  /**
    * Divide a reservation: split out one or more passengers into a new
    * reservation. Used by Galileo `DP<n>` (Mini Guide v2 p.39).
    *

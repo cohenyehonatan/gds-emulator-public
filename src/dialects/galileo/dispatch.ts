@@ -1196,6 +1196,7 @@ async function handleGalileoQueue(
   if (entry.op === 'exit' || entry.op === 'exit_ignore' || entry.op === 'exit_end_tx') {
     return handleGalileoQueueExit(entry, wa, ctx);
   }
+  if (entry.op === 'remove') return handleGalileoQueueRemove(entry, wa, ctx);
   if (!entry.queue) return GalileoResponse.FORMAT;
   if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
@@ -1231,6 +1232,48 @@ async function handleGalileoQueue(
   ctx.backend.queues.set(queue, list);
 
   return `OK-QUEUE ${queue}`; // reconstructed
+}
+
+/**
+ * `QR` — Remove the on-screen committed BF from the current queue.
+ * Source: Galileo Pocket Guide p.13. Live path POSTs the canonical
+ * `AgencyQueueSummary` body to `/queue/queue/remove` (verified verbatim
+ * from `APIRef_QueueRemove.htm` 2026-05-29):
+ *
+ *   {
+ *     "@type": "AgencyQueueSummary",
+ *     "ReservationIdentifier": { "value": "<locator>" },
+ *     "Queue": [{ "value": "<queue>" }]
+ *   }
+ *
+ * Requires both `wa.currentQueue` (set by `Q/<n>` access) and a
+ * locator on the on-screen BF — return `FORMAT` otherwise (Mini Guide
+ * doesn't quote the rejection wording). Local mirror in
+ * `backend.queues` is updated to match. v1: simple QR only; `QRQ/ALL`
+ * (remove from all queues) deferred.
+ */
+async function handleGalileoQueueRemove(
+  _entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const queue = wa.currentQueue;
+  const locator = wa.pnr.locator;
+  if (!queue || !locator) return GalileoResponse.FORMAT;
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      await ctx.backend.removeFromQueue(locator, queue);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+  const list = ctx.backend.queues.get(queue) ?? [];
+  const idx = list.indexOf(locator);
+  if (idx !== -1) {
+    list.splice(idx, 1);
+    ctx.backend.queues.set(queue, list);
+  }
+  return `OK-QUEUE REMOVE ${queue}`; // reconstructed
 }
 
 /**
