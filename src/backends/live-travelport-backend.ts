@@ -463,7 +463,7 @@ export class LiveTravelportBackend implements Backend {
 
   async commitWorkbench(
     workbenchId: string,
-    opts?: { autoDeleteDate?: string }
+    opts?: { autoDeleteDate?: string; ticketing?: string }
   ): Promise<string> {
     const url =
       `${this.opts.apiBase}/air/book/reservation/reservations/${encodeURIComponent(workbenchId)}`;
@@ -471,6 +471,13 @@ export class LiveTravelportBackend implements Backend {
       ReservationQueryCommitReservation: {
         enableTwoStepCommitInd: false,
         ...(opts?.autoDeleteDate ? { autoDeleteDate: opts.autoDeleteDate } : {}),
+        // Ticketing-on-commit per the v11 spec: a `Ticketing` field on
+        // ReservationQueryCommitReservation. Raw text passes through —
+        // Galileo's T. accepts forms like `T*` (minimum) and `TAU/10JUN`
+        // (queue + date); the server validates. Field name not pinned
+        // in the spec list we fetched; if pre-prod surfaces a 4xx
+        // about unknown field, we adjust.
+        ...(opts?.ticketing ? { Ticketing: { value: opts.ticketing } } : {}),
       },
     };
     const json = (await this.postJson(url, body, 'commitWorkbench')) as any;

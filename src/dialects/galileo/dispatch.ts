@@ -482,7 +482,9 @@ async function commitGalileoLive(
 ): Promise<string> {
   let locator: string;
   try {
-    locator = await backend.commitWorkbench(workbenchId);
+    locator = await backend.commitWorkbench(workbenchId, {
+      ticketing: wa.pnr.ticketing, // T.T* / T.TAU/10JUN — rides inline on the commit per v11 spec
+    });
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
