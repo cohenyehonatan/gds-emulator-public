@@ -13,6 +13,10 @@
  * real response strings.
  */
 
+import type { AvailabilityResult, AvailabilityLine } from '../../models/availability-result.js';
+import type { AirSegment } from '../../models/segment.js';
+import { to24h } from '../../utils/validation.js';
+
 export interface GalileoSignature {
   /** Pseudo City Code (e.g. "7K9S" — the Travelport pre-prod tenant). */
   pcc: string;
@@ -49,4 +53,49 @@ export function renderGalileoSignOffResponse(sig: GalileoSignature): string {
 export function renderGalileoSwitchAreaResponse(sig: GalileoSignature, area: string): string {
   const code = sig.agent ?? 'AGT';
   return `${sig.pcc}.${sig.pcc}*${code}..${area}`; // reconstructed
+}
+
+/**
+ * Availability display for the Galileo dialect. Reconstructed — the
+ * Mini Format Guide v2 documents the entry but the response screen
+ * lives behind a Smartpoint GUI. Travelport Smartpoint Module 2
+ * describes the conceptual columns (line# / carrier / flight / classes
+ * with seat counts / origin-destination / depart / arrive / equipment)
+ * but doesn't publish a byte-by-byte sample.
+ *
+ * The reconstruction below keeps the same underlying data the Sabre
+ * renderer uses but reflows it into a recognizably-different header
+ * (`<DD-MMM>  <ORIG>-<DEST>`, with a dash separator instead of Sabre's
+ * slash) and uses the Module-2 column order: origin / depart / dest /
+ * arrive comes BEFORE the classes block. Flagged inline.
+ */
+export function renderGalileoAvailability(result: AvailabilityResult): string {
+  const header = `${result.date}  ${result.origin}-${result.destination}`; // reconstructed
+  const lines = result.lines.map(renderGalileoAvailLine);
+  return [header, ...lines].join('\n');
+}
+
+function renderGalileoAvailLine(l: AvailabilityLine): string {
+  const classes = Object.entries(l.classes)
+    .map(([c, n]) => `${c}${Math.min(n, 9)}`)
+    .join(' ');
+  return (
+    `${String(l.line).padStart(2)} ${l.carrier} ${l.flightNumber.padEnd(4)} ` +
+    `${l.origin} ${to24h(l.departTime)} ${l.destination} ${to24h(l.arriveTime)} ${l.equipment}  ${classes}`
+  );
+}
+
+/**
+ * Render the sold-segment echo after `N<seats><class><line>`.
+ * Reconstructed — neither the Mini Guide nor the Pocket Guide quotes
+ * the exact host-mode echo (Smartpoint renders it in the booking-file
+ * panel). Shape matches the same Module-2 callouts so the avail and
+ * sell echoes share a column convention.
+ */
+export function renderGalileoSoldSegment(s: AirSegment): string {
+  return (
+    ` ${s.segmentNumber}. ${s.carrier} ${s.flightNumber.padEnd(4)} ${s.bookingClass} ` +
+    `${s.date} ${s.origin} ${s.destination} ${s.status} ${s.seats} ` +
+    `${to24h(s.departTime)} ${to24h(s.arriveTime ?? '')}`
+  ); // reconstructed
 }

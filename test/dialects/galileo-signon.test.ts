@@ -89,10 +89,13 @@ describe('Galileo dialect — SON / SOF through the host', () => {
     expect(host.process('NOPE', wa)).toBe('FORMAT');
   });
 
-  it('A<date>... availability returns NOT IMPLEMENTED (not yet wired)', () => {
+  it('a now-supported verb (availability) no longer returns FORMAT', () => {
     const { host, wa } = newHost();
     host.process('SON/ZHA', wa);
-    expect(host.process('A15JUNJFKLAX', wa)).toBe('FORMAT'); // parser doesn't know A yet
+    const resp = host.process('A15JUNJFKLAX', wa);
+    expect(resp).not.toBe('FORMAT');
+    expect(resp).toContain('JFK');
+    expect(resp).toContain('LAX');
   });
 
   it("the dialect's chain-halting set includes FORMAT and NOT IMPLEMENTED", () => {

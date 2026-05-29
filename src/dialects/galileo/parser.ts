@@ -30,7 +30,10 @@ import type {
   SignInEntry,
   SignOutEntry,
   SwitchAreaEntry,
+  AvailabilityEntry,
+  SellEntry,
 } from '../../protocol/entry.js';
+import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
 
 /** Galileo's documented area letters (Mini Guide v2 p.5: A-E). */
@@ -49,6 +52,8 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('SON/Z')) return parseSignOn(trimmed, u);
   if (u === 'SOF' || u.startsWith('SOF/Z')) return parseSignOff(trimmed, u);
   if (isAreaSwitch(u)) return parseAreaSwitch(trimmed, u);
+  if (isAvailability(u)) return parseAvailability(trimmed, u);
+  if (isSell(u)) return parseSell(trimmed, u);
 
   throw new ParseError(`Galileo: unrecognized entry "${trimmed}"`);
 }
@@ -96,5 +101,87 @@ function parseAreaSwitch(raw: string, u: string): SwitchAreaEntry {
     raw,
     timestamp: new Date(),
     targetArea: u[1],
+  };
+}
+
+/**
+ * Availability entries. Source: Travelport+ Mini Format Guide v2 p.11
+ * + Galileo Pocket Guide p.3. Forms covered in this commit:
+ *
+ *   A<DDMMM><orig><dest>            basic neutral availability
+ *   A<DDMMM><orig><dest>/<carrier>  carrier-filtered
+ *   AD/AJ/AA/AF<DDMMM><orig><dest>  sort-mode prefix (departure / journey
+ *                                    / arrival / 7-day window) — accepted
+ *                                    at the parser level, currently
+ *                                    rendered as default sort since the
+ *                                    inventory layer only orders by
+ *                                    departure time
+ *
+ * Deferred for follow-up commits (parser will reject for now):
+ *   - same-day A<orig><dest>        (no date — "today")
+ *   - connection .SIN               (.<midpoint>)
+ *   - time qualifier .1400          (after that time of day)
+ *   - return AR<DDMMM>              (after a previous outbound)
+ *   - date deltas A#, A-1, A+5      (scroll forward/back)
+ *   - class filter @V               (booking-class restrictor)
+ */
+const AVAIL_RE = /^A([DJAF])?(\d{1,2}[A-Z]{3})([A-Z]{3})([A-Z]{3})(?:\/([A-Z0-9]+))?$/;
+
+function isAvailability(u: string): boolean {
+  return AVAIL_RE.test(u);
+}
+
+function parseAvailability(raw: string, u: string): AvailabilityEntry {
+  const m = AVAIL_RE.exec(u)!;
+  const [, _sortMode, dateTok, origin, destination, carrier] = m;
+  const parsed = parseSabreDate(dateTok);
+  if (!parsed) throw new ParseError(`Galileo: bad date "${dateTok}" in "${raw}"`);
+  return {
+    kind: 'availability',
+    raw,
+    timestamp: new Date(),
+    mode: 'display',
+    date: parsed.date,
+    origin,
+    destination,
+    carriers: carrier ? [carrier] : undefined,
+  };
+}
+
+/**
+ * Sell entries. Source: Mini Format Guide v2 p.12 + Pocket Guide p.3:
+ *
+ *   N<seats><class><line>           basic single-segment sell
+ *                                    e.g. N1Y1 (1 seat Y class line 1)
+ *
+ * Deferred for follow-up commits:
+ *   - multi-leg connecting form     N2F1F2Y3
+ *   - sell-with-star-connections    N1C5*
+ *   - waitlist if unavailable       (Mini Guide / Pocket Guide both
+ *                                    document this implicitly)
+ *   - ARNK segments                 0A
+ *   - direct/long sell              (no availability cache needed)
+ */
+const SELL_RE = /^N(\d+)([A-Z])(\d+)$/;
+
+function isSell(u: string): boolean {
+  return SELL_RE.test(u);
+}
+
+function parseSell(raw: string, u: string): SellEntry {
+  const m = SELL_RE.exec(u)!;
+  const [, seatsStr, bookingClass, lineStr] = m;
+  const seats = parseInt(seatsStr, 10);
+  const line = parseInt(lineStr, 10);
+  if (seats <= 0) throw new ParseError(`Galileo: zero seats in "${raw}"`);
+  if (line <= 0) throw new ParseError(`Galileo: zero line in "${raw}"`);
+  return {
+    kind: 'sell',
+    raw,
+    timestamp: new Date(),
+    mode: 'availability',
+    seats,
+    bookingClass,
+    line,
   };
 }
