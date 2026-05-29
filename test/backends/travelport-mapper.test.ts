@@ -134,6 +134,120 @@ describe('mapCatalogProductOfferings — connection', () => {
   });
 });
 
+describe('mapCatalogProductOfferings — vendorRef capture', () => {
+  const FIXTURE_WITH_IDS = {
+    CatalogProductOfferingsResponse: {
+      CatalogProductOfferings: {
+        CatalogProductOffering: [
+          {
+            Identifier: { value: 'OFF-7K9S-001' },
+            ProductBrandOptions: [
+              {
+                Identifier: { value: 'PRD-001' },
+                Flight: [
+                  {
+                    carrier: 'UA',
+                    number: 1234,
+                    Departure: { location: 'DEN', time: '2026-06-27T08:00:00.000-06:00' },
+                    Arrival: { location: 'FRA', time: '2026-06-28T07:30:00.000+02:00' },
+                  },
+                ],
+                ProductBrandOffering: [
+                  {
+                    Identifier: { value: 'BRD-Y' },
+                    FareDetail: [{ FareBasis: 'YPRO', BookingCode: { code: 'Y', count: 9 } }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+
+  it('attaches vendorRef when the response carries Travelport identifiers', () => {
+    const lines = mapCatalogProductOfferings(FIXTURE_WITH_IDS);
+    expect(lines[0].vendorRef).toEqual({
+      offerId: 'OFF-7K9S-001',
+      productId: 'PRD-001',
+      brandId: 'BRD-Y',
+    });
+  });
+
+  it('omits vendorRef when no Identifier values are present', () => {
+    const lines = mapCatalogProductOfferings(NONSTOP_FIXTURE);
+    expect(lines[0].vendorRef).toBeUndefined();
+  });
+
+  it('shares the same vendorRef across legs of a connection', () => {
+    const conn = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              Identifier: { value: 'OFF-CONN' },
+              ProductBrandOptions: [
+                {
+                  Identifier: { value: 'PRD-CONN' },
+                  Flight: [
+                    {
+                      carrier: 'LH',
+                      number: 401,
+                      Departure: { location: 'JFK', time: '2026-06-27T18:30:00.000-04:00' },
+                      Arrival: { location: 'FRA', time: '2026-06-28T08:30:00.000+02:00' },
+                    },
+                    {
+                      carrier: 'LH',
+                      number: 1056,
+                      Departure: { location: 'FRA', time: '2026-06-28T10:30:00.000+02:00' },
+                      Arrival: { location: 'CDG', time: '2026-06-28T12:00:00.000+02:00' },
+                    },
+                  ],
+                  ProductBrandOffering: [{ Identifier: { value: 'BRD' } }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    const lines = mapCatalogProductOfferings(conn);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].vendorRef?.offerId).toBe('OFF-CONN');
+    expect(lines[1].vendorRef?.offerId).toBe('OFF-CONN');
+  });
+
+  it('tolerates a flat `id` field as a fallback for Identifier.value', () => {
+    const flat = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              id: 'flat-offer-id',
+              ProductBrandOptions: [
+                {
+                  Flight: [
+                    {
+                      carrier: 'AA',
+                      number: 100,
+                      Departure: { location: 'JFK', time: '2026-06-27T08:00:00Z' },
+                      Arrival: { location: 'LAX', time: '2026-06-27T11:00:00Z' },
+                    },
+                  ],
+                  ProductBrandOffering: [],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    const lines = mapCatalogProductOfferings(flat);
+    expect(lines[0].vendorRef?.offerId).toBe('flat-offer-id');
+  });
+});
+
 describe('mapCatalogProductOfferings — defensive parsing', () => {
   it('returns [] for an empty response', () => {
     expect(mapCatalogProductOfferings({})).toEqual([]);

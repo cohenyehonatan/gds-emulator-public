@@ -7,6 +7,25 @@
  * the printer emulator's mode/resource context that later commands depend on.
  */
 
+/**
+ * Opaque vendor-side identifiers that ride along an AvailabilityLine
+ * when it came from a live backend. EmulatedBackend leaves this field
+ * undefined. A live-sell handler reads it to reference the exact offer
+ * the agent chose (you can't sell a Travelport offer without echoing
+ * back its Identifier).
+ *
+ * The mapper populates whichever sub-IDs the response actually had —
+ * tests should never assume a specific shape beyond `offerId`.
+ */
+export interface VendorRef {
+  /** ProductOffering / CatalogProductOffering identifier. */
+  offerId?: string;
+  /** Optional ProductBrandOptions / per-brand identifier (for FQ). */
+  productId?: string;
+  /** Optional ProductBrandOffering / brand identifier (for FQ). */
+  brandId?: string;
+}
+
 export interface AvailabilityLine {
   line: number; // 1-based, as shown to the agent
   carrier: string;
@@ -24,6 +43,8 @@ export interface AvailabilityLine {
   /** Connection grouping: legs of one connection share an id; nonstops omit it. */
   connectionGroup?: number;
   legIndex?: number; // 0-based position within the connection
+  /** Opaque vendor identifiers — populated only when the line came from a live backend. */
+  vendorRef?: VendorRef;
 }
 
 export interface AvailabilityResult {

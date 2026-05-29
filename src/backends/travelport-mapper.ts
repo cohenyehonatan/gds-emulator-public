@@ -44,7 +44,7 @@
  * the mapper — it just returns fewer lines.
  */
 
-import type { AvailabilityLine } from '../models/availability-result.js';
+import type { AvailabilityLine, VendorRef } from '../models/availability-result.js';
 
 export interface MapOptions {
   /** Sabre-style day-of-week letter ("S","M","T","W","Q","F","J"); falls back to "?". */
@@ -65,17 +65,16 @@ export function mapCatalogProductOfferings(
   let lineIndex = 0;
   let connectionGroup = 0;
   for (const offering of offerings) {
+    const offerId = extractIdentifier(offering);
     const brandOptions = arrayish(offering?.ProductBrandOptions);
     for (const brandOpt of brandOptions) {
       const flights = arrayish(brandOpt?.Flight);
       if (flights.length === 0) continue;
-      // Aggregate booking-class seat counts across every ProductBrandOffering
-      // associated with this flight set. A single offering can list multiple
-      // brands (Economy/Premium/Business) — each contributes its own class +
-      // count. We sum them, capped at the GDS-style single-digit display.
       const classes = aggregateClasses(brandOpt);
-      // A multi-flight brandOpt is a connection — group the legs so a future
-      // `*` connection-sell entry can pull them as one.
+      // Capture vendor IDs from the offering itself + this brand-option's
+      // first ProductBrandOffering (which carries the brandable, priceable
+      // identity a future FQ live entry will need).
+      const vendorRef = buildVendorRef(offerId, brandOpt);
       const group = flights.length > 1 ? ++connectionGroup : undefined;
       flights.forEach((flight, legIndex) => {
         const line = flightToLine(flight, ++lineIndex, classes, opts);
@@ -84,12 +83,41 @@ export function mapCatalogProductOfferings(
             line.connectionGroup = group;
             line.legIndex = legIndex;
           }
+          if (vendorRef !== undefined) line.vendorRef = vendorRef;
           lines.push(line);
         }
       });
     }
   }
   return lines;
+}
+
+/**
+ * Pull the Travelport-side identifiers off an offering + brand option.
+ * Returns undefined when nothing useful was found — better an absent
+ * vendorRef than one with empty strings that a downstream live-sell
+ * handler would post in an invalid payload.
+ */
+function buildVendorRef(offerId: string | undefined, brandOpt: any): VendorRef | undefined {
+  const productId = extractIdentifier(brandOpt);
+  const firstBrand = arrayish(brandOpt?.ProductBrandOffering)[0];
+  const brandId = extractIdentifier(firstBrand);
+  if (!offerId && !productId && !brandId) return undefined;
+  return { offerId, productId, brandId };
+}
+
+/**
+ * Pull `Identifier.value` (or just a plain `id` / `Id`) off any node.
+ * Travelport TripServices is schema-inconsistent about which level
+ * carries an Identifier; this catches the documented shapes.
+ */
+function extractIdentifier(node: any): string | undefined {
+  if (node == null) return undefined;
+  const fromIdentifier = node.Identifier?.value ?? node.identifier?.value;
+  if (typeof fromIdentifier === 'string' && fromIdentifier.length > 0) return fromIdentifier;
+  const direct = node.id ?? node.Id;
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+  return undefined;
 }
 
 /**
