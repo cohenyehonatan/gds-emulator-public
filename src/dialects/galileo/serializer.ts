@@ -166,6 +166,21 @@ export function renderGalileoFareQuote(fq: FareQuote, filedFareNumber: number): 
  * v2 doesn't quote the host text. One line per issued ticket with
  * number / passenger / carrier / total.
  */
+/**
+ * `*HTI` — Display ticket numbers. Source: Mini Format Guide v2 p.53.
+ * Reconstructed layout — Mini Guide documents the entry but not the
+ * exact host text. One line per ticket with number / status / passenger
+ * / carrier / total.
+ */
+export function renderGalileoTicketList(tickets: TicketRecord[]): string {
+  if (tickets.length === 0) return 'NO TICKETS ISSUED'; // reconstructed
+  const lines = tickets.map((t, i) => {
+    const status = t.status ?? 'OPEN';
+    return `  ${i + 1}. ${t.number}  ${status.padEnd(8)} ${t.passenger}  ${t.validatingCarrier}  ${t.total.toFixed(2)}`;
+  });
+  return ['TICKETS', ...lines].join('\n');
+}
+
 export function renderGalileoIssuedTickets(tickets: TicketRecord[]): string {
   if (tickets.length === 0) return 'NO TICKETS ISSUED'; // reconstructed
   return tickets

@@ -38,7 +38,12 @@ import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
-import { mapCatalogProductOfferings, mapReservation, mapPricedOffer } from '../../backends/travelport-mapper.js';
+import {
+  mapCatalogProductOfferings,
+  mapReservation,
+  mapPricedOffer,
+  mapReceipts,
+} from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
@@ -59,6 +64,7 @@ import {
   renderGalileoItinerary,
   renderGalileoFareQuote,
   renderGalileoIssuedTickets,
+  renderGalileoTicketList,
   renderGalileoFlightInfo,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
@@ -533,6 +539,13 @@ function handleGalileoDisplay(
     return renderGalileoItinerary(wa.pnr);
   }
 
+  // `*HTI` / `*HTE` — display ticket numbers / etickets. Source: Mini
+  // Format Guide v2 p.53. Live path GETs /receipts; emulated reads the
+  // local TicketRecord[]. Both render via renderGalileoTicketList.
+  if (arg.toUpperCase() === 'HTI' || arg.toUpperCase() === 'HTE') {
+    return ticketListGalileo(wa, ctx);
+  }
+
   // Surname retrieve — `*-SMITH`. No documented REST equivalent in
   // TripServices (the spec calls surname search "GDS-host-only"), so
   // this stays local-only even when the backend is live. The local
@@ -917,4 +930,39 @@ function handleGalileoFlightInfo(entry: FlightInfoEntry, wa: WorkArea): string {
   const line = avail.lines.find((l) => l.line === target);
   if (!line) return GalileoResponse.FORMAT;
   return renderGalileoFlightInfo(line, avail.date);
+}
+
+/**
+ * `*HTI` / `*HTE` — list tickets on the current BF. Live path fetches
+ * /receipts (authoritative); emulated path renders the local TicketRecord[].
+ * Both render via renderGalileoTicketList.
+ */
+function ticketListGalileo(
+  wa: WorkArea,
+  ctx: HandlerContext
+): string | Promise<string> {
+  if (ctx.backend instanceof LiveTravelportBackend && wa.pnr.locator) {
+    return liveTicketListGalileo(wa, ctx.backend, wa.pnr.locator);
+  }
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  return renderGalileoTicketList(wa.pnr.tickets);
+}
+
+async function liveTicketListGalileo(
+  wa: WorkArea,
+  backend: LiveTravelportBackend,
+  locator: string
+): Promise<string> {
+  let response;
+  try {
+    response = await backend.listReceipts(locator);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/HTTP 40[4]|HTTP 410/.test(msg)) return GalileoResponse.NO_PNR;
+    return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
+  }
+  const tickets = mapReceipts(response);
+  // Mirror locally so subsequent cryptic queries don't need another fetch.
+  wa.pnr.tickets = tickets;
+  return renderGalileoTicketList(tickets);
 }

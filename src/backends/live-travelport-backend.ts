@@ -466,6 +466,21 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * List all tickets issued on a reservation.
+   *
+   * Source: GET /11/air/receipt/reservations/{LocatorCode}/receipts.
+   * Used by Galileo *HTI / *HTE — the agent has a committed BF and
+   * wants to see what tickets exist on it (number / status / passenger).
+   * The response carries a Receipt[] with each ticket's number, status
+   * code, and passenger reference.
+   */
+  async listReceipts(locator: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/receipt/reservations/${encodeURIComponent(locator)}/receipts`;
+    return this.getJson(url, 'listReceipts');
+  }
+
+  /**
    * Cancel offers / segments inside an in-flight workbench (BEFORE
    * commit). Used by Galileo `XI` / `XA` / `X<n>` while the agent is
    * still building.

@@ -472,3 +472,37 @@ function mapOnePassengerFare(priceNode: any, passengerType: string): PassengerFa
     fareCalc: String(priceNode?.fareCalculation ?? priceNode?.FareCalculation ?? ''),
   };
 }
+
+/**
+ * Receipts response → TicketRecord[]. Used by Galileo's live *HTI /
+ * *HTE handler. The /receipts endpoint returns a Receipt[] with each
+ * ticket's number, status, passenger, and totals.
+ */
+export function mapReceipts(response: unknown): import('../models/ticket.js').TicketRecord[] {
+  const r = response as any;
+  const receipts = arrayish(r?.Receipt ?? r?.Receipts ?? r?.receipts);
+  const out: import('../models/ticket.js').TicketRecord[] = [];
+  for (const receipt of receipts) {
+    const number = String(receipt?.ticketNumber ?? receipt?.Number ?? receipt?.number ?? '');
+    if (!number) continue;
+    const passenger = receipt?.passengerName ?? receipt?.PassengerName ?? receipt?.passenger ?? '';
+    const carrier = receipt?.validatingCarrier ?? receipt?.ValidatingCarrier ?? '';
+    const status: import('../models/ticket.js').TicketRecord['status'] =
+      ((receipt?.status ?? receipt?.Status) === 'VOIDED' ? 'VOIDED' : 'OPEN');
+    out.push({
+      number,
+      type: receipt?.type === 'TK' ? 'TK' : 'TE',
+      stock: receipt?.stock ?? 'AT',
+      passenger: String(passenger),
+      pcc: String(receipt?.pcc ?? ''),
+      issuedAt: receipt?.issuedAt ? new Date(receipt.issuedAt) : new Date(0),
+      tariff: 'D',
+      validatingCarrier: String(carrier),
+      base: Number(receipt?.base ?? 0),
+      taxTotal: Number(receipt?.taxTotal ?? 0),
+      total: Number(receipt?.total ?? 0),
+      status,
+    });
+  }
+  return out;
+}
