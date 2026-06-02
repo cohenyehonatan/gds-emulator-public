@@ -85,6 +85,26 @@ describe('Galileo QX family — semantics', () => {
     });
   const ok = () =>
     new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const reservationRespQX = (loc: string) =>
+    new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: loc },
+          Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+          AirReservation: {
+            Flights: [
+              {
+                carrier: 'UA',
+                number: '1234',
+                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   const listResp = () =>
     new Response(
       JSON.stringify({
@@ -119,7 +139,10 @@ describe('Galileo QX family — semantics', () => {
   afterEach(() => fetchSpy.mockRestore());
 
   it('QX clears wa.currentQueue and returns OK-QUEUE EXIT, no fetch', async () => {
-    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(listResp());
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(listResp())
+      .mockResolvedValueOnce(reservationRespQX('ABC123')); // Q/43 first-BF retrieve
     await host.process('Q/43', wa);
     expect(wa.currentQueue).toBe('43');
     const callsBefore = fetchSpy.mock.calls.length;
@@ -140,6 +163,7 @@ describe('Galileo QX family — semantics', () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(listResp())
+      .mockResolvedValueOnce(reservationRespQX('ABC123')) // Q/43 first-BF retrieve
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok()) // addOffer
@@ -233,11 +257,11 @@ describe('Galileo QX family — semantics', () => {
 
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(reservationResp('ABC123')) // *ABC123
-      .mockResolvedValueOnce(listResp())                // Q/43
-      .mockResolvedValueOnce(reservationResp('ABC123')); // QXIR re-retrieve
+      .mockResolvedValueOnce(listResp())                  // Q/43 list
+      .mockResolvedValueOnce(reservationResp('ABC123'))   // Q/43 first-BF retrieve
+      .mockResolvedValueOnce(reservationResp('ABC123'));  // QXIR re-retrieve
 
-    await host.process('*ABC123', wa);
+    // Q/<n> alone now loads the first BF on screen.
     await host.process('Q/43', wa);
     expect(wa.currentQueue).toBe('43');
     expect(wa.pnr.locator).toBe('ABC123');
@@ -249,11 +273,11 @@ describe('Galileo QX family — semantics', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
-  it('QXIR with no prior locator falls through to plain IGNORED', async () => {
-    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(listResp());
-
-    await host.process('Q/43', wa);
-    expect(wa.currentQueue).toBe('43');
+  it('QXIR with no prior locator (degenerate: queue cursor set, no BF on screen) → IGNORED', async () => {
+    // Simulate a state where queue cursor is set without a loaded BF
+    // — can't happen via Q/<n> any more (it always loads), but covers
+    // programmatic edge cases and future refactors.
+    wa.currentQueue = '43';
     expect(wa.pnr.locator).toBeUndefined();
 
     const resp = await host.process('QXIR', wa);

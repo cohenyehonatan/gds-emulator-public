@@ -364,7 +364,6 @@ describe('Galileo live QR multi-queue — single multi-queue body', () => {
   it('QR/23+77 inside a queue cursor: implicit active queue added, deduped', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(reservationResp('ABC123'))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -377,11 +376,13 @@ describe('Galileo live QR multi-queue — single multi-queue body', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )
       )
+      .mockResolvedValueOnce(reservationResp('ABC123')) // Q/43 first-BF retrieve
       .mockResolvedValueOnce(removeOk());
 
-    await host.process('*ABC123', wa);
+    // Q/<n> alone now loads the first BF on screen — no separate *<locator>.
     await host.process('Q/43', wa);
     expect(wa.currentQueue).toBe('43');
+    expect(wa.pnr.locator).toBe('ABC123');
 
     const resp = await host.process('QR/23+77', wa);
     expect(resp).toBe('OK-QUEUE REMOVE 43+23+77');

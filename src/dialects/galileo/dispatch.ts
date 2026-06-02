@@ -1444,17 +1444,22 @@ async function handleGalileoQueueExit(
 }
 
 /**
- * `Q/<n>` — Access a queue and display its contents. Live path POSTs
- * `/queue/queue/list` with an `AgencyQueueSummary` body and maps the
- * `QueueList[]` to a `QueueListResult`. Emulated path reads
- * `ctx.backend.queues` (a `Map<queueId, locator[]>`) and joins each
- * locator with the PNR store to populate names/dates.
+ * `Q/<n>` — Access a queue and load the first booking file on screen.
+ * Source: Travelport Smartpoint Cloud Help (verified 2026-05-29):
+ * *"Select the queue number to display the first booking file in the
+ * selected queue."*
  *
- * Tracks `wa.currentQueue` so a future `QR` (remove) or `QX` (exit)
- * has the right target. No FSM transition — Q/ is read-only.
+ * Captures the queue's locator list as `wa.queueWorkingSet`, sets
+ * `wa.queueCursor = 0`, and retrieves the BF at cursor onto
+ * `wa.pnr`. The agent then navigates with QP / QPI / I / QR / QX.
  *
- * Empty queue renders `QUEUE <n>  EMPTY` (reconstructed); the Mini
- * Guide documents the entry but not the response screen.
+ * Live path: POST `/queue/queue/list` for the working set, then GET
+ * `/reservations/{loc}` for the first BF.
+ * Emulated path: read `ctx.backend.queues` for the working set,
+ * `ctx.backend.pnrs` for the first BF.
+ *
+ * Empty queue: returns `QUEUE <n> EMPTY` and does NOT set the
+ * cursor / working set (no BF on screen).
  */
 async function handleGalileoQueueAccess(
   entry: QueueEntry,
@@ -1462,6 +1467,7 @@ async function handleGalileoQueueAccess(
   ctx: HandlerContext
 ): Promise<string> {
   const queue = entry.queue!;
+  let locators: string[];
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
       const opts: { dateOffset?: number; pccOverride?: string; category?: string } = {};
@@ -1470,25 +1476,48 @@ async function handleGalileoQueueAccess(
       if (entry.dateRange != null) opts.dateOffset = entry.dateRange;
       const response = await ctx.backend.listQueue(queue, opts);
       const result = mapQueueList(response, queue);
-      wa.currentQueue = queue;
-      return renderGalileoQueueList(result);
+      locators = result.items.map((it) => it.locator);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
+  } else {
+    locators = [...(ctx.backend.queues.get(queue) ?? [])];
   }
-  // Emulated: cross the locator list against the PNR store for name + date.
-  const locators = ctx.backend.queues.get(queue) ?? [];
-  const items = locators.map((locator) => {
-    const pnr = ctx.backend.pnrs.get(locator);
-    const lead = pnr?.names[0];
-    const surname = lead?.surname ?? '';
-    const given = lead?.passengers[0]?.firstName ?? '';
-    const name = surname && given ? `${surname}/${given.charAt(0)}` : surname || '';
-    const travelDate = pnr?.segments[0]?.date ?? '';
-    return { locator, name, travelDate };
-  });
+
+  if (locators.length === 0) {
+    // Don't enter queue context if the queue is empty — agent has
+    // nothing to navigate.
+    return `QUEUE ${queue} EMPTY`; // reconstructed
+  }
+
   wa.currentQueue = queue;
-  return renderGalileoQueueList({ queue, items });
+  wa.queueWorkingSet = locators;
+  wa.queueCursor = 0;
+  return loadQueueBfAtCursor(wa, ctx);
+}
+
+/**
+ * Pull the BF at `wa.queueCursor` from `wa.queueWorkingSet` onto
+ * screen. Live path GETs the reservation; emulated reads pnrStore.
+ * Returns the rendered BF. Missing-locator (404) and end-of-queue
+ * conditions surface as reconstructed strings.
+ */
+async function loadQueueBfAtCursor(wa: WorkArea, ctx: HandlerContext): Promise<string> {
+  const set = wa.queueWorkingSet;
+  const cursor = wa.queueCursor;
+  if (!set || cursor == null) return 'NO QUEUE CONTEXT'; // reconstructed
+  if (cursor >= set.length) return `QUEUE ${wa.currentQueue} EMPTY`; // reconstructed
+  if (cursor < 0) return 'TOP OF QUEUE'; // reconstructed
+  const locator = set[cursor];
+  const sig = { pcc: ctx.pcc, agent: wa.agent };
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    return retrieveGalileoLive(locator, wa, ctx, ctx.backend, sig);
+  }
+  const pnr = ctx.backend.pnrs.get(locator);
+  if (!pnr) return GalileoResponse.NO_PNR;
+  wa.pnr = pnr;
+  wa.machine.transition(SessionEvent.RETRIEVE);
+  return renderGalileoPnr(pnr, sig);
 }
 
 /**

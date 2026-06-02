@@ -73,7 +73,29 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('Q/<n> POSTs canonical AgencyQueueSummary body and renders the result', async () => {
+  // Reservation response factory for the first-BF retrieve after Q/<n>.
+  const reservationResp = (loc: string) =>
+    new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: loc },
+          Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+          AirReservation: {
+            Flights: [
+              {
+                carrier: 'UA',
+                number: '1234',
+                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+
+  it('Q/<n> POSTs canonical AgencyQueueSummary body and loads first BF on screen', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(
@@ -81,7 +103,8 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
           { Locator: 'ABC123', Name: 'SMITH/J', TravelDate: '27JUN' },
           { Locator: 'DEF456', Name: 'JONES/M', TravelDate: '30JUN' },
         ])
-      );
+      )
+      .mockResolvedValueOnce(reservationResp('ABC123')); // first BF retrieved
 
     const resp = await host.process('Q/43', wa);
 
@@ -91,51 +114,27 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     expect(body['@type']).toBe('AgencyQueueSummary');
     expect(body.Queue).toEqual([{ value: '43' }]);
 
-    expect(resp).toContain('QUEUE 43');
-    expect(resp).toContain('2 ITEMS');
+    // Response is the rendered BF, not a list — Smartpoint Cloud
+    // semantic: "Select the queue number to display the FIRST booking
+    // file in the selected queue."
     expect(resp).toContain('ABC123');
-    expect(resp).toContain('SMITH/J');
-    expect(resp).toContain('27JUN');
-    expect(resp).toContain('DEF456');
 
     expect(wa.currentQueue).toBe('43');
+    expect(wa.queueWorkingSet).toEqual(['ABC123', 'DEF456']);
+    expect(wa.queueCursor).toBe(0);
+    expect(wa.pnr.locator).toBe('ABC123');
   });
 
-  it('Q/<n> on an empty queue renders QUEUE <n>  EMPTY', async () => {
+  it('Q/<n> on an empty queue returns QUEUE <n> EMPTY and does NOT enter queue context', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(listResponse([]));
 
     const resp = await host.process('Q/9', wa);
-    expect(resp).toBe('QUEUE 9  EMPTY');
-    expect(wa.currentQueue).toBe('9');
-  });
-
-  it('Q/<n> tolerates PersonName object shape for Name field', async () => {
-    fetchSpy
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            AgencyQueueResponse: {
-              AgencyQueue: {
-                QueueList: [
-                  {
-                    Locator: 'XYZ789',
-                    Name: { Surname: 'BROWN', Given: 'ANNE' },
-                    TravelDate: '02JUL',
-                  },
-                ],
-              },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        )
-      );
-
-    const resp = await host.process('Q/3', wa);
-    expect(resp).toContain('BROWN/A');
-    expect(resp).toContain('02JUL');
+    expect(resp).toBe('QUEUE 9 EMPTY');
+    expect(wa.currentQueue).toBeUndefined();
+    expect(wa.queueWorkingSet).toBeUndefined();
+    expect(wa.queueCursor).toBeUndefined();
   });
 
   it('5xx from /queue/queue/list surfaces as LIVE BACKEND ERROR; currentQueue untouched', async () => {
@@ -151,7 +150,7 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     expect(wa.currentQueue).toBeUndefined();
   });
 
-  it('emulated Q/<n> reads backend.queues + pnrs, no fetch', async () => {
+  it('emulated Q/<n> reads backend.queues + pnrs, loads first BF, no fetch', async () => {
     const emulatedHost = new GdsHost({
       port: 0,
       logLevel: 'error',
@@ -160,30 +159,28 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     });
     const ewa = emulatedHost.newWorkArea();
     await emulatedHost.process('SON/ZHA', ewa);
-    // Build, end-tx, queue place (QEB) — populates both pnrStore and queues.
     await emulatedHost.process('A15JUNJFKLAX', ewa);
     await emulatedHost.process('N1Y1', ewa);
     await emulatedHost.process('N.SMITH/JOHN MR', ewa);
     await emulatedHost.process('P.LON*02012345678', ewa);
     await emulatedHost.process('T.TAU/10JUN', ewa);
     await emulatedHost.process('R.AGT', ewa);
-    const locator = await emulatedHost.process('QEB/43', ewa);
-    // QEB returns OK-QUEUE; need to look up the committed locator.
-    expect(locator).toBe('OK-QUEUE 43');
+    const placeResp = await emulatedHost.process('QEB/43', ewa);
+    expect(placeResp).toBe('OK-QUEUE 43');
     const queuedLocators = emulatedHost.backend.queues.get('43') ?? [];
     expect(queuedLocators.length).toBe(1);
 
     const resp = await emulatedHost.process('Q/43', ewa);
-    expect(resp).toContain('QUEUE 43');
-    expect(resp).toContain('1 ITEMS');
     expect(resp).toContain(queuedLocators[0]);
-    expect(resp).toContain('SMITH/J');
-    expect(resp).toContain('15JUN');
+    expect(resp).toContain('SMITH');
     expect(ewa.currentQueue).toBe('43');
+    expect(ewa.queueWorkingSet).toEqual([queuedLocators[0]]);
+    expect(ewa.queueCursor).toBe(0);
+    expect(ewa.pnr.locator).toBe(queuedLocators[0]);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('emulated Q/<n> on an empty queue renders the EMPTY marker', async () => {
+  it('emulated Q/<n> on an empty queue returns EMPTY marker, no queue context entered', async () => {
     const emulatedHost = new GdsHost({
       port: 0,
       logLevel: 'error',
@@ -193,7 +190,8 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     const ewa = emulatedHost.newWorkArea();
     await emulatedHost.process('SON/ZHA', ewa);
     const resp = await emulatedHost.process('Q/77', ewa);
-    expect(resp).toBe('QUEUE 77  EMPTY');
+    expect(resp).toBe('QUEUE 77 EMPTY');
+    expect(ewa.currentQueue).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

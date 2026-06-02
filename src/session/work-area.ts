@@ -35,6 +35,14 @@ export class WorkAreaSlot {
   dividedOriginal?: Pnr;
   currentQueue?: string;
   queueCursor?: number;
+  /**
+   * Locators captured at `Q/<n>` access time — the working set the
+   * agent traverses with QP / QPI / I / QR / QX. Cursor (`queueCursor`)
+   * indexes into this array. Cleared on QX-family exit or `reset()`.
+   * Real Galileo loads the BF at the cursor onto screen; navigation
+   * verbs move the cursor and re-load.
+   */
+  queueWorkingSet?: string[];
   lastSimilarNameList?: Pnr[];
   pendingCancelRefundTicket?: string;
   lastRefundResponse?: string;
@@ -69,6 +77,7 @@ export class WorkAreaSlot {
     this.dividedOriginal = undefined;
     this.currentQueue = undefined;
     this.queueCursor = undefined;
+    this.queueWorkingSet = undefined;
     this.lastSimilarNameList = undefined;
     this.pendingCancelRefundTicket = undefined;
     this.lastRefundResponse = undefined;
@@ -182,6 +191,12 @@ export class WorkArea {
   }
   set queueCursor(v: number | undefined) {
     this.s.queueCursor = v;
+  }
+  get queueWorkingSet(): string[] | undefined {
+    return this.s.queueWorkingSet;
+  }
+  set queueWorkingSet(v: string[] | undefined) {
+    this.s.queueWorkingSet = v;
   }
   get lastSimilarNameList(): Pnr[] | undefined {
     return this.s.lastSimilarNameList;

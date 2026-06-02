@@ -82,15 +82,16 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('QR after Q/<n> + *<locator> POSTs canonical AgencyQueueSummary with ReservationIdentifier', async () => {
+  it('QR after Q/<n> POSTs canonical AgencyQueueSummary with ReservationIdentifier', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(listResp('ABC123'))   // Q/43
-      .mockResolvedValueOnce(reservationResp('ABC123')) // *ABC123
-      .mockResolvedValueOnce(removeOkResp());     // QR
+      .mockResolvedValueOnce(listResp('ABC123'))      // Q/43 list
+      .mockResolvedValueOnce(reservationResp('ABC123')) // Q/43 first-BF retrieve
+      .mockResolvedValueOnce(removeOkResp());         // QR
 
     await host.process('Q/43', wa);
-    await host.process('*ABC123', wa);
+    // Q/<n> now loads the first BF on screen — explicit *<locator>
+    // is no longer needed before QR.
     expect(wa.currentQueue).toBe('43');
     expect(wa.pnr.locator).toBe('ABC123');
 
@@ -120,10 +121,10 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
   });
 
   it('QR with no on-screen BF returns FORMAT', async () => {
-    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(listResp('ABC123'));
-
-    await host.process('Q/43', wa);
-    expect(wa.currentQueue).toBe('43');
+    // Simulate a degenerate state: currentQueue is set but pnr.locator
+    // isn't (can't happen via Q/<n> now — it always loads a BF — but
+    // covers programmatic manipulation / future code paths).
+    wa.currentQueue = '43';
     expect(wa.pnr.locator).toBeUndefined();
 
     const resp = await host.process('QR', wa);
@@ -133,14 +134,13 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
   it('5xx from /queue/queue/remove surfaces as LIVE BACKEND ERROR; mirror untouched', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(listResp('ABC123'))
-      .mockResolvedValueOnce(reservationResp('ABC123'))
+      .mockResolvedValueOnce(listResp('ABC123'))      // Q/43 list
+      .mockResolvedValueOnce(reservationResp('ABC123')) // Q/43 first-BF retrieve
       .mockResolvedValueOnce(
         new Response('"down"', { status: 503, statusText: 'Service Unavailable' })
-      );
+      ); // QR fails
 
     await host.process('Q/43', wa);
-    await host.process('*ABC123', wa);
 
     // Seed the local mirror to verify it's not nuked on 5xx.
     host.backend.queues.set('43', ['ABC123']);
