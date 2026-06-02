@@ -90,13 +90,15 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
       .mockResolvedValueOnce(removeOkResp());         // QR
 
     await host.process('Q/43', wa);
-    // Q/<n> now loads the first BF on screen — explicit *<locator>
-    // is no longer needed before QR.
     expect(wa.currentQueue).toBe('43');
     expect(wa.pnr.locator).toBe('ABC123');
 
+    // QR removes ABC123 — and since that was the only working-set
+    // item, the queue context drains and we get the empty marker.
     const resp = await host.process('QR', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE 43');
+    expect(resp).toBe('QUEUE 43 EMPTY');
+    expect(wa.currentQueue).toBeUndefined();
+    expect(wa.queueWorkingSet).toBeUndefined();
 
     const [removeUrl, removeInit] = fetchSpy.mock.calls[3];
     expect(removeUrl).toContain('/air/queue/queue/remove');
@@ -104,6 +106,37 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
     expect(body['@type']).toBe('AgencyQueueSummary');
     expect(body.ReservationIdentifier).toEqual({ value: 'ABC123' });
     expect(body.Queue).toEqual([{ value: '43' }]);
+  });
+
+  it('QR with another BF in the working set: removes + advances to next BF on screen', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            AgencyQueueResponse: {
+              AgencyQueue: {
+                QueueList: [
+                  { Locator: 'ABC123', Name: 'SMITH/J', TravelDate: '27JUN' },
+                  { Locator: 'DEF456', Name: 'JONES/M', TravelDate: '30JUN' },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(reservationResp('ABC123')) // first BF
+      .mockResolvedValueOnce(removeOkResp())            // QR removes ABC123
+      .mockResolvedValueOnce(reservationResp('DEF456')); // next BF auto-loaded
+
+    await host.process('Q/43', wa);
+
+    const resp = await host.process('QR', wa);
+    expect(resp).toContain('DEF456'); // next BF on screen, not OK-QUEUE REMOVE
+    expect(wa.queueWorkingSet).toEqual(['DEF456']);
+    expect(wa.queueCursor).toBe(0);
+    expect(wa.pnr.locator).toBe('DEF456');
   });
 
   it('QR without a queue context (no Q/<n> first) returns FORMAT, no fetch', async () => {
@@ -172,15 +205,16 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
     expect(committed.length).toBe(1);
     const committedLocator = committed[0];
 
-    // Re-retrieve and access queue 43 to set up the QR preconditions.
-    await emulatedHost.process(`*${committedLocator}`, ewa);
+    // Q/<n> loads the first BF on screen (no need for explicit *<locator>).
     await emulatedHost.process('Q/43', ewa);
     expect(ewa.currentQueue).toBe('43');
     expect(ewa.pnr.locator).toBe(committedLocator);
 
     const resp = await emulatedHost.process('QR', ewa);
-    expect(resp).toBe('OK-QUEUE REMOVE 43');
+    // Working set drains to empty → QUEUE n EMPTY marker + exit context.
+    expect(resp).toBe('QUEUE 43 EMPTY');
     expect(emulatedHost.backend.queues.get('43') ?? []).not.toContain(committedLocator);
+    expect(ewa.currentQueue).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

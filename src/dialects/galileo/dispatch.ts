@@ -1417,6 +1417,28 @@ async function handleGalileoQueueRemove(
       ctx.backend.queues.set(q, list);
     }
   }
+
+  // Queue-cursor advance: if we're working a queue context AND the
+  // removed locator was the one at our cursor, drop it from the
+  // working set and load the next BF. Real Galileo: QR removes the
+  // current BF and advances to the next one on screen.
+  if (
+    active &&
+    wa.queueWorkingSet &&
+    wa.queueCursor != null &&
+    wa.queueWorkingSet[wa.queueCursor] === locator
+  ) {
+    wa.queueWorkingSet.splice(wa.queueCursor, 1);
+    if (wa.queueWorkingSet.length === 0) {
+      wa.currentQueue = undefined;
+      wa.queueCursor = undefined;
+      wa.queueWorkingSet = undefined;
+      return `QUEUE ${active} EMPTY`; // reconstructed
+    }
+    if (wa.queueCursor >= wa.queueWorkingSet.length) wa.queueCursor = 0;
+    return loadQueueBfAtCursor(wa, ctx);
+  }
+
   return `OK-QUEUE REMOVE ${queues.join('+')}`; // reconstructed
 }
 

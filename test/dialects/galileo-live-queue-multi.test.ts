@@ -385,7 +385,10 @@ describe('Galileo live QR multi-queue — single multi-queue body', () => {
     expect(wa.pnr.locator).toBe('ABC123');
 
     const resp = await host.process('QR/23+77', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE 43+23+77');
+    // Working set was [ABC123]; after QR removes ABC123, set drains
+    // to empty and we exit queue context with the EMPTY marker.
+    expect(resp).toBe('QUEUE 43 EMPTY');
+    expect(wa.currentQueue).toBeUndefined();
 
     const [, removeInit] = fetchSpy.mock.calls[3];
     const body = JSON.parse((removeInit?.body as string) ?? '{}');
