@@ -1476,16 +1476,19 @@ async function handleGalileoQueueRemove(
  *    (reconstructed — Smartpoint Cloud doesn't quote the boundary
  *    response wording).
  *
- * QP and QPI are observably identical in this v1: both decrement the
- * cursor and reload. QPI's "ignore" semantic ("don't return current
- * BF to the queue, don't take further action on it") doesn't change
- * any state we model — there's no in-memory dirty flag on the BF
- * that QP would have written and QPI would have to suppress. Once
- * we model per-BF working-set actions, this is where the divergence
- * would land.
+ * The "Ignore" in QPI is what distinguishes it from QP:
+ *  - QP at a CLEAN BF (no modifications since cursor load): navigate
+ *    back.
+ *  - QP at a DIRTY BF (modifications since load): refuse with
+ *    `USE QPI OR END` (reconstructed) — agent must either commit
+ *    via end-transaction (E) or explicitly discard via QPI.
+ *  - QPI always navigates back regardless of dirty state. The
+ *    backward reload is what discards the in-memory modifications
+ *    (real Galileo: every cursor movement re-pulls the BF from the
+ *    server, so any local changes are abandoned).
  */
 async function handleGalileoQueuePrevious(
-  _entry: QueueEntry,
+  entry: QueueEntry,
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
@@ -1495,6 +1498,9 @@ async function handleGalileoQueuePrevious(
     return 'NO QUEUE CONTEXT'; // reconstructed
   }
   if (cursor === 0) return 'TOP OF QUEUE'; // reconstructed
+  if (entry.op === 'previous' && wa.queueCurrentDirty) {
+    return 'USE QPI OR END'; // reconstructed — Smartpoint Cloud doesn't quote it
+  }
   wa.queueCursor = cursor - 1;
   return loadQueueBfAtCursor(wa, ctx);
 }

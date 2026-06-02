@@ -137,6 +137,129 @@ describe('Galileo QP / QPI — navigate backward in queue working set', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('QP at a dirty BF refuses with USE QPI OR END; QPI navigates anyway', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(listResp('ABC123', 'DEF456'))
+      .mockResolvedValueOnce(reservationResp('ABC123')) // Q/43 first BF
+      .mockResolvedValueOnce(reservationResp('ABC123')); // QPI re-load (DEF456 not used since cursor goes 1→0)
+
+    await host.process('Q/43', wa);
+    // Simulate having advanced + modified the BF on screen.
+    wa.queueCursor = 1;
+    wa.queueCurrentDirty = true;
+
+    const qpResp = await host.process('QP', wa);
+    expect(qpResp).toBe('USE QPI OR END');
+    expect(wa.queueCursor).toBe(1); // refused — cursor unchanged
+    expect(wa.queueCurrentDirty).toBe(true); // still dirty
+
+    const qpiResp = await host.process('QPI', wa);
+    expect(qpiResp).toContain('ABC123');
+    expect(wa.queueCursor).toBe(0);
+    expect(wa.queueCurrentDirty).toBe(false); // cleared by reload
+  });
+
+  it('QP at a clean BF still navigates normally (no divergence from QPI)', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(listResp('ABC123', 'DEF456'))
+      .mockResolvedValueOnce(reservationResp('ABC123'))
+      .mockResolvedValueOnce(reservationResp('ABC123'));
+
+    await host.process('Q/43', wa);
+    wa.queueCursor = 1; // advance without modification — still clean
+    expect(wa.queueCurrentDirty).toBeFalsy();
+
+    const resp = await host.process('QP', wa);
+    expect(resp).toContain('ABC123');
+    expect(wa.queueCursor).toBe(0);
+  });
+
+  it('modifying a queue BF (X1) flips the dirty flag', async () => {
+    const reservationWith2Segs = (loc: string) =>
+      new Response(
+        JSON.stringify({
+          Reservation: {
+            Identifier: { value: loc },
+            Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+            AirReservation: {
+              Flights: [
+                {
+                  carrier: 'UA',
+                  number: '1234',
+                  Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                  Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+                },
+                {
+                  carrier: 'UA',
+                  number: '5678',
+                  Departure: { location: 'FRA', time: '2026-06-30T08:00:00Z' },
+                  Arrival: { location: 'DEN', time: '2026-06-30T15:30:00Z' },
+                },
+              ],
+            },
+            // Two offers so partial cancel can be wired (extractSegmentOfferIds).
+            Offer: [
+              {
+                Identifier: { value: 'OFF-A' },
+                Flight: [
+                  {
+                    carrier: 'UA',
+                    number: '1234',
+                    Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
+                    Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
+                  },
+                ],
+              },
+              {
+                Identifier: { value: 'OFF-B' },
+                Flight: [
+                  {
+                    carrier: 'UA',
+                    number: '5678',
+                    Departure: { location: 'FRA', time: '2026-06-30T08:00:00Z' },
+                    Arrival: { location: 'DEN', time: '2026-06-30T15:30:00Z' },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(listResp('ABC123', 'DEF456'))
+      .mockResolvedValueOnce(reservationWith2Segs('ABC123')) // Q/43 retrieve (2 segs, 2 offers)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            Reservation: { Identifier: { value: 'ABC123' }, Offer: [{ Identifier: { value: 'OFF-A' }, Flight: [{ carrier: 'UA', number: '1234' }] }] },
+            Identifier: { value: 'WB-CANCEL' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      ) // buildfromlocator
+      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 })) // cancelitems
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            Receipt: [{ Confirmation: { Locator: { value: 'ABC123', authority: 'Travelport' } } }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      ); // commit
+
+    await host.process('Q/43', wa);
+    expect(wa.queueCurrentDirty).toBe(false);
+    expect(wa.pnr.segments.length).toBe(2);
+
+    await host.process('X1', wa);
+    expect(wa.queueCurrentDirty).toBe(true);
+  });
+
   it('emulated QP navigates the working set without any fetch', async () => {
     const emulatedHost = new GdsHost({
       port: 0,
