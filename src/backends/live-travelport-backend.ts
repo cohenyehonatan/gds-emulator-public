@@ -470,10 +470,17 @@ export class LiveTravelportBackend implements Backend {
     return this.postJson(url, body, 'addPrimaryContact');
   }
 
+  /**
+   * Add a single traveler to a workbench. Returns the response plus
+   * the server-assigned traveler UUID extracted from
+   * `Traveler[0].Identifier.value` (or common defensive fallbacks).
+   * The UUID is what SSR / remarks / FOP payloads use to reference
+   * this passenger via `TravelerIdentifier.id` / `.Identifier.value`.
+   */
   async addTraveler(
     workbenchId: string,
     traveler: { givenName: string; surname: string; phone?: string; email?: string }
-  ): Promise<unknown> {
+  ): Promise<{ travelerId?: string; raw: unknown }> {
     const url =
       `${this.opts.apiBase}/air/book/traveler/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/travelers`;
@@ -487,7 +494,16 @@ export class LiveTravelportBackend implements Backend {
     if (traveler.email) {
       t.Email = [{ value: traveler.email }];
     }
-    return this.postJson(url, { Traveler: [t] }, 'addTraveler');
+    const raw = (await this.postJson(url, { Traveler: [t] }, 'addTraveler')) as any;
+    const trav = raw?.Traveler ?? raw?.travelers ?? raw?.travelerList;
+    const first = Array.isArray(trav) ? trav[0] : trav;
+    const travelerId =
+      first?.Identifier?.value ??
+      first?.id ??
+      raw?.Identifier?.value ??
+      raw?.travelerId ??
+      undefined;
+    return { travelerId: typeof travelerId === 'string' ? travelerId : undefined, raw };
   }
 
   /**

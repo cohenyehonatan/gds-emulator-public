@@ -383,10 +383,18 @@ async function handleGalileoName(
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
       for (const pax of nameItem.passengers) {
-        await liveBackend.addTraveler(wa.liveWorkbenchId, {
+        const result = await liveBackend.addTraveler(wa.liveWorkbenchId, {
           givenName: pax.firstName,
           surname: nameItem.surname,
         });
+        // Capture the server-assigned traveler UUID so SSR / remarks
+        // live wiring can reference this passenger via
+        // `TravelerIdentifier`. Push undefined if the response didn't
+        // surface one (pre-prod schema drift): keeps the index aligned
+        // with `pnr.names` flattened by passenger.
+        const ids = wa.liveTravelerIds ?? [];
+        ids.push(result.travelerId ?? '');
+        wa.liveTravelerIds = ids;
       }
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed

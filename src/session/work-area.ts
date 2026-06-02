@@ -70,6 +70,15 @@ export class WorkAreaSlot {
    * API-Spec.md "Workbench → WorkArea mapping".
    */
   liveWorkbenchId?: string;
+  /**
+   * Server-assigned traveler UUIDs returned by `addTraveler`,
+   * order-aligned with `pnr.names` flattened by `passengers[]`. Used
+   * by SSR / remarks live wiring to reference passengers via
+   * `TravelerIdentifier.id` / `.Identifier.value`. Empty for
+   * EmulatedBackend; populated only when live `addTraveler` succeeds
+   * and surfaces a parseable Identifier in the response.
+   */
+  liveTravelerIds?: string[];
 
   /**
    * Clear the per-PNR scratch state — invoked by IG / E / a sign-out
@@ -94,6 +103,7 @@ export class WorkAreaSlot {
     this.lastTicketDocument = undefined;
     this.pendingVoid = undefined;
     this.liveWorkbenchId = undefined;
+    this.liveTravelerIds = undefined;
   }
 }
 
@@ -249,5 +259,11 @@ export class WorkArea {
   }
   set liveWorkbenchId(v: string | undefined) {
     this.s.liveWorkbenchId = v;
+  }
+  get liveTravelerIds(): string[] | undefined {
+    return this.s.liveTravelerIds;
+  }
+  set liveTravelerIds(v: string[] | undefined) {
+    this.s.liveTravelerIds = v;
   }
 }
