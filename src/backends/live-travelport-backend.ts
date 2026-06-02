@@ -471,6 +471,47 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Add a notepad / remark to a workbench via `/reservationcomments/list`.
+   * Source: canonical schema verified in the v11 spec doc
+   * (`Book/RemarksGuide.htm`). Galileo `NP.<text>` maps to a single
+   * `ReservationCommentID[0]` with `commentSource: "Agency"` and a
+   * single `Comment[0]` name/value pair.
+   *
+   * `kind` distinguishes the comment role at the cryptic level:
+   *  - 'notepad'    → general agency note; not surfaced to airline
+   *  - 'historical' → goes into BF history when removed
+   *
+   * Both map to the same body shape in v11; only the `name` label on
+   * the Comment differs to preserve the cryptic intent at display
+   * time. Real Galileo may render these differently (the `H**`
+   * historical tier vs plain `NP.` is observable in the BF
+   * history) — that nuance lands when we wire history retrieval.
+   */
+  async addReservationComment(
+    workbenchId: string,
+    text: string,
+    opts?: { kind?: 'notepad' | 'historical' }
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/remarks/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/reservationcomments/list`;
+    const label = opts?.kind === 'historical' ? 'Historical Notepad' : 'Notepad';
+    const body = {
+      ReservationCommentListRequest: {
+        ReservationCommentID: [
+          {
+            '@type': 'ReservationComment',
+            id: 'ReservationComment_1',
+            commentSource: 'Agency',
+            Comment: [{ name: label, value: text }],
+          },
+        ],
+      },
+    };
+    return this.postJson(url, body, 'addReservationComment');
+  }
+
+  /**
    * Add a single traveler to a workbench. Returns the response plus
    * the server-assigned traveler UUID extracted from
    * `Traveler[0].Identifier.value` (or common defensive fallbacks).

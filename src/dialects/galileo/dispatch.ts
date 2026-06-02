@@ -37,6 +37,7 @@ import type {
   DivideEntry,
   IgnoreEntry,
   SsrEntry,
+  RemarkEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -178,6 +179,9 @@ export function dispatchGalileo(
 
       case 'ssr':
         return handleGalileoSsr(entry, wa);
+
+      case 'remark':
+        return handleGalileoRemark(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1010,6 +1014,41 @@ function handleGalileoSsr(entry: SsrEntry, wa: WorkArea): string {
   // entry, not the host echo). Output `SI <code>` for each SSR on
   // the BF.
   return renderGalileoSsrs(wa.pnr);
+}
+
+/**
+ * `NP.<text>` and `NP.<qualifier>**<text>` — notepad / remark.
+ * Source: Mini Format Guide v2.
+ *
+ * Local: push onto `wa.pnr.remarks`.
+ * Live: when a workbench is open, POST to `/reservationcomments/list`
+ * with `commentSource: "Agency"` + the appropriate Comment label
+ * (Notepad vs Historical Notepad). The cryptic confidential
+ * qualifier (`NP.C**`) currently maps to a plain notepad in the live
+ * body — server-side confidentiality tier isn't part of the v11
+ * schema we have.
+ *
+ * Marks the queue dirty flag in queue context like any other modify
+ * op. Returns a reconstructed echo line.
+ */
+async function handleGalileoRemark(
+  entry: RemarkEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    try {
+      await ctx.backend.addReservationComment(wa.liveWorkbenchId, entry.text, {
+        kind: entry.remarkType === 'historical' ? 'historical' : 'notepad',
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text });
+  return `NP.${entry.text}`; // reconstructed echo
 }
 
 function renderGalileoSsrs(pnr: { ssrs: Array<{ code: string; carrier: string; text?: string; nameRef?: { item: number; passenger?: number } }> }): string {

@@ -49,6 +49,7 @@ import type {
   QueueEntry,
   DivideEntry,
   SsrEntry,
+  RemarkEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -111,6 +112,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QW') return parseQueueWhere(trimmed);
   if (u === 'QPB*') return parseQueueTitles(trimmed);
   if (u.startsWith('SI.')) return parseSpecialService(trimmed);
+  if (u.startsWith('NP.')) return parseNotepad(trimmed);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -847,6 +849,62 @@ function parseSpecialService(raw: string): SsrEntry {
     carrier: 'YY', // default to "all airlines"; per-carrier qualifier deferred
     text,
     nameRef,
+  };
+}
+
+/**
+ * `NP.<text>` — Notepad item / remark. Source: Mini Format Guide
+ * v2 (verbatim 2026-05-29).
+ *
+ * Forms:
+ *   NP.<text>          basic notepad item (`general` remark)
+ *                      "Will not show in history of the booking file
+ *                      when deleted."
+ *   NP.C**<text>       confidential notepad (treated as `general` in
+ *                      our model; the C qualifier is informational —
+ *                      we don't yet model visibility tiers)
+ *   NP.H**<text>       historical — "saved in the history of the
+ *                      booking file when removed" (`historical`
+ *                      remark)
+ *
+ * Deferred:
+ *   - NP.F**<text>     credit-card secure notepad (needs PAN masking)
+ *   - NP.HX**<text>    historical with additional qualifier
+ *     (qualifier semantics unclear from Mini Guide)
+ *
+ * Like `SI.`, we work on `raw.trim()` to preserve internal spaces in
+ * the free text — Mini Guide explicitly shows multi-line notepad
+ * entries spanning multiple words.
+ */
+function parseNotepad(raw: string): RemarkEntry {
+  const body = raw.trim().slice(3); // strip "NP."
+  // Qualifier: a single letter followed by `**` (e.g. `H**`, `C**`).
+  let remarkType: 'general' | 'fop' | 'historical' = 'general';
+  let text = body;
+  const qm = /^([A-Z]+)\*\*(.*)$/s.exec(body);
+  if (qm) {
+    const qualifier = qm[1].toUpperCase();
+    text = qm[2];
+    switch (qualifier) {
+      case 'H':
+        remarkType = 'historical';
+        break;
+      case 'C':
+        remarkType = 'general'; // confidential — informational; visibility tier deferred
+        break;
+      default:
+        throw new ParseError(`Galileo NP: unsupported qualifier "${qualifier}" in "${raw}"`);
+    }
+  }
+  if (text.trim().length === 0) {
+    throw new ParseError(`Galileo NP: notepad text required in "${raw}"`);
+  }
+  return {
+    kind: 'remark',
+    raw,
+    timestamp: new Date(),
+    remarkType,
+    text: text.trim(),
   };
 }
 
