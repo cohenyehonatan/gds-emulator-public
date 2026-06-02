@@ -275,8 +275,20 @@ export interface QueueEntry extends BaseEntry {
     | 'previous'
     /** `QPI` — ignore current BF + move cursor back 1. */
     | 'previous_ignore'
+    /** `QCA` / `QCA*<n>` — list all queues with active BFs (with optional threshold). */
+    | 'count_all'
+    /** `QW` — list every queue the on-screen BF resides on (Queue Where). */
+    | 'where'
+    /** `QPB*` — display queue titles (we don't model titles; stub). */
+    | 'display_titles'
     | 'skip'
     | 'requeue';
+  /**
+   * `QCA*<threshold>` — minimum BF count to include a queue in the
+   * `count_all` result (Smartpoint Cloud: "QCA*30 — List all queues
+   * containing more than 30 booking files").
+   */
+  countThreshold?: number;
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (Sabre QP/100/75); Galileo reuses
                 // this field for branch-PCC on `QEB/<PCC>/<n>` placements.

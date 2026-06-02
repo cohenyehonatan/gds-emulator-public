@@ -1315,6 +1315,9 @@ async function handleGalileoQueue(
   if (entry.op === 'previous' || entry.op === 'previous_ignore') {
     return handleGalileoQueuePrevious(entry, wa, ctx);
   }
+  if (entry.op === 'count_all') return handleGalileoQueueCountAll(entry, wa, ctx);
+  if (entry.op === 'where') return handleGalileoQueueWhere(wa, ctx);
+  if (entry.op === 'display_titles') return handleGalileoQueueTitles();
   if (!entry.queue) return GalileoResponse.FORMAT;
   if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
@@ -1460,6 +1463,68 @@ async function handleGalileoQueueRemove(
   }
 
   return `OK-QUEUE REMOVE ${queues.join('+')}`; // reconstructed
+}
+
+/**
+ * `QCA` / `QCA*<n>` — Count / list all queues containing booking
+ * files. Source: Smartpoint Cloud Help (verbatim 2026-05-29):
+ *   QCA      "List all queues containing active booking files"
+ *   QCA*30   "List all queues containing more than 30 booking files"
+ *
+ * v11 has no "list all queues" REST endpoint — querying each of the
+ * 100 queues with `listQueue` would be wasteful. We read the local
+ * `backend.queues` mirror, which is the authoritative count for any
+ * activity that happened during this session. Server-side queue
+ * activity that happened outside the session won't be reflected;
+ * documented in the spec doc.
+ *
+ * Output: one line per non-empty queue (or per queue ≥ threshold),
+ * `QUEUE <n>  <count> BFS`. Empty result: `NO QUEUES`. All response
+ * strings reconstructed — Smartpoint Cloud documents the entry, not
+ * the screen.
+ */
+function handleGalileoQueueCountAll(
+  entry: QueueEntry,
+  _wa: WorkArea,
+  ctx: HandlerContext
+): string {
+  const threshold = entry.countThreshold ?? 0;
+  const rows: Array<{ queue: string; count: number }> = [];
+  for (const [queue, locators] of ctx.backend.queues.entries()) {
+    if (locators.length > threshold) rows.push({ queue, count: locators.length });
+  }
+  if (rows.length === 0) return 'NO QUEUES'; // reconstructed
+  rows.sort((a, b) => (a.queue < b.queue ? -1 : a.queue > b.queue ? 1 : 0));
+  return rows.map((r) => `QUEUE ${r.queue.padEnd(4)} ${String(r.count).padStart(3)} BFS`).join('\n');
+}
+
+/**
+ * `QW` — Queue Where: list all queues containing the on-screen BF.
+ * Source: Smartpoint Cloud Help (verbatim 2026-05-29).
+ *
+ * v11 has no "where is this locator" REST endpoint. We scan the local
+ * `backend.queues` mirror for membership. Same caveat as QCA — only
+ * sees activity routed through this emulator. Empty result (BF on no
+ * queues, or no BF on screen) → `NO QUEUES`.
+ */
+function handleGalileoQueueWhere(wa: WorkArea, ctx: HandlerContext): string {
+  const locator = wa.pnr.locator;
+  if (!locator) return GalileoResponse.NO_PNR;
+  const queues: string[] = [];
+  for (const [queue, locators] of ctx.backend.queues.entries()) {
+    if (locators.includes(locator)) queues.push(queue);
+  }
+  if (queues.length === 0) return 'NO QUEUES'; // reconstructed
+  queues.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return `BF ${locator} ON QUEUES: ${queues.join(', ')}`; // reconstructed
+}
+
+/**
+ * `QPB*` — Display queue titles. We don't model titles
+ * (`backend.queues` is keyed by id only — no title field). Stub.
+ */
+function handleGalileoQueueTitles(): string {
+  return 'NO TITLES SET'; // reconstructed
 }
 
 /**

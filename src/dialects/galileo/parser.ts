@@ -106,6 +106,9 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
     return parseQueueExit(trimmed, u);
   }
   if (u === 'QP' || u === 'QPI') return parseQueuePrevious(trimmed, u);
+  if (u === 'QCA' || /^QCA\*\d+$/.test(u)) return parseQueueCountAll(trimmed, u);
+  if (u === 'QW') return parseQueueWhere(trimmed);
+  if (u === 'QPB*') return parseQueueTitles(trimmed);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -730,6 +733,45 @@ function parseQueueRemoveAll(raw: string): QueueEntry {
  * AND don't take further action on it"; in our v1 emulation the
  * mark is informational since we don't yet model per-BF state.
  */
+/**
+ * `QCA` / `QCA*<n>` — Count / list all queues containing booking
+ * files (with optional threshold). Source: Travelport Smartpoint
+ * Cloud Help `Learn/14Queues/FreqFormats.htm` (verbatim 2026-05-29):
+ *   QCA      "List all queues containing active booking files"
+ *   QCA*30   "List all queues containing more than 30 booking files"
+ */
+function parseQueueCountAll(raw: string, u: string): QueueEntry {
+  const m = /^QCA(?:\*(\d+))?$/.exec(u);
+  if (!m) throw new ParseError(`Galileo QCA: expected QCA or QCA*<n> in "${raw}"`);
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: 'count_all',
+    ...(m[1] ? { countThreshold: Number(m[1]) } : {}),
+  };
+}
+
+/**
+ * `QW` — Display every queue the on-screen BF resides on. Source:
+ * Smartpoint Cloud Help (verbatim 2026-05-29): "List all queues
+ * where current the booking file resides (Queue Where)."
+ */
+function parseQueueWhere(raw: string): QueueEntry {
+  return { kind: 'queue', raw, timestamp: new Date(), op: 'where' };
+}
+
+/**
+ * `QPB*` — Display queue titles. Source: Smartpoint Cloud Help
+ * "Display a list of queue titles." We don't model titles in v1
+ * (`backend.queues` is `Map<queueId, locator[]>` without a name
+ * field) — the handler returns a `NO TITLES SET` stub (reconstructed)
+ * unless emulated content carries one in the future.
+ */
+function parseQueueTitles(raw: string): QueueEntry {
+  return { kind: 'queue', raw, timestamp: new Date(), op: 'display_titles' };
+}
+
 function parseQueuePrevious(raw: string, u: string): QueueEntry {
   return {
     kind: 'queue',

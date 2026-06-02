@@ -199,10 +199,12 @@ export function handleQueue(entry: QueueEntry, wa: WorkArea, ctx: HandlerContext
     case 'remove_all_in_pcc':
     case 'previous':
     case 'previous_ignore':
-      // Galileo-only verbs (QXI / QXE / QRQ/ALL / QP / QPI) — the
-      // Galileo dispatcher routes these through its own handlers.
-      // Sabre's parser never emits them; if we ever see one here it's
-      // a programming error.
+    case 'count_all':
+    case 'where':
+    case 'display_titles':
+      // Galileo-only verbs — the Galileo dispatcher routes these
+      // through its own handlers. Sabre's parser never emits them;
+      // if we ever see one here it's a programming error.
       return 'FORMAT';
   }
 }
