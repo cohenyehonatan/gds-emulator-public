@@ -271,6 +271,10 @@ export interface QueueEntry extends BaseEntry {
     | 'exit_end_tx'
     | 'exit_ignore_redisplay'
     | 'exit_end_redisplay'
+    /** `QP` — move queue cursor back 1 (Smartpoint Cloud "Queue Previous"). */
+    | 'previous'
+    /** `QPI` — ignore current BF + move cursor back 1. */
+    | 'previous_ignore'
     | 'skip'
     | 'requeue';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)

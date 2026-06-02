@@ -1204,6 +1204,9 @@ async function handleGalileoQueue(
   }
   if (entry.op === 'remove') return handleGalileoQueueRemove(entry, wa, ctx);
   if (entry.op === 'remove_all_in_pcc') return handleGalileoQueueRemoveAll(entry, wa, ctx);
+  if (entry.op === 'previous' || entry.op === 'previous_ignore') {
+    return handleGalileoQueuePrevious(entry, wa, ctx);
+  }
   if (!entry.queue) return GalileoResponse.FORMAT;
   if (entry.op === 'access') return handleGalileoQueueAccess(entry, wa, ctx);
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
@@ -1327,6 +1330,43 @@ async function handleGalileoQueueRemove(
     }
   }
   return `OK-QUEUE REMOVE ${queues.join('+')}`; // reconstructed
+}
+
+/**
+ * `QP` / `QPI` — Move the queue cursor back 1 and load the BF at the
+ * new position. Source: Smartpoint Cloud FreqFormats (verbatim
+ * 2026-05-29).
+ *
+ *   QP   "Move back 1 in the queue (Queue Previous)"
+ *   QPI  "Ignore current booking file and move back 1 in the queue"
+ *
+ * Preconditions:
+ *  - Must be in a queue context (`wa.currentQueue` + working set).
+ *  - Cursor must be > 0; at the top, returns `TOP OF QUEUE`
+ *    (reconstructed — Smartpoint Cloud doesn't quote the boundary
+ *    response wording).
+ *
+ * QP and QPI are observably identical in this v1: both decrement the
+ * cursor and reload. QPI's "ignore" semantic ("don't return current
+ * BF to the queue, don't take further action on it") doesn't change
+ * any state we model — there's no in-memory dirty flag on the BF
+ * that QP would have written and QPI would have to suppress. Once
+ * we model per-BF working-set actions, this is where the divergence
+ * would land.
+ */
+async function handleGalileoQueuePrevious(
+  _entry: QueueEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const set = wa.queueWorkingSet;
+  const cursor = wa.queueCursor;
+  if (!wa.currentQueue || !set || cursor == null) {
+    return 'NO QUEUE CONTEXT'; // reconstructed
+  }
+  if (cursor === 0) return 'TOP OF QUEUE'; // reconstructed
+  wa.queueCursor = cursor - 1;
+  return loadQueueBfAtCursor(wa, ctx);
 }
 
 /**

@@ -105,6 +105,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QX' || u === 'QXI' || u === 'QXE' || u === 'QXIR' || u === 'QXER') {
     return parseQueueExit(trimmed, u);
   }
+  if (u === 'QP' || u === 'QPI') return parseQueuePrevious(trimmed, u);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -713,6 +714,28 @@ function parseQueueRemoveAll(raw: string): QueueEntry {
     raw,
     timestamp: new Date(),
     op: 'remove_all_in_pcc',
+  };
+}
+
+/**
+ * `QP` / `QPI` — Move the queue cursor back 1. Source: Travelport
+ * Smartpoint Cloud Help `Learn/14Queues/FreqFormats.htm` (verbatim
+ * 2026-05-29):
+ *   QP   "Move back 1 in the queue (Queue Previous)"
+ *   QPI  "Ignore current booking file and move back 1 in the queue"
+ *
+ * Both require a queue context (Q/<n> first). At cursor 0 they
+ * return "TOP OF QUEUE" (reconstructed). QPI additionally marks the
+ * current BF as ignored — semantically "don't return it to the queue
+ * AND don't take further action on it"; in our v1 emulation the
+ * mark is informational since we don't yet model per-BF state.
+ */
+function parseQueuePrevious(raw: string, u: string): QueueEntry {
+  return {
+    kind: 'queue',
+    raw,
+    timestamp: new Date(),
+    op: u === 'QPI' ? 'previous_ignore' : 'previous',
   };
 }
 
