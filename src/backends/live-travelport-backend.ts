@@ -505,6 +505,72 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Add one or more SSRs to a workbench. Source: canonical body from
+   * `Book/RemarksGuide.htm` (verified 2026-05-29).
+   *
+   * Each request item carries:
+   *  - `ssrCode`: 4-char IATA SSR code (VGML, WCHR, INFT, ...)
+   *  - `travelerId`: server-assigned UUID from a prior addTraveler
+   *    (omit / pass `undefined` for whole-BF scope; the body emits an
+   *    empty TravelerIdentifier and pre-prod will surface whether
+   *    that's accepted)
+   *  - `offerId`: workbench / search-side offer identifier the SSR
+   *    applies to (similar v1-omit behaviour)
+   *  - `freeText`: optional ≤127-char free text
+   *
+   * The Identifier.value field is required by the schema; we generate
+   * a client-side UUID via `crypto.randomUUID()`. Pre-prod will say
+   * whether the server accepts client-generated values or rewrites
+   * them.
+   */
+  async addSpecialServices(
+    workbenchId: string,
+    requests: Array<{
+      ssrCode: string;
+      travelerId?: string;
+      offerId?: string;
+      freeText?: string;
+    }>
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/specialservices/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/specialservices/list`;
+    const body = {
+      SpecialServiceListRequest: {
+        SpecialServiceID: requests.map((r, i) => {
+          const entry: Record<string, unknown> = {
+            '@type': 'SpecialService',
+            id: `specialService_${i + 1}`,
+            Identifier: { authority: 'Travelport', value: crypto.randomUUID() },
+            SSRCode: r.ssrCode,
+          };
+          if (r.travelerId) {
+            entry.TravelerIdentifier = {
+              id: `trav_${i + 1}`,
+              Identifier: { value: r.travelerId },
+            };
+          }
+          if (r.offerId) {
+            entry.AppliesTo = {
+              '@type': 'AppliesToOffer',
+              OfferIdentifier: [
+                {
+                  id: `o${i}`,
+                  offerRef: `o${i}`,
+                  Identifier: { authority: 'Travelport', value: r.offerId },
+                },
+              ],
+            };
+          }
+          if (r.freeText) entry.FreeText = r.freeText;
+          return entry;
+        }),
+      },
+    };
+    return this.postJson(url, body, 'addSpecialServices');
+  }
+
+  /**
    * Add a notepad / remark to a workbench via `/reservationcomments/list`.
    * Source: canonical schema verified in the v11 spec doc
    * (`Book/RemarksGuide.htm`). Galileo `NP.<text>` maps to a single

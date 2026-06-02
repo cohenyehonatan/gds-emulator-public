@@ -180,7 +180,7 @@ export function dispatchGalileo(
         return handleGalileoDivide(entry, wa, ctx);
 
       case 'ssr':
-        return handleGalileoSsr(entry, wa);
+        return handleGalileoSsr(entry, wa, ctx);
 
       case 'osi':
         return handleGalileoOsi(entry, wa);
@@ -993,22 +993,61 @@ function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): st
 }
 
 /**
- * `SI.<...>` — Galileo SSR/OSI entry. v1: local-only — push onto
- * `wa.pnr.ssrs` with the existing model. Validates the optional
- * passenger reference (rejected if `P<n>` is out of range). Marks
- * the BF dirty in queue context like any other modify op.
+ * `SI.<...>` — Galileo SSR entry. Push onto `wa.pnr.ssrs` (local
+ * model). When in a live workbench, also POST to the canonical
+ * `/specialservices/list` endpoint with `TravelerIdentifier` resolved
+ * from `wa.liveTravelerIds` (per the `nameRef` scope when set, or
+ * omitted for whole-BF SSRs) and `AppliesTo.OfferIdentifier` resolved
+ * from the first cached availability line's `vendorRef.offerId`.
  *
- * Live REST wiring deferred — requires traveler-ID tracking from
- * `addTraveler` responses (we currently ignore those). See the
- * `Future work` section in the spec doc.
+ * v1 limitations:
+ *  - Single SSR per call (Mini Guide allows chained SI. on one
+ *    cryptic line; we don't merge).
+ *  - Segment scope (S<n>) parsed but not surfaced to the live body
+ *    — applies-to-first-offer is a reasonable proxy in v1; pre-prod
+ *    will say whether per-segment ref is required.
+ *  - Live failure surfaces `LIVE BACKEND ERROR` and skips the local
+ *    push (consistent with NP. semantics).
  */
-function handleGalileoSsr(entry: SsrEntry, wa: WorkArea): string {
+async function handleGalileoSsr(
+  entry: SsrEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   if (entry.nameRef) {
     const item = wa.pnr.names[entry.nameRef.item - 1];
     if (!item) return GalileoResponse.FORMAT;
     const p = entry.nameRef.passenger;
     if (p != null && (p < 1 || p > item.passengers.length)) return GalileoResponse.FORMAT;
   }
+
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    // Resolve traveler ref: nameRef.item → liveTravelerIds index.
+    // For whole-BF scope (no nameRef), omit TravelerIdentifier and
+    // let pre-prod tell us if it's actually required.
+    let travelerId: string | undefined;
+    if (entry.nameRef && wa.liveTravelerIds) {
+      const tid = wa.liveTravelerIds[entry.nameRef.item - 1];
+      if (tid) travelerId = tid;
+    }
+    // Resolve offer ref from cached availability (first line). The
+    // workbench-side offer ref may differ from the search-side
+    // offer ID — pre-prod will surface that drift via 4xx.
+    const offerId = wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
+    try {
+      await ctx.backend.addSpecialServices(wa.liveWorkbenchId, [
+        {
+          ssrCode: entry.code,
+          travelerId,
+          offerId,
+          freeText: entry.text,
+        },
+      ]);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
   wa.machine.transition(SessionEvent.ADD_FIELD);
   if (wa.currentQueue) wa.queueCurrentDirty = true;
   wa.pnr.ssrs.push({
@@ -1018,9 +1057,6 @@ function handleGalileoSsr(entry: SsrEntry, wa: WorkArea): string {
     nameRef: entry.nameRef,
     status: 'NN', // requested; airline confirms HK/HN/KK asynchronously
   });
-  // Render an SI. echo (reconstructed — Mini Guide documents the
-  // entry, not the host echo). Output `SI <code>` for each SSR on
-  // the BF.
   return renderGalileoSsrs(wa.pnr);
 }
 
