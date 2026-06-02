@@ -36,6 +36,7 @@ import type {
   QueueEntry,
   DivideEntry,
   IgnoreEntry,
+  SsrEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -174,6 +175,9 @@ export function dispatchGalileo(
 
       case 'divide':
         return handleGalileoDivide(entry, wa, ctx);
+
+      case 'ssr':
+        return handleGalileoSsr(entry, wa);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -966,6 +970,51 @@ function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): st
   modifyTransition(wa);
   seg.status = entry.status;
   return renderGalileoItinerary(wa.pnr);
+}
+
+/**
+ * `SI.<...>` — Galileo SSR/OSI entry. v1: local-only — push onto
+ * `wa.pnr.ssrs` with the existing model. Validates the optional
+ * passenger reference (rejected if `P<n>` is out of range). Marks
+ * the BF dirty in queue context like any other modify op.
+ *
+ * Live REST wiring deferred — requires traveler-ID tracking from
+ * `addTraveler` responses (we currently ignore those). See the
+ * `Future work` section in the spec doc.
+ */
+function handleGalileoSsr(entry: SsrEntry, wa: WorkArea): string {
+  if (entry.nameRef) {
+    const item = wa.pnr.names[entry.nameRef.item - 1];
+    if (!item) return GalileoResponse.FORMAT;
+    const p = entry.nameRef.passenger;
+    if (p != null && (p < 1 || p > item.passengers.length)) return GalileoResponse.FORMAT;
+  }
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  wa.pnr.ssrs.push({
+    code: entry.code,
+    carrier: entry.carrier,
+    text: entry.text,
+    nameRef: entry.nameRef,
+    status: 'NN', // requested; airline confirms HK/HN/KK asynchronously
+  });
+  // Render an SI. echo (reconstructed — Mini Guide documents the
+  // entry, not the host echo). Output `SI <code>` for each SSR on
+  // the BF.
+  return renderGalileoSsrs(wa.pnr);
+}
+
+function renderGalileoSsrs(pnr: { ssrs: Array<{ code: string; carrier: string; text?: string; nameRef?: { item: number; passenger?: number } }> }): string {
+  if (pnr.ssrs.length === 0) return 'NO SSRS'; // reconstructed
+  return pnr.ssrs
+    .map((s, i) => {
+      const nr = s.nameRef
+        ? ` P${s.nameRef.item}${s.nameRef.passenger != null ? `.${s.nameRef.passenger}` : ''}`
+        : '';
+      const txt = s.text ? ` ${s.text}` : '';
+      return `${i + 1}.SI.${s.code}${nr}${txt}`;
+    })
+    .join('\n');
 }
 
 /**

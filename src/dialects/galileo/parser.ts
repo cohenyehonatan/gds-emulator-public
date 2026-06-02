@@ -48,6 +48,7 @@ import type {
   VoidEntry,
   QueueEntry,
   DivideEntry,
+  SsrEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -109,6 +110,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QCA' || /^QCA\*\d+$/.test(u)) return parseQueueCountAll(trimmed, u);
   if (u === 'QW') return parseQueueWhere(trimmed);
   if (u === 'QPB*') return parseQueueTitles(trimmed);
+  if (u.startsWith('SI.')) return parseSpecialService(trimmed);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -770,6 +772,82 @@ function parseQueueWhere(raw: string): QueueEntry {
  */
 function parseQueueTitles(raw: string): QueueEntry {
   return { kind: 'queue', raw, timestamp: new Date(), op: 'display_titles' };
+}
+
+/**
+ * `SI.<...>` — Galileo special service entry. Source: Mini Format
+ * Guide v2 + Travelport Smartpoint Cloud Help (verified 2026-05-29).
+ * Both SSRs and OSIs use the same `SI.` prefix in Galileo (Apollo
+ * uses `:3` instead). The code itself distinguishes the request type;
+ * v1 treats every SI. entry as an SSR and lets downstream display
+ * sort it out.
+ *
+ * Forms (verbatim from Mini Guide v2):
+ *   SI.<code>                  all pax, all segments — `SI.VGML`
+ *   SI.P<n>/<code>             specific passenger — `SI.P1/VGML`
+ *   SI.S<n>/<code>             specific segment — `SI.S3/VGML`
+ *   SI.P<n>S<n>/<code>         pax + segment combo
+ *   SI.<code>*<text>           with free text — `SI.SPML*NO EGGS`
+ *   SI.P<n>S<n>/<code>*<text>  combination
+ *
+ * SSR code: 4 alpha-numeric chars per the REST schema; we accept
+ * any 4-char alphanumeric to be permissive.
+ *
+ * Deferred (not in v1):
+ *   - Modifications: `SI.<code>@HK`, `SI.<code>@XK`, `SI.<code>@`,
+ *     `SI.ALL@`. Cancel-style ops mid-build.
+ *   - Multi-segment ranges (`S3.4`)
+ *   - Complex SSR payloads (`SSRDOCS<carrier><status>///DOB/...`)
+ *     beyond the 4-char code (these come through as the free text).
+ *   - OSI vs SSR routing (everything stored as SSR for now).
+ *   - Live REST wiring (needs traveler-ID tracking from addTraveler).
+ *     See `Future work` section in the spec doc.
+ */
+function parseSpecialService(raw: string): SsrEntry {
+  // Use `raw.trim().toUpperCase()` directly (not the no-whitespace `u`
+  // variant) so free text like `SI.SPML*NO EGGS` preserves the space
+  // between words. The Mini Guide explicitly documents free text
+  // with internal spaces up to ~127 chars (per the REST schema).
+  const upper = raw.trim().toUpperCase();
+  if (!upper.startsWith('SI.')) {
+    throw new ParseError(`Galileo SI: expected SI. prefix in "${raw}"`);
+  }
+  const body = upper.slice(3);
+  const [head, ...textParts] = body.split('*');
+  const text = textParts.length > 0 ? textParts.join('*').trim() : undefined;
+  // Now `head` is `<scope>/<code>` or just `<code>`. Scope is optional.
+  let scope = '';
+  let code = head;
+  const slashIdx = head.indexOf('/');
+  if (slashIdx !== -1) {
+    scope = head.slice(0, slashIdx);
+    code = head.slice(slashIdx + 1);
+  }
+  if (!/^[A-Z0-9]{2,}$/.test(code)) {
+    throw new ParseError(`Galileo SI: expected SSR code (≥2 alphanumeric) in "${raw}"`);
+  }
+  // Parse scope: `P<n>`, `S<n>`, `P<n>S<n>`. Empty scope = all.
+  let nameRef: SsrEntry['nameRef'] = undefined;
+  if (scope.length > 0) {
+    const m = /^(?:P(\d+))?(?:S\d+)?$/.exec(scope);
+    if (!m) {
+      throw new ParseError(`Galileo SI: malformed scope "${scope}" in "${raw}"`);
+    }
+    if (m[1]) nameRef = { item: Number(m[1]) };
+    // S<n> segment scope is parsed but not surfaced — local model
+    // doesn't carry per-segment SSR refs yet. Real Galileo would
+    // associate via segment numbers; for v1 the SSR applies to the
+    // whole BF.
+  }
+  return {
+    kind: 'ssr',
+    raw,
+    timestamp: new Date(),
+    code,
+    carrier: 'YY', // default to "all airlines"; per-carrier qualifier deferred
+    text,
+    nameRef,
+  };
 }
 
 function parseQueuePrevious(raw: string, u: string): QueueEntry {
