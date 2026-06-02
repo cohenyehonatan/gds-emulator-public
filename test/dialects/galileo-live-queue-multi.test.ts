@@ -12,7 +12,6 @@ describe('Galileo multi-queue `+` parsing', () => {
     if (r.kind === 'queue') {
       expect(r.queue).toBe('35');
       expect(r.additionalTargets).toEqual([{ queue: '40' }, { queue: '45' }]);
-      expect(r.endTransaction).toBe(true);
     }
   });
 
@@ -62,7 +61,6 @@ describe('Galileo multi-queue `+` parsing', () => {
     if (r.kind === 'queue') {
       expect(r.queue).toBe('50');
       expect(r.pic).toBe('71MG');
-      expect(r.endTransaction).toBe(true);
       expect(r.additionalTargets).toBeUndefined();
     }
   });
@@ -78,7 +76,7 @@ describe('Galileo multi-queue `+` parsing', () => {
   });
 });
 
-describe('Galileo live QEB multi-queue place — N round-trips', () => {
+describe('Galileo live QEB multi-queue place — single multi-queue call', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let host: GdsHost;
   let wa: WorkArea;

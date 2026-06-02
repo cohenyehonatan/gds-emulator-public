@@ -101,7 +101,6 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
-  if (u.startsWith('QP/')) return parseQueuePlace(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
   if (u === 'QX' || u === 'QXI' || u === 'QXE' || u === 'QXIR' || u === 'QXER') {
     return parseQueueExit(trimmed, u);
@@ -599,7 +598,6 @@ function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
       op: 'place',
       queue: primary,
       pic: pcc,
-      endTransaction: true,
       additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
     };
   }
@@ -616,30 +614,7 @@ function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
     timestamp: new Date(),
     op: 'place',
     queue: primary,
-    endTransaction: true,
     additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
-  };
-}
-
-/**
- * `QP/<n>` — Place the on-screen committed BF on queue `<n>` WITHOUT
- * ending transaction. Source: Galileo Pocket Guide p.3 + Mini Format
- * Guide v2 (queue verbs). Distinct from `QEB/<n>`: this verb requires
- * the BF to be already committed (has a locator) — no commit phase.
- *
- * Deferred:
- *   - QP/<PCC>/<n>     branch-PCC queue placement
- *   - QP/<n>/<pic>     placement instruction code (priority/category)
- */
-function parseQueuePlace(raw: string, u: string): QueueEntry {
-  const m = /^QP\/([A-Z0-9]+)$/.exec(u);
-  if (!m) throw new ParseError(`Galileo QP: expected QP/<queue> in "${raw}"`);
-  return {
-    kind: 'queue',
-    raw,
-    timestamp: new Date(),
-    op: 'place',
-    queue: m[1],
   };
 }
 

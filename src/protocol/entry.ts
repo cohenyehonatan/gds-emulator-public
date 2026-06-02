@@ -274,13 +274,8 @@ export interface QueueEntry extends BaseEntry {
     | 'skip'
     | 'requeue';
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
-  pic?: string; // placement instruction code (QP/100/75)
-  /**
-   * Set by Galileo `QEB/<queue>` (combined end-transaction + place); absent
-   * for plain `QP/<queue>` which requires the BF to be already committed
-   * (no embedded commit phase).
-   */
-  endTransaction?: boolean;
+  pic?: string; // placement instruction code (Sabre QP/100/75); Galileo reuses
+                // this field for branch-PCC on `QEB/<PCC>/<n>` placements.
   /** QL → 'LMTC'; QU → 'UTR'. Re-queue op only. */
   requeueTarget?: 'LMTC' | 'UTR';
   /**

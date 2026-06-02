@@ -1209,22 +1209,19 @@ async function handleGalileoQueue(
   if (entry.op !== 'place') return GalileoResponse.FORMAT;
   const queue = entry.queue;
 
-  // QEB embeds an end-transaction: commit first if no locator. QP
-  // requires the BF to be already committed — no implicit commit.
+  // QEB embeds an end-transaction: commit first if no locator. When
+  // a locator is already on screen (post-retrieve, post-commit), the
+  // commit phase is skipped and QEB acts as a pure place. Per
+  // multiple Galileo sources (Smartpoint Cloud Help, agency training
+  // PDFs), QEB is the universal queue-place verb for both states —
+  // there is no separate "place without end-tx" cryptic.
   if (!wa.pnr.locator) {
-    if (!entry.endTransaction) {
-      // Match the Sabre analog: QP against an in-flight build is rejected
-      // until the agent ends or ignores the transaction. The exact
-      // Galileo wording isn't in our sources; reuse the reconstructed
-      // FINISH OR IGNORE marker the QP cryptic shares with Sabre.
-      return 'FINISH OR IGNORE'; // reconstructed
-    }
     const commitResp = await commitForQueueEnd(wa, ctx);
     if (commitResp.error) return commitResp.error;
   }
   const locator = wa.pnr.locator!;
 
-  // Multi-queue chain (`QEB/35+40+45` / `QP/35+40`) and branch-PCC
+  // Multi-queue chain (`QEB/35+40+45`) and branch-PCC
   // (`QEB/<PCC>/<n>`, plus its multi-queue extension). v11 place
   // endpoint accepts a `Queue[]` array — one POST covers every
   // target. Each entry carries its own `pccOverride` when set.

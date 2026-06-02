@@ -186,9 +186,9 @@ describe('Galileo live QRQ/ALL — remove from every queue this BF sits on', () 
     const locator = await emulatedHost.process('E', ewa); // commit
     expect(locator).toMatch(/^[A-Z0-9]{6}$/);
     await emulatedHost.process(`*${locator}`, ewa);
-    await emulatedHost.process('QP/10', ewa);
-    await emulatedHost.process('QP/20', ewa);
-    await emulatedHost.process('QP/30', ewa);
+    // QEB acts as a pure place when a locator is already on screen
+    // (the commit phase short-circuits). Multi-queue in one call.
+    await emulatedHost.process('QEB/10+20+30', ewa);
     expect(emulatedHost.backend.queues.get('10')).toContain(locator);
     expect(emulatedHost.backend.queues.get('20')).toContain(locator);
     expect(emulatedHost.backend.queues.get('30')).toContain(locator);
