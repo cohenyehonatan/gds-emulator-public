@@ -451,22 +451,43 @@ const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
 };
 
 /**
- * `I` (ignore) / `IR` (ignore + retrieve). Source: Mini Format Guide
- * v2 p.17. The ignore semantics are shared:
+ * `I` (ignore) / `IR` (ignore + retrieve). Two semantic modes:
+ *
+ * **Queue context** (`wa.currentQueue` + working set populated). Per
+ * Travelport Smartpoint Cloud Help (verbatim 2026-05-29):
+ *   I  "Return booking file to the bottom of the queue"
+ * The current BF goes to the END of its queue (local mirror updated;
+ * working set advances cursor + loads next BF). At end of working
+ * set: return `QUEUE <n> EMPTY` and exit queue context. No workbench
+ * DELETE — there's no in-flight workbench when navigating a queue.
+ * `IR` in queue context falls through to the same path (no separate
+ * re-retrieve semantic).
+ *
+ * **Non-queue context** (Mini Format Guide v2 p.17):
  *  - Live: send polite-citizen `DELETE .../reservationworkbench/{wb}`
  *    if a workbench is open. Failures are swallowed (server's 30-min
  *    TTL would clean up anyway); the cryptic still returns `IGNORED`.
  *  - Clear the work area + transition IGNORE.
- *
- * `IR` then re-retrieves whatever locator was on screen before — same
- * code path as `*<locator>`. If there was no locator (mid-build with
- * no prior retrieve), IR degrades to plain I.
+ *  - `IR` then re-retrieves whatever locator was on screen before —
+ *    same code path as `*<locator>`. If there was no locator (mid-
+ *    build with no prior retrieve), IR degrades to plain I.
  */
 async function handleGalileoIgnore(
   entry: IgnoreEntry,
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
+  // Queue-context branch: I = return current BF to bottom of queue
+  // + advance cursor to next.
+  if (
+    wa.currentQueue &&
+    wa.queueWorkingSet &&
+    wa.queueCursor != null &&
+    wa.queueWorkingSet[wa.queueCursor]
+  ) {
+    return handleGalileoIgnoreInQueue(wa, ctx);
+  }
+
   const priorLocator = wa.pnr.locator;
   if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
     try {
@@ -490,6 +511,73 @@ async function handleGalileoIgnore(
     return renderGalileoPnr(pnr, sig);
   }
   return GalileoResponse.IGNORED;
+}
+
+/**
+ * `I` inside a queue context: per Smartpoint Cloud, "Return booking
+ * file to the bottom of the queue" — i.e. requeue the current BF to
+ * the END of its queue, then advance to the next BF on screen.
+ *
+ * Live path: POST `/queue/queue` to place this locator back on the
+ * current queue (it gets appended). The current item is also dropped
+ * from the LOCAL working set (so we don't see it again this pass)
+ * and the local mirror is updated to reflect the new "at the bottom"
+ * position. Cursor stays where it is (since we removed the item at
+ * the cursor, the next item slides in).
+ *
+ * End of working set: return `QUEUE <n> EMPTY` and exit queue
+ * context (clear `currentQueue`, `queueCursor`, working set).
+ */
+async function handleGalileoIgnoreInQueue(
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const queue = wa.currentQueue!;
+  const set = wa.queueWorkingSet!;
+  const cursor = wa.queueCursor!;
+  const currentLocator = set[cursor];
+
+  // Live: requeue (append) via place. Failures still let local mirror
+  // advance — the BF stays where it was server-side, agent will get
+  // it again on a re-access.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      await ctx.backend.placeOnQueue(currentLocator, [{ value: queue }]);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
+  // Local mirror: move currentLocator from its current position to the
+  // bottom of the queue. The mirror is a flat locator[] regardless of
+  // backend; safe to splice + push.
+  const mirror = ctx.backend.queues.get(queue) ?? [];
+  const mIdx = mirror.indexOf(currentLocator);
+  if (mIdx !== -1) {
+    mirror.splice(mIdx, 1);
+    mirror.push(currentLocator);
+    ctx.backend.queues.set(queue, mirror);
+  }
+
+  // Working-set advance: drop the current item; cursor stays — the
+  // next item slid into position.
+  set.splice(cursor, 1);
+
+  if (set.length === 0) {
+    // Queue worked through — exit queue context.
+    wa.currentQueue = undefined;
+    wa.queueCursor = undefined;
+    wa.queueWorkingSet = undefined;
+    return `QUEUE ${queue} EMPTY`; // reconstructed
+  }
+
+  if (cursor >= set.length) {
+    // We were at the last item; cursor now past end. Reset to 0
+    // (wrap to front) — agent works the (now-shorter) queue from top.
+    wa.queueCursor = 0;
+  }
+
+  return loadQueueBfAtCursor(wa, ctx);
 }
 
 function handleGalileoEndTransaction(
