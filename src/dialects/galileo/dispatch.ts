@@ -78,6 +78,26 @@ import { GalileoResponse } from './responses.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
 
+/**
+ * Mirror of `wa.machine.transition(SessionEvent.MODIFY)` that ALSO
+ * marks the queue working set's current item dirty when we're in a
+ * queue context. QP consults this flag to refuse a navigation that
+ * would lose unsaved changes; QPI ignores it and navigates anyway.
+ */
+function modifyTransition(wa: WorkArea): void {
+  wa.machine.transition(SessionEvent.MODIFY);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+}
+
+/**
+ * Same for SELL — adding a segment to a queue-retrieved BF is also a
+ * modification.
+ */
+function sellTransition(wa: WorkArea): void {
+  wa.machine.transition(SessionEvent.SELL);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+}
+
 export function dispatchGalileo(
   entry: ParsedEntry,
   wa: WorkArea,
@@ -298,7 +318,7 @@ async function handleGalileoSell(
     }
   }
 
-  wa.machine.transition(SessionEvent.SELL);
+  sellTransition(wa);
   const added: AirSegment[] = [];
   for (const leg of legs) {
     const line = avail.lines.find((l) => l.line === leg.line)!;
@@ -793,7 +813,7 @@ function handleGalileoCancel(
 
 function handleGalileoCancelEmulated(entry: CancelEntry, wa: WorkArea): string {
   if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
-    wa.machine.transition(SessionEvent.MODIFY);
+    modifyTransition(wa);
     wa.pnr.segments = [];
     return 'ITINERARY CANCELLED'; // reconstructed
   }
@@ -803,7 +823,7 @@ function handleGalileoCancelEmulated(entry: CancelEntry, wa: WorkArea): string {
     if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
   }
 
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   const remove = new Set(entry.segments);
   wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
   wa.pnr.renumberSegments();
@@ -848,7 +868,7 @@ async function cancelGalileoLiveWorkbench(
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
     wa.pnr.segments = [];
   } else {
@@ -873,7 +893,7 @@ async function cancelGalileoLiveCommitted(
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
-    wa.machine.transition(SessionEvent.MODIFY);
+    modifyTransition(wa);
     wa.pnr.segments = [];
     // Mirror the cancel locally too — the committed BF in pnrStore was
     // a pragmatic shadow; cancelling it on the server should clear the
@@ -918,7 +938,7 @@ async function cancelGalileoLiveCommitted(
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   const remove = new Set(entry.segments);
   wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
   wa.pnr.renumberSegments();
@@ -943,7 +963,7 @@ function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): st
   if (!MANUAL_STATUS_CODES.has(entry.status)) return 'INVALID STATUS CODE'; // reconstructed
   const seg = wa.pnr.segments.find((s) => s.segmentNumber === entry.segment);
   if (!seg) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   seg.status = entry.status;
   return renderGalileoItinerary(wa.pnr);
 }
@@ -983,7 +1003,7 @@ async function handleGalileoPassiveCancel(
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   const remove = new Set(entry.segments);
   wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
   wa.pnr.renumberSegments();
@@ -1658,6 +1678,10 @@ async function loadQueueBfAtCursor(wa: WorkArea, ctx: HandlerContext): Promise<s
   if (!set || cursor == null) return 'NO QUEUE CONTEXT'; // reconstructed
   if (cursor >= set.length) return `QUEUE ${wa.currentQueue} EMPTY`; // reconstructed
   if (cursor < 0) return 'TOP OF QUEUE'; // reconstructed
+  // Loading a BF at the cursor implicitly discards any modifications
+  // made to whatever was on screen before. Real Galileo: every cursor
+  // movement re-pulls the BF from server.
+  wa.queueCurrentDirty = false;
   const locator = set[cursor];
   const sig = { pcc: ctx.pcc, agent: wa.agent };
   if (ctx.backend instanceof LiveTravelportBackend) {
@@ -1747,6 +1771,6 @@ async function handleGalileoDivide(
   // to the divided slice; that's the existing Sabre handleDivide
   // semantics but the Mini Guide's DP<n> is a one-shot. Defer until
   // we have a Galileo-shaped divide test fixture to source against.
-  wa.machine.transition(SessionEvent.MODIFY);
+  modifyTransition(wa);
   return `OK-DIVIDE P${passenger}`; // reconstructed
 }

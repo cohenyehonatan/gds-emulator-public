@@ -43,6 +43,15 @@ export class WorkAreaSlot {
    * verbs move the cursor and re-load.
    */
   queueWorkingSet?: string[];
+  /**
+   * Per-BF "modified since cursor load" flag inside a queue working
+   * set. Set by any modify op (X cancel, @<n>HK, @<n>XK, sell-onto-
+   * retrieved-BF) when `currentQueue` is populated. Cleared whenever
+   * we reload the BF at the cursor (Q/<n>, QP navigation, QR/I
+   * advance). Used by QP to refuse a navigation that would lose
+   * unsaved changes; QPI ignores the flag and navigates anyway.
+   */
+  queueCurrentDirty?: boolean;
   lastSimilarNameList?: Pnr[];
   pendingCancelRefundTicket?: string;
   lastRefundResponse?: string;
@@ -78,6 +87,7 @@ export class WorkAreaSlot {
     this.currentQueue = undefined;
     this.queueCursor = undefined;
     this.queueWorkingSet = undefined;
+    this.queueCurrentDirty = undefined;
     this.lastSimilarNameList = undefined;
     this.pendingCancelRefundTicket = undefined;
     this.lastRefundResponse = undefined;
@@ -197,6 +207,12 @@ export class WorkArea {
   }
   set queueWorkingSet(v: string[] | undefined) {
     this.s.queueWorkingSet = v;
+  }
+  get queueCurrentDirty(): boolean | undefined {
+    return this.s.queueCurrentDirty;
+  }
+  set queueCurrentDirty(v: boolean | undefined) {
+    this.s.queueCurrentDirty = v;
   }
   get lastSimilarNameList(): Pnr[] | undefined {
     return this.s.lastSimilarNameList;
