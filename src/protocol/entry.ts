@@ -341,6 +341,23 @@ export interface FileEntry extends BaseEntry {
  * via the single Basic Reservation Course example `W¥PQ1¥KP0¥ALH` (p.6 ICK
  * table footer, showing the cross-of-Lorraine as a qualifier separator).
  */
+/**
+ * Galileo `TMU<n>F<form>` — Ticket Modifier Update. Attaches a form
+ * of payment (and other ticket-time modifiers) to filed fare `<n>`
+ * BEFORE issue (TKP). Source: Mini Format Guide v2.
+ *
+ * The FOP variants here mirror the canonical v11 body for
+ * `addFormOfPayment` (FormOfPaymentCash + FormOfPaymentPaymentCard).
+ */
+export interface TicketModifierEntry extends BaseEntry {
+  kind: 'ticket_modifier';
+  /** Filed-fare index — 1-based as the cryptic types it. */
+  filedFare: number;
+  fop?:
+    | { kind: 'cash'; nonRefundable?: boolean }
+    | { kind: 'credit_card'; brand: string; pan: string; expiry: string };
+}
+
 export interface TicketEntry extends BaseEntry {
   kind: 'ticket';
   source: 'pnr' | 'pq'; // price-as-booked/last quote vs a stored PQ record
@@ -442,6 +459,7 @@ export type ParsedEntry =
   | FileEntry
   | QueueEntry
   | TicketEntry
+  | TicketModifierEntry
   | AuditTrailEntry
   | RefundEntry
   | CancelRefundEntry

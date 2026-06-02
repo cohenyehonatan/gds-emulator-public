@@ -447,16 +447,50 @@ export class LiveTravelportBackend implements Backend {
    */
   async addFormOfPayment(
     workbenchId: string,
-    fop: { kind: 'cash' } = { kind: 'cash' }
+    fop:
+      | { kind: 'cash'; nonRefundable?: boolean }
+      | {
+          kind: 'credit_card';
+          brand: string;
+          pan: string;
+          expiry: string; // MMYY
+          holderName?: string;
+        } = { kind: 'cash' }
   ): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/payment/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/formofpayment`;
-    // Defensive body shape — the spec endpoints list documents the URL but
-    // not the JSON exactly. Cash is the simplest; the documented field
-    // names live under FormOfPayment in adjacent endpoints (addaccounting
-    // etc. share a similar `Type: "Cash"` convention).
-    const body = { FormOfPayment: [{ Type: fop.kind === 'cash' ? 'Cash' : 'Cash' }] };
+    // Canonical bodies verified from `APIRef_AddFOP.htm` (2026-05-29).
+    // Top-level discriminator: `FormOfPaymentCash` vs
+    // `FormOfPaymentPaymentCard`. Replaces the previous best-guess
+    // `{ FormOfPayment: [{ Type: "Cash" }] }` body — same bug class
+    // as the cancel/queue-place body fixes earlier.
+    let body: Record<string, unknown>;
+    if (fop.kind === 'cash') {
+      body = {
+        FormOfPaymentCash: {
+          id: 'formOfPayment_1',
+          FormOfPaymentRef: 'formOfPayment_1',
+          ...(fop.nonRefundable ? { agentNonRefundableInd: true } : {}),
+        },
+      };
+    } else {
+      body = {
+        FormOfPaymentPaymentCard: {
+          id: 'formOfPayment_1',
+          FormOfPaymentRef: 'formOfPayment_1',
+          PaymentCard: {
+            '@type': 'PaymentCardDetail',
+            id: 'paymentCard_1',
+            CardType: 'Credit',
+            CardCode: fop.brand,
+            CardNumber: { '@type': 'CardNumber', PlainText: fop.pan },
+            expireDate: fop.expiry,
+            ...(fop.holderName ? { CardHolderName: fop.holderName } : {}),
+          },
+        },
+      };
+    }
     return this.postJson(url, body, 'addFormOfPayment');
   }
 

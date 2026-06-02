@@ -50,6 +50,7 @@ import type {
   DivideEntry,
   SsrEntry,
   RemarkEntry,
+  TicketModifierEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -101,6 +102,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // ordering keeps intent explicit.)
   if (u === 'FQ') return parsePricing(trimmed);
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
+  if (/^TMU\d/.test(u)) return parseTicketModifier(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
@@ -906,6 +908,79 @@ function parseNotepad(raw: string): RemarkEntry {
     remarkType,
     text: text.trim(),
   };
+}
+
+/**
+ * `TMU<n>F<form>` — Ticket Modifier Update: attach a form of payment
+ * to filed fare `<n>` before issue. Source: Mini Format Guide v2
+ * (verbatim 2026-05-29):
+ *
+ *   TMU1FS               FOP Cash for filed fare 1
+ *   TMU1FNONREF          FOP Nonref (cash, non-refundable) for filed fare 1
+ *   TMU2FAX2739122345 6789*D1228
+ *                        Credit card for filed fare 2
+ *
+ * Credit card grammar: `F<2-letter-brand><pan>*D<MMYY>`. Brand codes
+ * mirror IATA: VI (Visa), AX (Amex), MC (Mastercard), CA (per Mini
+ * Guide example shows AX), DC (Diners), JC (JCB), etc. We don't
+ * validate brand-vs-PAN-length here.
+ *
+ * Deferred:
+ *   - TMU<n>FGR<...>     Government warrant — v11 REST shape not
+ *                        captured in `APIRef_AddFOP.htm`
+ *   - TMU<n>C<carrier>   Change ticketing carrier (different modifier
+ *                        family — Mini Guide separates from F)
+ *   - TMU<n>             Bare update without F (no documented effect
+ *                        in our sources)
+ */
+function parseTicketModifier(raw: string, u: string): TicketModifierEntry {
+  const m = /^TMU(\d+)F(.+)$/.exec(u);
+  if (!m) {
+    throw new ParseError(`Galileo TMU: expected TMU<n>F<form> in "${raw}"`);
+  }
+  const filedFare = Number(m[1]);
+  if (filedFare < 1) {
+    throw new ParseError(`Galileo TMU: filed-fare index must be ≥ 1 in "${raw}"`);
+  }
+  const formStr = m[2];
+
+  // Cash variants first (cheap to check).
+  if (formStr === 'S') {
+    return {
+      kind: 'ticket_modifier',
+      raw,
+      timestamp: new Date(),
+      filedFare,
+      fop: { kind: 'cash' },
+    };
+  }
+  if (formStr === 'NONREF') {
+    return {
+      kind: 'ticket_modifier',
+      raw,
+      timestamp: new Date(),
+      filedFare,
+      fop: { kind: 'cash', nonRefundable: true },
+    };
+  }
+
+  // Credit card: <2-letter brand><PAN>*D<MMYY>
+  const cc = /^([A-Z]{2})(\d{12,19})\*D(\d{4})$/.exec(formStr);
+  if (cc) {
+    const [brand, pan, expiry] = [cc[1], cc[2], cc[3]];
+    return {
+      kind: 'ticket_modifier',
+      raw,
+      timestamp: new Date(),
+      filedFare,
+      fop: { kind: 'credit_card', brand, pan, expiry },
+    };
+  }
+
+  throw new ParseError(
+    `Galileo TMU: unsupported FOP form "${formStr}" in "${raw}" ` +
+      `(supported: S, NONREF, <brand><pan>*D<MMYY>)`
+  );
 }
 
 function parseQueuePrevious(raw: string, u: string): QueueEntry {

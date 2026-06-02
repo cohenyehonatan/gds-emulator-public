@@ -38,6 +38,7 @@ import type {
   IgnoreEntry,
   SsrEntry,
   RemarkEntry,
+  TicketModifierEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -182,6 +183,9 @@ export function dispatchGalileo(
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
+
+      case 'ticket_modifier':
+        return handleGalileoTicketModifier(entry, wa);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1017,6 +1021,27 @@ function handleGalileoSsr(entry: SsrEntry, wa: WorkArea): string {
 }
 
 /**
+ * `TMU<n>F<form>` — attach FOP to filed fare `<n>`. Source: Mini
+ * Format Guide v2. v1 stores on `wa.pnr.priceQuotes[n-1].fop`; live
+ * REST is deferred to TKP time (when the issue actually happens).
+ * Real Galileo posts immediately to the workbench at TMU; we batch
+ * to keep our TKP handler the single place that calls
+ * `addFormOfPayment`, which simplifies error handling.
+ *
+ * Echo: `OK-TMU<n>` (reconstructed — Mini Guide documents the entry,
+ * not the response).
+ */
+function handleGalileoTicketModifier(entry: TicketModifierEntry, wa: WorkArea): string {
+  const idx = entry.filedFare - 1;
+  const fq = wa.pnr.priceQuotes[idx];
+  if (!fq) {
+    return `NO FILED FARE ${entry.filedFare}`; // reconstructed
+  }
+  if (entry.fop) fq.fop = entry.fop;
+  return `OK-TMU${entry.filedFare}`; // reconstructed
+}
+
+/**
  * `NP.<text>` and `NP.<qualifier>**<text>` — notepad / remark.
  * Source: Mini Format Guide v2.
  *
@@ -1227,14 +1252,15 @@ async function handleGalileoTicket(
   const segments = wa.pnr.segments;
   if (segments.length === 0) return GalileoResponse.NEED_ITINERARY;
 
-  // Live path: POST a cash form-of-payment to the workbench. The actual
-  // ticket issuance happens at commit (E/ER) once both the FOP and the
-  // ticketing field are on the workbench. v1 only emits cash; the full
-  // TMU<n>F<form> grammar (credit cards, government warrants, etc.)
-  // hasn't been wired on the cryptic side yet.
+  // Live path: POST the form-of-payment to the workbench. Pull from
+  // the filed fare's TMU-stored FOP when present (`TMU<n>F<form>`),
+  // default to cash. Issuance happens at commit (E/ER) once both the
+  // FOP and the ticketing field are on the workbench. Government
+  // warrants (`TMU<n>FGR<...>`) deferred — v11 REST shape not
+  // captured.
   if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
     try {
-      await ctx.backend.addFormOfPayment(wa.liveWorkbenchId, { kind: 'cash' });
+      await ctx.backend.addFormOfPayment(wa.liveWorkbenchId, fq.fop ?? { kind: 'cash' });
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }

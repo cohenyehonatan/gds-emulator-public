@@ -97,7 +97,12 @@ describe('Galileo live TKP — form of payment + commit', () => {
     const [fopUrl, fopInit] = fetchSpy.mock.calls[6];
     expect(fopUrl).toContain('/payment/reservationworkbench/WB-T/formofpayment');
     const body = JSON.parse((fopInit?.body as string) ?? '{}');
-    expect(body.FormOfPayment?.[0]?.Type).toBe('Cash');
+    // Canonical body per APIRef_AddFOP.htm (verified 2026-05-29):
+    // top-level discriminator is `FormOfPaymentCash`, not the bare
+    // `FormOfPayment[].Type` we'd been posting.
+    expect(body.FormOfPaymentCash).toBeDefined();
+    expect(body.FormOfPaymentCash.id).toBe('formOfPayment_1');
+    expect(body.FormOfPaymentCash.agentNonRefundableInd).toBeUndefined();
   });
 
   it('TKP without a filed fare returns FILED FARE NOT FOUND (no fetch)', async () => {
