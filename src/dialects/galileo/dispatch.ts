@@ -1221,16 +1221,30 @@ async function handleGalileoQueue(
   }
   const locator = wa.pnr.locator!;
 
-  // Multi-queue chain (`QEB/35+40+45`) and branch-PCC
-  // (`QEB/<PCC>/<n>`, plus its multi-queue extension). v11 place
-  // endpoint accepts a `Queue[]` array — one POST covers every
-  // target. Each entry carries its own `pccOverride` when set.
-  const branchPcc = entry.pic; // parser stows branch-PCC in `pic` (reused field)
-  const queues: Array<{ value: string; pccOverride?: string }> = [
-    { value: queue, ...(branchPcc ? { pccOverride: branchPcc } : {}) },
+  // Multi-queue chain (`QEB/35+40+45`), branch-PCC (`QEB/<PCC>/<n>`),
+  // and category/date-range qualifiers (`QEB/42*CAB*D4`). v11 place
+  // endpoint accepts a `Queue[]` array — one POST covers every target.
+  // Each entry carries its own pccOverride / category / dateOffset.
+  // Per Galileo cryptic, qualifiers apply uniformly across the chain.
+  const branchPcc = entry.pic;
+  const queueExtras: {
+    pccOverride?: string;
+    category?: string;
+    dateOffset?: number;
+  } = {};
+  if (branchPcc) queueExtras.pccOverride = branchPcc;
+  if (entry.category) queueExtras.category = entry.category;
+  if (entry.dateRange != null) queueExtras.dateOffset = entry.dateRange;
+  const queues: Array<{
+    value: string;
+    pccOverride?: string;
+    category?: string;
+    dateOffset?: number;
+  }> = [
+    { value: queue, ...queueExtras },
     ...(entry.additionalTargets ?? []).map((t) => ({
       value: t.queue,
-      ...(branchPcc ? { pccOverride: branchPcc } : {}),
+      ...queueExtras,
     })),
   ];
   if (ctx.backend instanceof LiveTravelportBackend) {
@@ -1450,7 +1464,11 @@ async function handleGalileoQueueAccess(
   const queue = entry.queue!;
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
-      const response = await ctx.backend.listQueue(queue);
+      const opts: { dateOffset?: number; pccOverride?: string; category?: string } = {};
+      if (entry.pic) opts.pccOverride = entry.pic;
+      if (entry.category) opts.category = entry.category;
+      if (entry.dateRange != null) opts.dateOffset = entry.dateRange;
+      const response = await ctx.backend.listQueue(queue, opts);
       const result = mapQueueList(response, queue);
       wa.currentQueue = queue;
       return renderGalileoQueueList(result);

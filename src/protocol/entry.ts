@@ -276,6 +276,19 @@ export interface QueueEntry extends BaseEntry {
   queue?: string; // queue id (number, letter G/S/T/L, or PCC+letter like 2EA0G)
   pic?: string; // placement instruction code (Sabre QP/100/75); Galileo reuses
                 // this field for branch-PCC on `QEB/<PCC>/<n>` placements.
+  /**
+   * Galileo category qualifier — 2-character code from the `*C<cat>`
+   * suffix (Smartpoint Cloud Help: `Q/37*CDM` = "Sign in to Q37
+   * category DM"). Maps to v11 `Queue[].category`.
+   */
+  category?: string;
+  /**
+   * Galileo date-range qualifier — single digit 1-4 from the `*D<n>`
+   * suffix (Smartpoint Cloud Help: `Q/37*CBA*D3` = "Sign in to Q37,
+   * category BA, date range 3"). Each category supports up to 4
+   * date ranges (D1-D4). Maps to v11 `Queue[].dateOffset`.
+   */
+  dateRange?: number;
   /** QL → 'LMTC'; QU → 'UTR'. Re-queue op only. */
   requeueTarget?: 'LMTC' | 'UTR';
   /**

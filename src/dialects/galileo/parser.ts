@@ -570,24 +570,60 @@ function parseVoid(raw: string, u: string): VoidEntry {
 }
 
 /**
- * `QEB/<n>` — End transaction and place BF on queue `<n>`. Source:
- * Galileo Pocket Guide p.3. Combines two ops: commit + queue-place.
+ * Strip optional Galileo queue qualifiers `*C<cat>*D<n>` from the
+ * tail of a queue verb. Returns `{ stem, category, dateRange }` where
+ * stem is the part before any qualifier and the qualifier fields are
+ * undefined when absent.
+ *
+ * Source (verbatim from Smartpoint Cloud Help, Smartpoint for Galileo
+ * PDF, and gdshelp.blogspot, all 2026-05-29):
+ *   Q/37*CDM             → Sign in to Q37 category DM
+ *   Q/37*CBA*D3          → Sign in to Q37, category BA, date range 3
+ *   QEB/42*CAB*D4        → Place BF on Q42, category AB, date range 4
+ *
+ * Category code is exactly 2 alphanumeric characters; date range is a
+ * single digit 1-4 (each category supports up to 4 date ranges).
+ * Order is fixed: `*C` first if present, `*D` second.
+ */
+function stripQueueQualifiers(
+  s: string
+): { stem: string; category?: string; dateRange?: number } {
+  const m = /^(.*?)(?:\*C([A-Z0-9]{2}))?(?:\*D([1-4]))?$/.exec(s);
+  if (!m) return { stem: s };
+  return {
+    stem: m[1],
+    category: m[2] || undefined,
+    dateRange: m[3] ? Number(m[3]) : undefined,
+  };
+}
+
+/**
+ * `QEB/<n>` — Universal queue-place verb (commits if no locator on
+ * screen, pure place if a locator is already on screen). Source:
+ * Galileo Pocket Guide p.3, Mini Format Guide v2 p.45, Smartpoint
+ * Cloud Help, four-source triangulation 2026-05-29.
  *
  * Forms:
- *   QEB/<n>              single queue
- *   QEB/<n>+<n>+<n>      multi-queue chain (Pocket Guide p.31)
- *   QEB/<PCC>/<n>        branch-PCC placement (Mini Guide v2 p.45)
- *   QEB/<PCC>/<n>+<n>... branch-PCC + multi-queue (combination)
+ *   QEB/<n>                  single queue
+ *   QEB/<n>+<n>+<n>          multi-queue chain (Pocket Guide p.31)
+ *   QEB/<PCC>/<n>            branch-PCC placement (Mini Guide v2 p.45)
+ *   QEB/<PCC>/<n>+<n>...     branch-PCC + multi-queue
+ *   QEB/<n>*C<cat>           with category (`QEB/42*CAB`)
+ *   QEB/<n>*C<cat>*D<n>      with category + date range (`QEB/42*CAB*D4`)
+ *   QEB/<PCC>/<n>*C<cat>*D<n>  branch-PCC + qualifiers
  *
- * Branch-PCC is disambiguated by structure: a two-segment form
+ * Branch-PCC is disambiguated by structure: a two-segment stem
  * (`QEB/A/B`) treats A as the PCC and B as the queue chain. Single-
- * segment (`QEB/A`) treats A as the queue chain (PCC unset). The
- * branch PCC rides on `entry.pic` (we reuse the existing field — the
- * Sabre PIC is queue-internal "placement instruction code" which we
- * don't use in Galileo, freeing the field for this purpose).
+ * segment (`QEB/A`) treats A as the queue chain. The branch PCC
+ * rides on `entry.pic`; category + date range on `entry.category` /
+ * `entry.dateRange`. v1: qualifiers apply uniformly to every queue
+ * in a multi-queue chain (per the Queue[] array shape — each element
+ * can carry its own category/dateOffset, but Galileo cryptic only
+ * surfaces one set of qualifiers per verb).
  */
 function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
-  const branchMatch = /^QEB\/([A-Z0-9]+)\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
+  const { stem, category, dateRange } = stripQueueQualifiers(u);
+  const branchMatch = /^QEB\/([A-Z0-9]+)\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(stem);
   if (branchMatch) {
     const [pcc, chain] = [branchMatch[1], branchMatch[2]];
     const [primary, ...rest] = chain.split('+');
@@ -598,13 +634,16 @@ function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
       op: 'place',
       queue: primary,
       pic: pcc,
+      category,
+      dateRange,
       additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
     };
   }
-  const m = /^QEB\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(u);
+  const m = /^QEB\/([A-Z0-9]+(?:\+[A-Z0-9]+)*)$/.exec(stem);
   if (!m) {
     throw new ParseError(
-      `Galileo QEB: expected QEB/<queue>[+<queue>...] or QEB/<PCC>/<queue>[+<queue>...] in "${raw}"`
+      `Galileo QEB: expected QEB/<queue>[+<queue>...] or QEB/<PCC>/<queue>[+<queue>...]` +
+        ` (with optional *C<cat>*D<n> suffix) in "${raw}"`
     );
   }
   const [primary, ...rest] = m[1].split('+');
@@ -614,6 +653,8 @@ function parseQueuePlaceEnd(raw: string, u: string): QueueEntry {
     timestamp: new Date(),
     op: 'place',
     queue: primary,
+    category,
+    dateRange,
     additionalTargets: rest.length > 0 ? rest.map((q) => ({ queue: q })) : undefined,
   };
 }
@@ -692,24 +733,49 @@ function parseQueueExit(raw: string, u: string): QueueEntry {
 
 /**
  * `Q/<n>` — Access queue `<n>`, display its contents. Source: Mini
- * Format Guide v2 p.41 ("Q/0 (URG) Q/1 (GEN) Q/10 — Open a queue
- * number 0-99"). The response screen layout isn't documented; the
- * serializer renders a reconstructed tabular display.
+ * Format Guide v2 p.41 + Smartpoint Cloud Help 2026-05-29.
  *
- * Deferred:
- *   - Q/<n>/D<offset>   date-range qualifier (maps to dateOffset)
- *   - Q/<n>/C<cat>      category qualifier (maps to category)
- *   - Q/<PCC>/<n>       branch-PCC queue access (maps to pccOverride)
+ * Forms:
+ *   Q/<n>                    bare access (`Q/43`)
+ *   Q/<n>*C<cat>             with category (`Q/37*CDM`)
+ *   Q/<n>*C<cat>*D<n>        with category + date range (`Q/37*CBA*D3`)
+ *   Q/<PCC>/<n>              branch-PCC access (`Q/18F/27`)
+ *   Q/<PCC>/<n>*C<cat>*D<n>  branch-PCC + qualifiers (combination)
+ *
+ * Verbatim examples from Travelport Smartpoint Cloud Help (`Learn/
+ * 14Queues/AccessBF.htm`). Branch PCC rides on `entry.pic`;
+ * qualifiers on `entry.category` / `entry.dateRange`. Same disambig
+ * pattern as QEB.
  */
 function parseQueueAccess(raw: string, u: string): QueueEntry {
-  const m = /^Q\/([A-Z0-9]+)$/.exec(u);
-  if (!m) throw new ParseError(`Galileo Q/: expected Q/<queue> in "${raw}"`);
+  const { stem, category, dateRange } = stripQueueQualifiers(u);
+  const branchMatch = /^Q\/([A-Z0-9]+)\/([A-Z0-9]+)$/.exec(stem);
+  if (branchMatch) {
+    return {
+      kind: 'queue',
+      raw,
+      timestamp: new Date(),
+      op: 'access',
+      queue: branchMatch[2],
+      pic: branchMatch[1],
+      category,
+      dateRange,
+    };
+  }
+  const m = /^Q\/([A-Z0-9]+)$/.exec(stem);
+  if (!m) {
+    throw new ParseError(
+      `Galileo Q/: expected Q/<queue> or Q/<PCC>/<queue> (with optional *C<cat>*D<n>) in "${raw}"`
+    );
+  }
   return {
     kind: 'queue',
     raw,
     timestamp: new Date(),
     op: 'access',
     queue: m[1],
+    category,
+    dateRange,
   };
 }
 
