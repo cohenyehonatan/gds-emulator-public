@@ -37,6 +37,7 @@ import type {
   DivideEntry,
   IgnoreEntry,
   SsrEntry,
+  OsiEntry,
   RemarkEntry,
   TicketModifierEntry,
 } from '../../protocol/entry.js';
@@ -180,6 +181,9 @@ export function dispatchGalileo(
 
       case 'ssr':
         return handleGalileoSsr(entry, wa);
+
+      case 'osi':
+        return handleGalileoOsi(entry, wa);
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
@@ -1074,6 +1078,22 @@ async function handleGalileoRemark(
   if (wa.currentQueue) wa.queueCurrentDirty = true;
   wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text });
   return `NP.${entry.text}`; // reconstructed echo
+}
+
+/**
+ * `SI.<carrier>*<text>` — OSI dispatch. Pushes onto `wa.pnr.osis`
+ * (the existing model field). Marks queue dirty in queue context.
+ * Live REST wiring would post to `/reservationcomments/list` with
+ * `commentSource: "Supplier"` + `shareWithSupplier: [<carrier>]` per
+ * the canonical schema — same endpoint as the NP. notepad family.
+ * Deferred for parity with SSR (both wait on traveler-ID +
+ * offer-ref tracking).
+ */
+function handleGalileoOsi(entry: OsiEntry, wa: WorkArea): string {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  wa.pnr.osis.push({ carrier: entry.carrier, text: entry.text });
+  return `OSI ${entry.carrier} ${entry.text}`; // reconstructed echo
 }
 
 function renderGalileoSsrs(pnr: { ssrs: Array<{ code: string; carrier: string; text?: string; nameRef?: { item: number; passenger?: number } }> }): string {

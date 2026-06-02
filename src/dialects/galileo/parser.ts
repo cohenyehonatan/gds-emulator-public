@@ -49,6 +49,7 @@ import type {
   QueueEntry,
   DivideEntry,
   SsrEntry,
+  OsiEntry,
   RemarkEntry,
   TicketModifierEntry,
 } from '../../protocol/entry.js';
@@ -782,9 +783,24 @@ function parseQueueTitles(raw: string): QueueEntry {
  * `SI.<...>` — Galileo special service entry. Source: Mini Format
  * Guide v2 + Travelport Smartpoint Cloud Help (verified 2026-05-29).
  * Both SSRs and OSIs use the same `SI.` prefix in Galileo (Apollo
- * uses `:3` instead). The code itself distinguishes the request type;
- * v1 treats every SI. entry as an SSR and lets downstream display
- * sort it out.
+ * uses `:3` instead).
+ *
+ * **SSR vs OSI distinction** (verified verbatim from Smartpoint Cloud
+ * `Learn/5OptionalFields/ServiceRequests.htm`):
+ *  - **OSI** examples: `SI.YY*1 CHD AGED 5` ("Advise all airlines pax
+ *    is a child aged 5"), `SI.KL*VIP STONE/- RMR FILM STAR`. Pattern:
+ *    `SI.<2-letter-carrier>*<text>` — the code position holds a
+ *    carrier (YY = all airlines, KL/AA/etc = specific).
+ *  - **SSR** examples: `SI.VGML`, `SI.P1/VGML`, `SI.SPML*NO EGGS`.
+ *    Pattern: `SI.[<scope>/]<4-char-code>[*<text>]`. The code is a
+ *    documented IATA SSR (VGML, WCHR, INFT, SPML, DOCS, ...).
+ *
+ * Discrimination rule:
+ *  - Has `<scope>/`? → SSR (OSIs don't carry P/S scope refs in the
+ *    documented examples).
+ *  - Code is exactly 2 alphabetic chars? → OSI (the chars are the
+ *    carrier code).
+ *  - Otherwise (4+ chars) → SSR.
  *
  * Forms (verbatim from Mini Guide v2):
  *   SI.<code>                  all pax, all segments — `SI.VGML`
@@ -807,11 +823,10 @@ function parseQueueTitles(raw: string): QueueEntry {
  *   - Live REST wiring (needs traveler-ID tracking from addTraveler).
  *     See `Future work` section in the spec doc.
  */
-function parseSpecialService(raw: string): SsrEntry {
+function parseSpecialService(raw: string): SsrEntry | OsiEntry {
   // Use `raw.trim().toUpperCase()` directly (not the no-whitespace `u`
   // variant) so free text like `SI.SPML*NO EGGS` preserves the space
-  // between words. The Mini Guide explicitly documents free text
-  // with internal spaces up to ~127 chars (per the REST schema).
+  // between words.
   const upper = raw.trim().toUpperCase();
   if (!upper.startsWith('SI.')) {
     throw new ParseError(`Galileo SI: expected SI. prefix in "${raw}"`);
@@ -827,6 +842,24 @@ function parseSpecialService(raw: string): SsrEntry {
     scope = head.slice(0, slashIdx);
     code = head.slice(slashIdx + 1);
   }
+
+  // OSI discrimination: no scope + 2-char-alphabetic code = carrier
+  // → emit OsiEntry. Per Smartpoint Cloud verbatim, OSI carries
+  // free text addressed to a carrier; the BF position holds the
+  // carrier code (YY = all airlines, KL/AA/etc = specific).
+  if (scope === '' && /^[A-Z]{2}$/.test(code)) {
+    if (!text || text.length === 0) {
+      throw new ParseError(`Galileo SI: OSI requires free text after * in "${raw}"`);
+    }
+    return {
+      kind: 'osi',
+      raw,
+      timestamp: new Date(),
+      carrier: code,
+      text,
+    };
+  }
+
   if (!/^[A-Z0-9]{2,}$/.test(code)) {
     throw new ParseError(`Galileo SI: expected SSR code (≥2 alphanumeric) in "${raw}"`);
   }
@@ -839,9 +872,7 @@ function parseSpecialService(raw: string): SsrEntry {
     }
     if (m[1]) nameRef = { item: Number(m[1]) };
     // S<n> segment scope is parsed but not surfaced — local model
-    // doesn't carry per-segment SSR refs yet. Real Galileo would
-    // associate via segment numbers; for v1 the SSR applies to the
-    // whole BF.
+    // doesn't carry per-segment SSR refs yet.
   }
   return {
     kind: 'ssr',
