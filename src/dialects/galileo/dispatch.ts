@@ -183,7 +183,7 @@ export function dispatchGalileo(
         return handleGalileoSsr(entry, wa, ctx);
 
       case 'osi':
-        return handleGalileoOsi(entry, wa);
+        return handleGalileoOsi(entry, wa, ctx);
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
@@ -1118,14 +1118,35 @@ async function handleGalileoRemark(
 
 /**
  * `SI.<carrier>*<text>` — OSI dispatch. Pushes onto `wa.pnr.osis`
- * (the existing model field). Marks queue dirty in queue context.
- * Live REST wiring would post to `/reservationcomments/list` with
- * `commentSource: "Supplier"` + `shareWithSupplier: [<carrier>]` per
- * the canonical schema — same endpoint as the NP. notepad family.
- * Deferred for parity with SSR (both wait on traveler-ID +
- * offer-ref tracking).
+ * (the existing model field). When in a live workbench, also POSTs
+ * to `/reservationcomments/list` with `commentSource: "Supplier"` +
+ * `shareWithSupplier: [<carrier>]` + `Comment.name: "OSI Remarks"`
+ * per the canonical schema. Same endpoint as NP. — backend
+ * dispatches on `opts.kind`.
+ *
+ * Live failure surfaces `LIVE BACKEND ERROR` and skips the local
+ * push (mirrors NP./SSR semantics). Outside a workbench (post-
+ * retrieve or pre-build) OSI stays local.
+ *
+ * OSI text constraint per `Book/RemarksGuide.htm`: 1-99 chars, only
+ * `.` / `/` / `-` as special chars. We don't enforce client-side
+ * — server 4xx will surface.
  */
-function handleGalileoOsi(entry: OsiEntry, wa: WorkArea): string {
+async function handleGalileoOsi(
+  entry: OsiEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
+    try {
+      await ctx.backend.addReservationComment(wa.liveWorkbenchId, entry.text, {
+        kind: 'osi',
+        carrier: entry.carrier,
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
   wa.machine.transition(SessionEvent.ADD_FIELD);
   if (wa.currentQueue) wa.queueCurrentDirty = true;
   wa.pnr.osis.push({ carrier: entry.carrier, text: entry.text });

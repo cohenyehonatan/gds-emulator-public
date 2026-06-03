@@ -571,41 +571,55 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
-   * Add a notepad / remark to a workbench via `/reservationcomments/list`.
-   * Source: canonical schema verified in the v11 spec doc
-   * (`Book/RemarksGuide.htm`). Galileo `NP.<text>` maps to a single
-   * `ReservationCommentID[0]` with `commentSource: "Agency"` and a
-   * single `Comment[0]` name/value pair.
+   * Add a notepad / remark / OSI to a workbench via
+   * `/reservationcomments/list`. Source: canonical schema verified
+   * in the v11 spec doc (`Book/RemarksGuide.htm`).
    *
-   * `kind` distinguishes the comment role at the cryptic level:
-   *  - 'notepad'    → general agency note; not surfaced to airline
-   *  - 'historical' → goes into BF history when removed
+   * `kind` distinguishes the comment role:
+   *  - 'notepad'    → `commentSource: "Agency"`, Comment label
+   *                   `"Notepad"` (Galileo `NP.<text>`)
+   *  - 'historical' → `commentSource: "Agency"`, Comment label
+   *                   `"Historical Notepad"` (Galileo `NP.H**<text>`)
+   *  - 'osi'        → `commentSource: "Supplier"` +
+   *                   `shareWithSupplier: [<carrier>]`, Comment label
+   *                   `"OSI Remarks"` (Galileo `SI.<carrier>*<text>`).
+   *                   Requires `carrier` in opts.
    *
-   * Both map to the same body shape in v11; only the `name` label on
-   * the Comment differs to preserve the cryptic intent at display
-   * time. Real Galileo may render these differently (the `H**`
-   * historical tier vs plain `NP.` is observable in the BF
-   * history) — that nuance lands when we wire history retrieval.
+   * OSI text constraint per the spec: 1-99 chars, only period,
+   * forward slash, and dash allowed as special chars. We don't
+   * enforce client-side — the server's 4xx will surface violations.
    */
   async addReservationComment(
     workbenchId: string,
     text: string,
-    opts?: { kind?: 'notepad' | 'historical' }
+    opts?:
+      | { kind?: 'notepad' | 'historical' }
+      | { kind: 'osi'; carrier: string }
   ): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/book/remarks/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/reservationcomments/list`;
-    const label = opts?.kind === 'historical' ? 'Historical Notepad' : 'Notepad';
+    let entry: Record<string, unknown>;
+    if (opts && opts.kind === 'osi') {
+      entry = {
+        '@type': 'ReservationComment',
+        id: 'ReservationComment_1',
+        commentSource: 'Supplier',
+        shareWithSupplier: [opts.carrier],
+        Comment: [{ name: 'OSI Remarks', value: text }],
+      };
+    } else {
+      const label = opts?.kind === 'historical' ? 'Historical Notepad' : 'Notepad';
+      entry = {
+        '@type': 'ReservationComment',
+        id: 'ReservationComment_1',
+        commentSource: 'Agency',
+        Comment: [{ name: label, value: text }],
+      };
+    }
     const body = {
       ReservationCommentListRequest: {
-        ReservationCommentID: [
-          {
-            '@type': 'ReservationComment',
-            id: 'ReservationComment_1',
-            commentSource: 'Agency',
-            Comment: [{ name: label, value: text }],
-          },
-        ],
+        ReservationCommentID: [entry],
       },
     };
     return this.postJson(url, body, 'addReservationComment');
