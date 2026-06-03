@@ -53,6 +53,7 @@ import type {
   RemarkEntry,
   TicketModifierEntry,
   FareDisplayEntry,
+  FareNotesEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -106,6 +107,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (/^TMU\d/.test(u)) return parseTicketModifier(trimmed, u);
   if (u.startsWith('FD')) return parseFareDisplay(trimmed, u);
+  if (u === 'FQN' || /^FN[*0-9]/.test(u)) return parseFareNotes(trimmed, u);
   if (u.startsWith('PQ/')) return parsePastDateRetrieve(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
@@ -1089,6 +1091,55 @@ function parseFareDisplay(raw: string, u: string): FareDisplayEntry {
     date,
     carriers: carriers.length > 0 ? carriers : undefined,
   };
+}
+
+/**
+ * `FQN` / `FN<...>` — Fare components / fare notes. Source: Mini
+ * Format Guide v2 (verbatim 2026-06-03):
+ *
+ *   FQN                        Display fare components
+ *   FN*<line>                  Notes by category menu (line N in FD)
+ *   FN*<line>/P<para>          Specific paragraph
+ *   FN*<line>/<para>           (same; shorter syntax)
+ *   FN*<line>/ALL              All fare notes
+ *   FN<seg>/ALL                Notes for segment N after FQN
+ *
+ * v1 wires FQN locally (reads from `wa.pnr.priceQuotes[]`). The FN
+ * family parses but live wiring (which would call `GET /11/air/
+ * farerule/farerules/fromfaredisplay` with the cached FD identifier)
+ * is parked — needs `lastFareDisplay` caching on the WA first.
+ */
+function parseFareNotes(raw: string, u: string): FareNotesEntry {
+  if (u === 'FQN') {
+    return { kind: 'fare_notes', raw, timestamp: new Date(), mode: 'components' };
+  }
+  // FN*<line>[/...]
+  const star = /^FN\*(\d+)(?:\/(.+))?$/.exec(u);
+  if (star) {
+    return {
+      kind: 'fare_notes',
+      raw,
+      timestamp: new Date(),
+      mode: 'notes_by_line',
+      fareLine: Number(star[1]),
+      paragraph: star[2],
+    };
+  }
+  // FN<seg>/ALL or FN<seg>/<filter>
+  const seg = /^FN(\d+)\/(.+)$/.exec(u);
+  if (seg) {
+    return {
+      kind: 'fare_notes',
+      raw,
+      timestamp: new Date(),
+      mode: 'notes_by_segment',
+      segment: Number(seg[1]),
+      paragraph: seg[2],
+    };
+  }
+  throw new ParseError(
+    `Galileo FN/FQN: expected FQN, FN*<line>[/<para>], or FN<seg>/<para> in "${raw}"`
+  );
 }
 
 /**

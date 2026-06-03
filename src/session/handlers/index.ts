@@ -146,6 +146,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'fare_display':
         // Galileo-only `FD<...>` — Sabre's parser never emits this.
         return Response.FORMAT;
+
+      case 'fare_notes':
+        // Galileo-only `FQN` / `FN<...>` — Sabre's parser never emits this.
+        return Response.FORMAT;
     }
   } catch (err) {
     if (err instanceof InvalidTransitionError) {

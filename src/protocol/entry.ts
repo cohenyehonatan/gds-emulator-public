@@ -222,6 +222,30 @@ export interface PricingEntry extends BaseEntry {
 }
 
 /**
+ * Galileo `FQN` (fare components) / `FN<...>` (fare notes). Source:
+ * Mini Format Guide v2 (verbatim 2026-06-03):
+ *
+ *   FQN                       Display fare components (after FQ/WP)
+ *   FN*<line>                 Fare notes by category menu for line N
+ *                             in the prior Fare Display
+ *   FN*<line>/P<para>         Specific paragraph
+ *   FN*<line>/<para>          (same; shorter syntax)
+ *   FN*<line>/ALL             All fare notes
+ *   FN<seg>/ALL               Fare notes for segment N after FQN
+ */
+export interface FareNotesEntry extends BaseEntry {
+  kind: 'fare_notes';
+  /** `FQN` (no line) — fare components from current FareQuote. */
+  mode: 'components' | 'notes_by_line' | 'notes_by_segment';
+  /** 1-based line in the prior fare display (FN*<line>). */
+  fareLine?: number;
+  /** 1-based segment number (FN<seg>/ALL). */
+  segment?: number;
+  /** Paragraph filter (e.g. `P8`, `8-10.16`, `ALL`). */
+  paragraph?: string;
+}
+
+/**
  * Galileo `FD<...>` — fare display. Source: Mini Format Guide v2
  * (verbatim 2026-06-03). Dispatches to `POST /11/air/faredisplay/fares`
  * or emulated tariff lookup.
@@ -481,6 +505,7 @@ export type ParsedEntry =
   | TicketEntry
   | TicketModifierEntry
   | FareDisplayEntry
+  | FareNotesEntry
   | AuditTrailEntry
   | RefundEntry
   | CancelRefundEntry

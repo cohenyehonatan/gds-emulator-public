@@ -41,6 +41,7 @@ import type {
   RemarkEntry,
   TicketModifierEntry,
   FareDisplayEntry,
+  FareNotesEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -196,6 +197,9 @@ export function dispatchGalileo(
 
       case 'fare_display':
         return handleGalileoFareDisplay(entry, wa, ctx);
+
+      case 'fare_notes':
+        return handleGalileoFareNotes(entry, wa);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1131,6 +1135,43 @@ async function handleGalileoSsr(
     status: 'NN', // requested; airline confirms HK/HN/KK asynchronously
   });
   return renderGalileoSsrs(wa.pnr);
+}
+
+/**
+ * `FQN` / `FN<...>` — Fare components / fare notes. Source: Mini
+ * Format Guide v2 (verbatim 2026-06-03) + APIRef_FareRules.htm (REST
+ * scope, verified 2026-06-03).
+ *
+ * v1 scope:
+ *  - **FQN** (components): renders `wa.pnr.priceQuotes[]` as a
+ *    fare-construction table. Local-only — the fare quote already
+ *    holds the breakdown.
+ *  - **FN*<line>** / **FN<seg>** (notes): would call
+ *    `GET /11/air/farerule/farerules/fromfaredisplay` with the cached
+ *    FD identifier + FareID. We don't yet cache the FareDisplay
+ *    response Identifier on the WA, so this returns a deferred stub.
+ *    Wiring requires (1) `WorkAreaSlot.lastFareDisplay?: { identifier,
+ *    lines[] }`, (2) extending `mapFareDisplay` to extract the
+ *    top-level Identifier, (3) a backend `fareRulesFromFareDisplay`
+ *    method. Parked in spec doc Future Work.
+ */
+function handleGalileoFareNotes(entry: FareNotesEntry, wa: WorkArea): string {
+  if (entry.mode === 'components') {
+    if (wa.pnr.priceQuotes.length === 0) return 'NO FILED FARES'; // reconstructed
+    return wa.pnr.priceQuotes
+      .map((fq, i) => {
+        const lines = fq.passengers.map((p) => {
+          const total = (p.total ?? 0) * (p.count ?? 1);
+          return `    ${p.passengerType.padEnd(4)} ${String(p.count).padStart(2)} BASE ${p.base.toFixed(2)} TAX ${p.taxTotal.toFixed(2)} TOTAL ${total.toFixed(2)}`;
+        });
+        const fareCalc = fq.passengers[0]?.fareCalc ?? '';
+        const head = `FQ ${i + 1} ${fq.validatingCarrier} ${fq.currency} ${fq.fareBasis.join(' ')}`;
+        return [head, ...lines, fareCalc].filter((l) => l.length > 0).join('\n');
+      })
+      .join('\n');
+  }
+  // FN notes — parked until lastFareDisplay caching lands.
+  return 'FN DEFERRED — REQUIRES FAREDISPLAY CACHE'; // reconstructed
 }
 
 /**
