@@ -753,6 +753,26 @@ function handleGalileoDisplay(
     return ticketListGalileo(wa, ctx);
   }
 
+  // `*H` family — history display (Mini Format Guide v2):
+  //   *H    entire history
+  //   *HI   itinerary history (incl. Hotel/Car — we only model Air)
+  //   *HIA  air segment history
+  //   *HFF  filed fares history
+  //   *HNP  notepad history
+  //
+  // v11 REST has NO endpoint for itinerary / name / remark / filed-fare
+  // change-log history. The only history endpoint is
+  // `POST /documents/history` and it's ticket-scoped (TKT/MCO/EMD/INV).
+  // So our v1 dispatch returns the *current* state of the relevant
+  // sub-section as a stand-in for "history" — flagged here and in the
+  // spec doc. Once a true change-log source materializes (or we
+  // shadow it client-side) the rendering surface stays stable.
+  const upper = arg.toUpperCase();
+  if (upper === 'H') return historyAllGalileo(wa);
+  if (upper === 'HI' || upper === 'HIA') return historyItineraryGalileo(wa);
+  if (upper === 'HFF') return historyFiledFaresGalileo(wa);
+  if (upper === 'HNP') return historyNotepadsGalileo(wa);
+
   // Surname retrieve — `*-SMITH`. No documented REST equivalent in
   // TripServices (the spec calls surname search "GDS-host-only"), so
   // this stays local-only even when the backend is live. The local
@@ -1553,6 +1573,83 @@ function ticketListGalileo(
   }
   if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
   return renderGalileoTicketList(wa.pnr.tickets);
+}
+
+/**
+ * `*H` — Display entire history. v11 REST has no change-log
+ * endpoint, so v1 returns a composite of the current itinerary, filed
+ * fares, notepads, and tickets sections, each labeled and separated.
+ * Real Galileo `*H` shows the change log over time; we don't shadow
+ * that yet — see spec doc "Future work" for the gap.
+ */
+function historyAllGalileo(wa: WorkArea): string {
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  const sections: string[] = [];
+  if (wa.pnr.segments.length > 0) {
+    sections.push('ITINERARY', renderGalileoItinerary(wa.pnr));
+  }
+  if (wa.pnr.priceQuotes.length > 0) {
+    sections.push('FILED FARES', renderFiledFareList(wa));
+  }
+  const notepads = wa.pnr.remarks.filter((r) => r.type === 'general' || r.type === 'historical');
+  if (notepads.length > 0) {
+    sections.push('NOTEPADS', notepads.map((r, i) => `  ${i + 1}.NP.${r.text}`).join('\n'));
+  }
+  if (wa.pnr.tickets.length > 0) {
+    sections.push('TICKETS', renderGalileoTicketList(wa.pnr.tickets));
+  }
+  if (sections.length === 0) return 'NO HISTORY'; // reconstructed
+  return sections.join('\n');
+}
+
+/**
+ * `*HI` / `*HIA` — Itinerary history. v11 has no change log; render
+ * the current itinerary as the v1 stand-in. Mini Guide notes `*HI`
+ * includes Hotel/Car but we only model Air.
+ */
+function historyItineraryGalileo(wa: WorkArea): string {
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  if (wa.pnr.segments.length === 0) return 'NO ITINERARY'; // reconstructed
+  return renderGalileoItinerary(wa.pnr);
+}
+
+/**
+ * `*HFF` — Filed fares history. v11 has no change log; render the
+ * current `pnr.priceQuotes[]` as the v1 stand-in.
+ */
+function historyFiledFaresGalileo(wa: WorkArea): string {
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  if (wa.pnr.priceQuotes.length === 0) return 'NO FILED FARES'; // reconstructed
+  return renderFiledFareList(wa);
+}
+
+/**
+ * `*HNP` — Notepad history. v11 has no change log; render the
+ * current `pnr.remarks` (general + historical) as the v1 stand-in.
+ */
+function historyNotepadsGalileo(wa: WorkArea): string {
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  const notepads = wa.pnr.remarks.filter((r) => r.type === 'general' || r.type === 'historical');
+  if (notepads.length === 0) return 'NO NOTEPADS'; // reconstructed
+  return notepads
+    .map((r, i) => `${i + 1}.NP.${r.type === 'historical' ? 'H**' : ''}${r.text}`)
+    .join('\n');
+}
+
+/**
+ * Render the filed-fare list — one row per FareQuote in the PNR.
+ * Reconstructed format `<n>. FQ <carrier> <currency> <total>`.
+ */
+function renderFiledFareList(wa: WorkArea): string {
+  return wa.pnr.priceQuotes
+    .map((fq, i) => {
+      const total = fq.passengers.reduce(
+        (sum, p) => sum + (p.total ?? 0) * (p.count ?? 1),
+        0
+      );
+      return `  ${i + 1}.FQ ${fq.validatingCarrier} ${fq.currency} ${total.toFixed(2)}`;
+    })
+    .join('\n');
 }
 
 async function liveTicketListGalileo(
