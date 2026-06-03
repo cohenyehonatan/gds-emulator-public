@@ -25,6 +25,7 @@ import { SessionState } from './session-state.js';
 import { Pnr } from '../models/pnr.js';
 import type { AvailabilityResult } from '../models/availability-result.js';
 import type { FareQuote } from '../models/fare.js';
+import type { FareDisplayResult } from '../models/fare-display.js';
 
 /** Per-area state — one of these per slot in a WorkArea's areas map. */
 export class WorkAreaSlot {
@@ -71,6 +72,14 @@ export class WorkAreaSlot {
    */
   liveWorkbenchId?: string;
   /**
+   * Cached result of the most recent `FD<...>` fare display. Holds
+   * the server-assigned `Identifier.value` plus per-line `sequence`
+   * → carrier/booking-class mapping so a follow-on `FN<...>` query
+   * can call `GET /farerule/farerules/fromfaredisplay` with the
+   * right `fareRuleIdentifier` + `FareID`. Cleared on `reset()`.
+   */
+  lastFareDisplay?: FareDisplayResult;
+  /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
    * by SSR / remarks live wiring to reference passengers via
@@ -104,6 +113,7 @@ export class WorkAreaSlot {
     this.pendingVoid = undefined;
     this.liveWorkbenchId = undefined;
     this.liveTravelerIds = undefined;
+    this.lastFareDisplay = undefined;
   }
 }
 
@@ -265,5 +275,11 @@ export class WorkArea {
   }
   set liveTravelerIds(v: string[] | undefined) {
     this.s.liveTravelerIds = v;
+  }
+  get lastFareDisplay(): FareDisplayResult | undefined {
+    return this.s.lastFareDisplay;
+  }
+  set lastFareDisplay(v: FareDisplayResult | undefined) {
+    this.s.lastFareDisplay = v;
   }
 }

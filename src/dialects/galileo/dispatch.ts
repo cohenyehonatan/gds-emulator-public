@@ -199,7 +199,7 @@ export function dispatchGalileo(
         return handleGalileoFareDisplay(entry, wa, ctx);
 
       case 'fare_notes':
-        return handleGalileoFareNotes(entry, wa);
+        return handleGalileoFareNotes(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1155,7 +1155,11 @@ async function handleGalileoSsr(
  *    top-level Identifier, (3) a backend `fareRulesFromFareDisplay`
  *    method. Parked in spec doc Future Work.
  */
-function handleGalileoFareNotes(entry: FareNotesEntry, wa: WorkArea): string {
+async function handleGalileoFareNotes(
+  entry: FareNotesEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
   if (entry.mode === 'components') {
     if (wa.pnr.priceQuotes.length === 0) return 'NO FILED FARES'; // reconstructed
     return wa.pnr.priceQuotes
@@ -1170,8 +1174,70 @@ function handleGalileoFareNotes(entry: FareNotesEntry, wa: WorkArea): string {
       })
       .join('\n');
   }
-  // FN notes — parked until lastFareDisplay caching lands.
-  return 'FN DEFERRED — REQUIRES FAREDISPLAY CACHE'; // reconstructed
+
+  // FN<...> notes — needs the cached FareDisplay identifier from a
+  // prior `FD<...>`. The `notes_by_segment` form (`FN<seg>/ALL`) is
+  // meant for after-FQN context which targets segments rather than
+  // FD lines; v11's `/fromfaredisplay` is only line-keyed, so the
+  // segment form returns NOT IMPLEMENTED for v1.
+  if (entry.mode === 'notes_by_segment') {
+    return 'FN SEGMENT MODE NOT IMPLEMENTED'; // reconstructed
+  }
+  const fd = wa.lastFareDisplay;
+  if (!fd || !fd.identifier) {
+    return 'NO FARE DISPLAY ON SCREEN'; // reconstructed
+  }
+  const line = entry.fareLine!;
+  const target = fd.lines.find((l) => l.sequence === line);
+  if (!target) {
+    return `LINE ${line} NOT IN FARE DISPLAY`; // reconstructed
+  }
+  if (!(ctx.backend instanceof LiveTravelportBackend)) {
+    // Emulated path — we don't synthesize narrative fare rules.
+    return 'FN EMULATED NOT SUPPORTED'; // reconstructed
+  }
+  try {
+    const response = await ctx.backend.fareRulesFromFareDisplay({
+      fareRuleIdentifier: fd.identifier,
+      FareID: line,
+      fareRuleType: 'LongText',
+    });
+    return renderFareNotesText(response, fd, target);
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
+}
+
+/**
+ * Render the `/fromfaredisplay` response — defensively walks common
+ * shape variants and concatenates any narrative text we find.
+ * Reconstructed output: a header line identifying the fare + the
+ * paragraphs as line-separated text. The paragraph filter from the
+ * cryptic (`/P8`, `/ALL`, etc.) is NOT applied here — `/fromfaredisplay`
+ * doesn't take a category filter for ShortText/LongText, so we fetch
+ * the whole narrative and let the agent scan. Filtering deferred.
+ */
+function renderFareNotesText(
+  response: unknown,
+  fd: import('../../models/fare-display.js').FareDisplayResult,
+  line: import('../../models/fare-display.js').FareDisplayLine
+): string {
+  const r = response as any;
+  const root = r?.FareRuleListResponse ?? r;
+  const rules = Array.isArray(root?.FareRule) ? root.FareRule : [];
+  const head = `FARE NOTES ${fd.origin}${fd.destination}  L${line.sequence} ${line.carrier} ${line.fareBasisCode}`;
+  const paragraphs: string[] = [];
+  for (const rule of rules) {
+    const txt = rule?.text ?? rule?.LongText ?? rule?.shortText ?? rule?.ShortText;
+    if (typeof txt === 'string' && txt.length > 0) paragraphs.push(txt);
+    const ruleArr = Array.isArray(rule?.Rule) ? rule.Rule : [];
+    for (const r2 of ruleArr) {
+      const t2 = r2?.text ?? r2?.LongText ?? r2?.value;
+      if (typeof t2 === 'string' && t2.length > 0) paragraphs.push(t2);
+    }
+  }
+  if (paragraphs.length === 0) return 'NO FARE NOTES'; // reconstructed
+  return [head, ...paragraphs].join('\n');
 }
 
 /**
@@ -1191,7 +1257,7 @@ function handleGalileoFareNotes(entry: FareNotesEntry, wa: WorkArea): string {
  */
 async function handleGalileoFareDisplay(
   entry: FareDisplayEntry,
-  _wa: WorkArea,
+  wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
   const dateToken = entry.date ? entry.date.raw : '';
@@ -1211,6 +1277,10 @@ async function handleGalileoFareDisplay(
         departureDate: dateToken || 'TODAY',
         carriers: entry.carriers ?? [],
       });
+      // Cache for follow-on `FN<...>` queries — they need the
+      // server-assigned Identifier + per-line sequence numbers to
+      // call `/farerule/farerules/fromfaredisplay`.
+      wa.lastFareDisplay = result;
       return renderGalileoFareDisplay(result);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed

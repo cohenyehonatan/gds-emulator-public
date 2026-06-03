@@ -34,4 +34,11 @@ export interface FareDisplayResult {
   /** Carrier filter that was applied (empty array = no filter). */
   carriers: string[];
   lines: FareDisplayLine[];
+  /**
+   * Top-level `FareDisplayResponse.Identifier.value` — required to
+   * look up fare rules via `GET /farerule/farerules/fromfaredisplay`
+   * for follow-on `FN<...>` queries. Undefined when the response
+   * didn't surface one (older / emulated paths).
+   */
+  identifier?: string;
 }

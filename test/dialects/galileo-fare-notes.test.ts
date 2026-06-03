@@ -134,7 +134,7 @@ describe('Galileo FQN dispatch — local fare components', () => {
   });
 });
 
-describe('Galileo FN<...> dispatch — deferred stub', () => {
+describe('Galileo FN<...> dispatch — emulated path stubs', () => {
   let host: GdsHost;
   let wa: ReturnType<GdsHost['newWorkArea']>;
 
@@ -149,18 +149,39 @@ describe('Galileo FN<...> dispatch — deferred stub', () => {
     await host.process('SON/ZHA', wa);
   });
 
-  it('FN*1 returns FN DEFERRED — REQUIRES FAREDISPLAY CACHE', async () => {
+  it('FN*1 without a prior FD returns NO FARE DISPLAY ON SCREEN', async () => {
     const resp = await host.process('FN*1', wa);
-    expect(resp).toBe('FN DEFERRED — REQUIRES FAREDISPLAY CACHE');
+    expect(resp).toBe('NO FARE DISPLAY ON SCREEN');
   });
 
-  it('FN*1/ALL deferred', async () => {
-    const resp = await host.process('FN*1/ALL', wa);
-    expect(resp).toBe('FN DEFERRED — REQUIRES FAREDISPLAY CACHE');
-  });
-
-  it('FN2/ALL deferred', async () => {
+  it('FN2/ALL — segment-mode is not implemented', async () => {
     const resp = await host.process('FN2/ALL', wa);
-    expect(resp).toBe('FN DEFERRED — REQUIRES FAREDISPLAY CACHE');
+    expect(resp).toBe('FN SEGMENT MODE NOT IMPLEMENTED');
+  });
+
+  it('FN*1 after emulated FD returns EMULATED NOT SUPPORTED (no narrative)', async () => {
+    await host.process('FDJFKLAX', wa); // emulated FD has no identifier
+    const resp = await host.process('FN*1', wa);
+    // Emulated path doesn't capture an identifier, so it falls into
+    // "no FD on screen" — that's the correct response shape, not a
+    // misleading emulated stub.
+    expect(resp).toBe('NO FARE DISPLAY ON SCREEN');
+  });
+
+  it('FN*<out-of-range-line> returns LINE <n> NOT IN FARE DISPLAY', async () => {
+    // Force a cached fare display directly.
+    wa.lastFareDisplay = {
+      origin: 'LON',
+      destination: 'PAR',
+      departureDate: '14AUG',
+      currency: 'GBP',
+      carriers: [],
+      identifier: 'fd-abc',
+      lines: [
+        { sequence: 1, carrier: 'BA', amount: 250, fareBasisCode: 'YEE3M', bookingClass: 'Y', journeyType: 'OW' },
+      ],
+    };
+    const resp = await host.process('FN*5', wa);
+    expect(resp).toBe('LINE 5 NOT IN FARE DISPLAY');
   });
 });

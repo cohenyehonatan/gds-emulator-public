@@ -571,6 +571,34 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Fare rules from a prior fare-display result. Source:
+   * `APIRef_FareRules.htm` "After Fare Display (GDS Only)" variant
+   * (verified 2026-06-03). GET, query-only — no body.
+   *
+   * Used by Galileo `FN<...>` after a successful `FD<...>` cached
+   * its `Identifier.value` + per-line sequence on the WA.
+   *
+   * `fareRuleType` is `ShortText` or `LongText` only — the
+   * `/fromfaredisplay` variant doesn't support `Structured`. v1 uses
+   * `LongText` by default (gives the agent the readable narrative
+   * the cryptic `FN*<line>/ALL` is meant to render).
+   */
+  async fareRulesFromFareDisplay(opts: {
+    fareRuleIdentifier: string;
+    FareID: number | string;
+    fareRuleType?: 'ShortText' | 'LongText';
+  }): Promise<unknown> {
+    const type = opts.fareRuleType ?? 'LongText';
+    const params = new URLSearchParams({
+      fareRuleIdentifier: opts.fareRuleIdentifier,
+      FareID: String(opts.FareID),
+      fareRuleType: type,
+    });
+    const url = `${this.opts.apiBase}/air/farerule/farerules/fromfaredisplay?${params.toString()}`;
+    return this.getJson(url, 'fareRulesFromFareDisplay');
+  }
+
+  /**
    * Fare display — list published fares for an O&D pair. Source:
    * `APIRef_FareDisplay.htm` (verbatim 2026-06-03). Endpoint is
    * standalone (no workbench required) — used by Galileo `FD<...>`.

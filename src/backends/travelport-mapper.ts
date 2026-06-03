@@ -612,6 +612,8 @@ export function mapFareDisplay(
 ): import('../models/fare-display.js').FareDisplayResult {
   const r = response as any;
   const root = r?.FareDisplayResponse ?? r;
+  const identifier =
+    typeof root?.Identifier?.value === 'string' ? (root.Identifier.value as string) : undefined;
   const groups = arrayish(root?.fareDisplay ?? root?.FareDisplay);
   const lines: import('../models/fare-display.js').FareDisplayLine[] = [];
   let currency = 'USD';
@@ -646,5 +648,6 @@ export function mapFareDisplay(
     currency,
     carriers: ctx.carriers,
     lines,
+    identifier,
   };
 }
