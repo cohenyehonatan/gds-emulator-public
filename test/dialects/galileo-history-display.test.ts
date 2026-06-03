@@ -140,3 +140,71 @@ describe('Galileo *H family — local v1 stub (no v11 REST change-log)', () => {
     expect(resp).toBe('NO NOTEPADS');
   });
 });
+
+describe('Galileo *H — mutation log from client-side history shadow', () => {
+  let host: GdsHost;
+  let wa: ReturnType<GdsHost['newWorkArea']>;
+
+  beforeEach(async () => {
+    host = new GdsHost({
+      port: 0,
+      logLevel: 'error',
+      dialect: new GalileoDialect(),
+      pcc: '7K9S',
+    });
+    wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+  });
+
+  it('A → N → name → phone → ticketing → R captures one history row per modify', async () => {
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+
+    expect(wa.pnr.history.length).toBeGreaterThanOrEqual(5); // SELL + NAME + PHONE + T + R
+    const texts = wa.pnr.history.map((h) => h.text);
+    expect(texts.some((t) => t.startsWith('SELL'))).toBe(true);
+    expect(texts.some((t) => t.startsWith('NAME ADD SMITH'))).toBe(true);
+    expect(texts.some((t) => t.startsWith('PHONE ADD'))).toBe(true);
+    expect(texts.some((t) => t.startsWith('T.'))).toBe(true);
+    expect(texts.some((t) => t.startsWith('R.'))).toBe(true);
+  });
+
+  it('*H renders the change log when wa.pnr.history is populated', async () => {
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('NP.HOLD UNTIL FRIDAY', wa);
+
+    const resp = await host.process('*H', wa);
+    expect(resp).toContain('HISTORY');
+    expect(resp).toContain('SELL');
+    expect(resp).toContain('NAME ADD SMITH');
+    expect(resp).toContain('PHONE ADD');
+    expect(resp).toContain('NP.HOLD UNTIL FRIDAY');
+    // Cancel records a MODIFY entry too:
+    await host.process('X1', wa);
+    const resp2 = await host.process('*H', wa);
+    expect(resp2).toContain('MODIFY');
+  });
+
+  it('SSR / OSI / NP. write their own history rows', async () => {
+    // Build minimal so SSR has a name to attach.
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+
+    await host.process('SI.VGML', wa);
+    await host.process('SI.YY*1 CHD AGED 5', wa);
+    await host.process('NP.H**WAS HOLDING', wa);
+
+    const texts = wa.pnr.history.map((h) => h.text);
+    expect(texts.some((t) => t.includes('SSR VGML'))).toBe(true);
+    expect(texts.some((t) => t.includes('OSI YY'))).toBe(true);
+    expect(texts.some((t) => t.includes('NP.H**WAS HOLDING'))).toBe(true);
+  });
+});

@@ -19,6 +19,17 @@ import type { TicketRecord } from './ticket.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
+/**
+ * One row in `Pnr.history` — a single mutation event. v1 carries a
+ * timestamp + free-text description. The description is what `*H`
+ * renders; structured per-field diffs can be added later without
+ * breaking the surface.
+ */
+export interface HistoryEntry {
+  timestamp: Date;
+  text: string;
+}
+
 export class Pnr {
   locator?: string;
   names: NameItem[] = [];
@@ -43,6 +54,15 @@ export class Pnr {
    * modify/delete actions.
    */
   accountingHistory: AccountingHistoryEntry[] = [];
+  /**
+   * Chronological mutation log for the BF. Each entry records a single
+   * change (sell, cancel, name add, status update, …). Append-only,
+   * never rewritten. Surfaces via Galileo `*H` (which v11 REST doesn't
+   * expose). v11 has no change-log endpoint, so this is purely
+   * client-side — the log only reflects mutations routed through this
+   * emulator session.
+   */
+  history: HistoryEntry[] = [];
   /**
    * Set of 1-indexed accounting-line numbers that have been deleted via
    * `AC¤<n>` / `AC¤ALL` / `AC¤<range>`. Filtered out by *PAC. The deletion
@@ -80,6 +100,7 @@ export class Pnr {
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
     p.accountingHistory = this.accountingHistory.map((h) => ({ ...h }));
+    p.history = this.history.map((h) => ({ ...h }));
     p.accountingLinesHidden = new Set(this.accountingLinesHidden);
     p.ticketing = this.ticketing;
     p.optionField = this.optionField;

@@ -92,18 +92,42 @@ export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
  * queue context. QP consults this flag to refuse a navigation that
  * would lose unsaved changes; QPI ignores it and navigates anyway.
  */
-function modifyTransition(wa: WorkArea): void {
+function modifyTransition(wa: WorkArea, historyText?: string): void {
   wa.machine.transition(SessionEvent.MODIFY);
   if (wa.currentQueue) wa.queueCurrentDirty = true;
+  recordHistory(wa, historyText ?? 'MODIFY');
 }
 
 /**
  * Same for SELL — adding a segment to a queue-retrieved BF is also a
  * modification.
  */
-function sellTransition(wa: WorkArea): void {
+function sellTransition(wa: WorkArea, historyText?: string): void {
   wa.machine.transition(SessionEvent.SELL);
   if (wa.currentQueue) wa.queueCurrentDirty = true;
+  recordHistory(wa, historyText ?? 'SELL');
+}
+
+/**
+ * Append a row to `wa.pnr.history[]` — the client-side mutation log
+ * `*H` renders. v11 has no change-log REST equivalent so this is the
+ * only source. No-op if there's no PNR yet (sign-on / pre-build).
+ */
+function recordHistory(wa: WorkArea, text: string): void {
+  wa.pnr.history.push({ timestamp: new Date(), text });
+}
+
+/**
+ * Wrap an ADD_FIELD transition so we get the same history-recording
+ * symmetry as MODIFY/SELL. Many handlers call
+ * `wa.machine.transition(SessionEvent.ADD_FIELD)` directly today;
+ * those sites that want a meaningful audit row can use this helper
+ * instead.
+ */
+function addFieldTransition(wa: WorkArea, historyText: string): void {
+  wa.machine.transition(SessionEvent.ADD_FIELD);
+  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  recordHistory(wa, historyText);
 }
 
 export function dispatchGalileo(
@@ -344,7 +368,13 @@ async function handleGalileoSell(
     }
   }
 
-  sellTransition(wa);
+  const sellSummary = legs
+    .map((leg) => {
+      const f = avail.lines.find((l) => l.line === leg.line)!;
+      return `${f.carrier}${f.flightNumber}${leg.bookingClass}`;
+    })
+    .join(' ');
+  sellTransition(wa, `SELL ${entry.seats} ${sellSummary}`);
   const added: AirSegment[] = [];
   for (const leg of legs) {
     const line = avail.lines.find((l) => l.line === leg.line)!;
@@ -436,7 +466,10 @@ async function handleGalileoName(
     }
   }
 
-  wa.machine.transition(SessionEvent.ADD_FIELD);
+  const nameSummary = nameItem.passengers
+    .map((p) => `${nameItem.surname}/${p.firstName}`)
+    .join(' ');
+  addFieldTransition(wa, `NAME ADD ${nameSummary}`);
   wa.pnr.names.push(nameItem);
   return GalileoResponse.OK;
 }
@@ -470,7 +503,7 @@ async function handleGalileoPhone(
     }
   }
 
-  wa.machine.transition(SessionEvent.ADD_FIELD);
+  addFieldTransition(wa, `PHONE ADD ${entry.text}`);
   wa.pnr.phones.push({ number: entry.text });
   return GalileoResponse.OK;
 }
@@ -483,7 +516,7 @@ async function handleGalileoPhone(
  * inspect it as they need to.
  */
 function handleGalileoTicketing(entry: TicketingEntry, wa: WorkArea): string {
-  wa.machine.transition(SessionEvent.ADD_FIELD);
+  addFieldTransition(wa, `T. ${entry.text}`);
   wa.pnr.ticketing = entry.text;
   return GalileoResponse.OK;
 }
@@ -493,7 +526,7 @@ function handleGalileoTicketing(entry: TicketingEntry, wa: WorkArea): string {
  * `R.YY` (agent initials).
  */
 function handleGalileoReceivedFrom(entry: ReceivedFromEntry, wa: WorkArea): string {
-  wa.machine.transition(SessionEvent.ADD_FIELD);
+  addFieldTransition(wa, `R. ${entry.text}`);
   wa.pnr.receivedFrom = entry.text;
   return GalileoResponse.OK;
 }
@@ -1125,8 +1158,7 @@ async function handleGalileoSsr(
     }
   }
 
-  wa.machine.transition(SessionEvent.ADD_FIELD);
-  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  addFieldTransition(wa, `SSR ${entry.code}${entry.text ? ` ${entry.text}` : ''}`);
   wa.pnr.ssrs.push({
     code: entry.code,
     carrier: entry.carrier,
@@ -1415,8 +1447,10 @@ async function handleGalileoRemark(
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
-  wa.machine.transition(SessionEvent.ADD_FIELD);
-  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  addFieldTransition(
+    wa,
+    `NP${entry.remarkType === 'historical' ? '.H**' : '.'}${entry.text}`
+  );
   wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text });
   return `NP.${entry.text}`; // reconstructed echo
 }
@@ -1452,8 +1486,7 @@ async function handleGalileoOsi(
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
   }
-  wa.machine.transition(SessionEvent.ADD_FIELD);
-  if (wa.currentQueue) wa.queueCurrentDirty = true;
+  addFieldTransition(wa, `OSI ${entry.carrier} ${entry.text}`);
   wa.pnr.osis.push({ carrier: entry.carrier, text: entry.text });
   return `OSI ${entry.carrier} ${entry.text}`; // reconstructed echo
 }
@@ -1757,13 +1790,18 @@ async function ticketShowGalileo(
 
 /**
  * `*H` — Display entire history. v11 REST has no change-log
- * endpoint, so v1 returns a composite of the current itinerary, filed
- * fares, notepads, and tickets sections, each labeled and separated.
- * Real Galileo `*H` shows the change log over time; we don't shadow
- * that yet — see spec doc "Future work" for the gap.
+ * endpoint; we shadow mutations into `wa.pnr.history[]` client-side
+ * at the dispatch wrappers (`modifyTransition`, `sellTransition`,
+ * `addFieldTransition`). When `history` is populated, render it as
+ * the change log; otherwise fall back to the composite of current
+ * state (legacy v1 behaviour preserved for empty / partial PNRs).
  */
 function historyAllGalileo(wa: WorkArea): string {
   if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  if (wa.pnr.history.length > 0) {
+    return renderHistoryLog(wa);
+  }
+  // Fallback: composite of current state (no mutation log captured).
   const sections: string[] = [];
   if (wa.pnr.segments.length > 0) {
     sections.push('ITINERARY', renderGalileoItinerary(wa.pnr));
@@ -1780,6 +1818,22 @@ function historyAllGalileo(wa: WorkArea): string {
   }
   if (sections.length === 0) return 'NO HISTORY'; // reconstructed
   return sections.join('\n');
+}
+
+/**
+ * Render `pnr.history[]` as a Galileo `*H` change-log screen.
+ * Reconstructed format `<n>.<HH:MM> <text>` — Mini Guide documents
+ * the entry but not the display layout.
+ */
+function renderHistoryLog(wa: WorkArea): string {
+  const head = `HISTORY ${wa.pnr.locator ?? ''}`.trim();
+  const rows = wa.pnr.history.map((h, i) => {
+    const ts = h.timestamp;
+    const hh = String(ts.getUTCHours()).padStart(2, '0');
+    const mm = String(ts.getUTCMinutes()).padStart(2, '0');
+    return `${String(i + 1).padStart(3)}. ${hh}:${mm} ${h.text}`;
+  });
+  return [head, ...rows].join('\n');
 }
 
 /**
