@@ -1,27 +1,56 @@
 /**
- * validate-travelport-creds.ts — THROWAWAY SPIKE, not part of the emulator.
+ * validate-travelport-creds.ts — pre-prod validation harness.
  *
  * Purpose: prove the 7K9S trial creds are alive against Travelport TripServices
- * (pre-production) and that a live Galileo (1G) air search returns real JSON.
- * This is step 1 of the "live Galileo backend" question — it must pass before
- * any Dialect/Backend refactor is justified. It touches none of src/.
+ * (pre-production), confirm a live Galileo (1G) air search returns real JSON,
+ * AND exercise every body shape the emulator's LiveTravelportBackend uses so
+ * the open pre-prod questions get settled with real evidence. Touches none of
+ * src/.
+ *
+ * Phases (skip any via TVP_SKIP_PHASES="1,2,3,4,5"):
+ *   1. OAuth token  — POST /oauth/token
+ *   2. Air search   — POST /air/catalog/search/catalogproductofferings
+ *   3. Workbench    — create → add offer → add singular traveler →
+ *                     SSR with TravelerIdentifier → SSR without (does
+ *                     pre-prod reject whole-BF scope?) → NP. comment →
+ *                     cash FOP (FormOfPaymentCash discriminator) →
+ *                     commit → retrieve → cancel committed → DELETE wb
+ *   4. Multi-pax    — fresh workbench → /travelers/list batch (verifies
+ *                     TravelerListRequest envelope) → DELETE wb
+ *   5. Fare lookup  — POST /faredisplay/fares → GET /fromfaredisplay
+ *                     (verifies Identifier capture + line FareID flow)
+ *
+ * What this validates beyond "creds work":
+ *   - Workbench-side offer ref vs search-side vendorRef.offerId drift
+ *     (Phase 3, addOffer; 4xx body would tell us)
+ *   - Whether TravelerIdentifier is required for whole-BF SSRs
+ *     (Phase 3, "SSR without traveler" sub-step)
+ *   - Whether server accepts client-generated Identifier.value UUIDs
+ *     (Phase 3, SSR + commit; 4xx on Identifier rejection would tell us)
+ *   - Canonical body shapes for: FormOfPaymentCash, Traveler (object,
+ *     not array), TravelerListRequest (array), CancelRequest
+ *     (cancelAllInd), specialservices SpecialServiceListRequest,
+ *     reservationcomments commentSource: Agency, FareDisplayQueryRequest,
+ *     FareRules /fromfaredisplay query params.
+ *
+ * Each phase makes a small, bounded set of calls (Phase 3 is heaviest at ~10
+ * round-trips). Total ~15-20 calls per full run. Phases 3 + 4 create
+ * server-side workbenches; both try to DELETE on exit even after failure to
+ * avoid leaking 30-min TTL stragglers.
  *
  * ── WHAT THIS SENDS OVER THE NETWORK (read before running) ─────────────────
- *   1. POST https://auth.pp.travelport.net/oauth/token
- *        Body (x-www-form-urlencoded): grant_type, username, password,
- *        client_id, client_secret. → your trial credentials are transmitted to
- *        Travelport's pre-prod auth server over HTTPS to obtain a Bearer token.
- *   2. POST https://api.pp.travelport.net/11/air/catalog/search/catalogproductofferings
- *        Body (JSON): one one-way air search (1 ADT, origin→dest on a date).
- *        Headers include the Bearer token + TVP-PCC-CORE: <PCC>_<GDS> (e.g. 7K9S_1G).
- * Nothing is sent anywhere else. Endpoints/headers are sourced from
- * support.travelport.com (JSON Air v11) and developer.travelport.com.
+ * Every endpoint hit is documented in references/galileo/Travelport-JSON-Air-
+ * v11-API-Spec.md "Canonical schemas". Bearer token on every API call after
+ * Phase 1. Body shapes are byte-for-byte the same as LiveTravelportBackend's.
+ * Nothing is sent to any non-Travelport host. Pre-prod base URL only.
  *
  * ── SECRET HANDLING ────────────────────────────────────────────────────────
  * Creds are read ONLY from environment variables you set in your own shell.
- * Nothing is hardcoded. The access token and your secrets are NEVER printed in
- * full (token is masked; secrets are never echoed). The full search response is
- * written to a local file (synthetic sandbox data) for inspection, not dumped.
+ * Nothing is hardcoded. The access token is masked in logs (first 6 + last 4
+ * chars); secrets are never echoed. Response bodies of Phase 3 / 4 / 5 are
+ * NOT written to disk by default — only the Phase 2 search result is (the
+ * sandbox is the lowest-sensitivity surface). Set TVP_DUMP_ALL=1 to write
+ * every phase's responses for offline inspection.
  *
  * ── RUN ────────────────────────────────────────────────────────────────────
  *   # set creds without leaving them in shell history (note the leading space):
@@ -29,7 +58,13 @@
  *    export TVP_USERNAME=...    TVP_PASSWORD=...
  *   npx tsx validate-travelport-creds.ts
  *
- * Single legitimate call to each endpoint — no retry storms, no limit probing
+ *   # Only run Phase 1+2 (OAuth + search) — original spike behavior:
+ *    TVP_SKIP_PHASES=3,4,5 npx tsx validate-travelport-creds.ts
+ *
+ *   # Phase 3 only (skip everything else):
+ *    TVP_SKIP_PHASES=4,5 npx tsx validate-travelport-creds.ts
+ *
+ * Single legitimate call per endpoint — no retry storms, no limit probing
  * (per the capture-then-replay vendor-pacing rule). Re-runs hit the live API
  * again, so don't loop it.
  */
@@ -47,11 +82,21 @@ const FROM = process.env.TVP_FROM ?? 'DEN';
 const TO = process.env.TVP_TO ?? 'FRA';
 const DEPART = process.env.TVP_DATE ?? defaultDate(); // ~30 days out
 const OUT_FILE = process.env.TVP_OUT ?? './travelport-response.json';
+const SKIP_PHASES = new Set(
+  (process.env.TVP_SKIP_PHASES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+);
+const DUMP_ALL = process.env.TVP_DUMP_ALL === '1';
 
 const CLIENT_ID = process.env.TVP_CLIENT_ID;
 const CLIENT_SECRET = process.env.TVP_CLIENT_SECRET;
 const USERNAME = process.env.TVP_USERNAME;
 const PASSWORD = process.env.TVP_PASSWORD;
+
+/** Track resources we created so the cleanup pass can DELETE them. */
+const cleanup: { workbenches: string[] } = { workbenches: [] };
 
 function defaultDate(): string {
   const d = new Date(Date.now() + 30 * 86_400_000);
@@ -61,6 +106,81 @@ function defaultDate(): string {
 function mask(token: string): string {
   if (token.length <= 10) return `***(${token.length} chars)`;
   return `${token.slice(0, 6)}…${token.slice(-4)} (${token.length} chars)`;
+}
+
+function commonHeaders(token: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Cache-Control': 'no-cache',
+    'Accept-Version': ACCEPT_VERSION,
+  };
+  if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
+  else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
+  return headers;
+}
+
+interface CallResult {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  body: unknown;
+  rawText: string;
+}
+
+async function call(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  url: string,
+  token: string,
+  body: unknown | undefined,
+  label: string
+): Promise<CallResult> {
+  const init: RequestInit = {
+    method,
+    headers: commonHeaders(token),
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url, init);
+  const text = await res.text();
+  let parsed: unknown = undefined;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+  }
+  const result: CallResult = {
+    status: res.status,
+    statusText: res.statusText,
+    ok: res.ok,
+    body: parsed,
+    rawText: text,
+  };
+  const tag = res.ok ? '✓' : res.status >= 500 ? '✗' : '△';
+  console.log(`      ${tag} ${method} ${urlShort(url)}  →  ${res.status} ${res.statusText}  [${label}]`);
+  if (DUMP_ALL && text) {
+    const fs = await import('node:fs/promises');
+    const safeLabel = label.replace(/[^a-z0-9-]/gi, '_');
+    await fs.writeFile(`./tvp-${safeLabel}.json`, text, 'utf8');
+  }
+  return result;
+}
+
+function urlShort(url: string): string {
+  return url.replace(API_BASE, '…').replace(OAUTH_URL, '…(oauth)');
+}
+
+function previewBody(body: unknown): string {
+  if (body == null) return '(empty)';
+  if (typeof body === 'string') return body.slice(0, 280);
+  try {
+    return JSON.stringify(body).slice(0, 280);
+  } catch {
+    return '(unserializable)';
+  }
 }
 
 function requireCreds(): void {
@@ -83,7 +203,7 @@ function requireCreds(): void {
 }
 
 async function getToken(): Promise<string> {
-  console.log(`\n[1/2] OAuth token  →  POST ${OAUTH_URL}  (grant_type=${GRANT_TYPE})`);
+  console.log(`\n[1/5] OAuth token  →  POST ${OAUTH_URL}  (grant_type=${GRANT_TYPE})`);
   const body = new URLSearchParams({
     grant_type: GRANT_TYPE,
     username: USERNAME!,
@@ -128,9 +248,9 @@ async function getToken(): Promise<string> {
   return token;
 }
 
-async function search(token: string): Promise<void> {
+async function search(token: string): Promise<any | undefined> {
   const url = API_BASE + SEARCH_PATH;
-  console.log(`\n[2/2] Live ${GDS} air search  →  POST ${url}`);
+  console.log(`\n[2/5] Live ${GDS} air search  →  POST ${url}`);
   console.log(`      ↳ ${FROM} → ${TO}  on ${DEPART}  (1 ADT)`);
 
   const headers: Record<string, string> = {
@@ -170,17 +290,17 @@ async function search(token: string): Promise<void> {
   if (res.status === 404) {
     console.error('△ 404 — auth proved good, but the search PATH/VERSION is off.');
     console.error(`  Adjust TVP_SEARCH_PATH (current: ${SEARCH_PATH}) or TVP_ACCEPT_VERSION (current: ${ACCEPT_VERSION}).`);
-    return;
+    return undefined;
   }
   if (res.status === 401 || res.status === 403) {
     console.error(`△ ${res.status} — token works for auth but the search call was rejected (scope/PCC/access-group).`);
     console.error('  Check TVP-PCC-CORE (' + `${PCC}_${GDS}` + ') vs an issued XAUTH_TRAVELPORT_ACCESSGROUP.');
     console.error('  Body:\n' + text.slice(0, 1000));
-    return;
+    return undefined;
   }
   if (!res.ok) {
     console.error('△ Search failed. Body:\n' + text.slice(0, 1500));
-    return;
+    return undefined;
   }
 
   let json: any;
@@ -188,7 +308,7 @@ async function search(token: string): Promise<void> {
     json = JSON.parse(text);
   } catch {
     console.error('△ Search returned non-JSON:\n' + text.slice(0, 600));
-    return;
+    return undefined;
   }
 
   // Report structure defensively — schema nesting can vary across provisioning.
@@ -204,15 +324,469 @@ async function search(token: string): Promise<void> {
   const fs = await import('node:fs/promises');
   await fs.writeFile(OUT_FILE, JSON.stringify(json, null, 2), 'utf8');
   console.log(`      ↳ full response written to ${OUT_FILE} (inspect the JSON shape you'd map cryptic onto)`);
+  return json;
+}
+
+/**
+ * Extract a usable offer ID from a search response. Mirrors the
+ * `mapCatalogProductOfferings` defensive lookup.
+ */
+function extractFirstOfferId(searchResponse: any): string | undefined {
+  const offerings =
+    searchResponse?.CatalogProductOfferingsResponse?.CatalogProductOfferings
+      ?.CatalogProductOffering ??
+    searchResponse?.CatalogProductOfferings?.CatalogProductOffering ??
+    [];
+  const arr = Array.isArray(offerings) ? offerings : [offerings];
+  for (const o of arr) {
+    const id = o?.Identifier?.value ?? o?.id ?? o?.identifier;
+    if (typeof id === 'string' && id.length > 0) return id;
+  }
+  return undefined;
+}
+
+function extractFirstLocator(commitResp: any): string | undefined {
+  return (
+    commitResp?.Receipt?.[0]?.Confirmation?.Locator?.value ??
+    commitResp?.Confirmation?.Locator?.value ??
+    commitResp?.Locator?.value ??
+    commitResp?.locator
+  );
+}
+
+function extractFirstWbId(wbResp: any): string | undefined {
+  return (
+    wbResp?.ReservationWorkbench?.Identifier?.value ??
+    wbResp?.Workbench?.Identifier?.value ??
+    wbResp?.Identifier?.value ??
+    wbResp?.workbenchID ??
+    wbResp?.workbenchId
+  );
+}
+
+function extractTravelerIds(travResp: any): string[] {
+  const arr = travResp?.TravelerListResponse?.Traveler ?? travResp?.Traveler ?? [];
+  const nodes = Array.isArray(arr) ? arr : [arr];
+  return nodes
+    .map((n: any) => n?.Identifier?.value ?? n?.id ?? '')
+    .filter((s: string) => typeof s === 'string');
+}
+
+/**
+ * Phase 3 — Workbench lifecycle. Builds end-to-end with the exact body
+ * shapes LiveTravelportBackend emits, then tears down. The script
+ * stops at the first hard error so we don't keep poking after a 4xx
+ * tells us the shape is wrong.
+ */
+async function phaseWorkbench(token: string, offerId: string): Promise<void> {
+  console.log('\n[3/5] Workbench lifecycle');
+
+  // Step 1: create workbench
+  const wb = await call(
+    'POST',
+    `${API_BASE}/air/book/session/reservationworkbench`,
+    token,
+    {},
+    'createWorkbench'
+  );
+  if (!wb.ok) {
+    console.error('△ createWorkbench failed — body:', previewBody(wb.body));
+    return;
+  }
+  const wbId = extractFirstWbId(wb.body as any);
+  if (!wbId) {
+    console.error('△ createWorkbench: no workbenchID in response');
+    return;
+  }
+  cleanup.workbenches.push(wbId);
+  console.log(`      workbenchID = ${wbId}`);
+
+  // Step 2: add offer (open question: workbench-side offer ref vs search-side)
+  const addOffer = await call(
+    'POST',
+    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
+    token,
+    {
+      OfferQueryRef: {
+        SearchOfferId: offerId,
+        PassengerCriteria: [{ number: 1, passengerTypeCode: 'ADT' }],
+      },
+    },
+    'addOffer'
+  );
+  if (!addOffer.ok) {
+    console.error(
+      '△ addOffer rejected — answers OPEN QUESTION: workbench-side offer ref ≠ search-side. Body:',
+      previewBody(addOffer.body)
+    );
+    return;
+  }
+
+  // Step 3: add singular traveler with canonical object body
+  const trav = await call(
+    'POST',
+    `${API_BASE}/air/book/traveler/reservationworkbench/${encodeURIComponent(wbId)}/travelers`,
+    token,
+    {
+      Traveler: {
+        '@type': 'Traveler',
+        passengerTypeCode: 'ADT',
+        PersonName: { '@type': 'PersonNameDetail', Given: 'JOHN', Surname: 'SMITH' },
+      },
+    },
+    'addTraveler (singular, object body)'
+  );
+  if (!trav.ok) {
+    console.error(
+      '△ addTraveler rejected — Traveler body shape may need adjustment. Body:',
+      previewBody(trav.body)
+    );
+    return;
+  }
+  const travelerId = extractTravelerIds(trav.body)[0];
+  console.log(
+    `      travelerId = ${travelerId || '(not surfaced — defensive fallback would push empty)'}`
+  );
+
+  // Step 4: SSR with TravelerIdentifier (the safe case)
+  await call(
+    'POST',
+    `${API_BASE}/air/book/specialservices/reservationworkbench/${encodeURIComponent(wbId)}/specialservices/list`,
+    token,
+    {
+      SpecialServiceListRequest: {
+        SpecialServiceID: [
+          {
+            '@type': 'SpecialService',
+            id: 'specialService_1',
+            Identifier: { authority: 'Travelport', value: crypto.randomUUID() },
+            SSRCode: 'VGML',
+            ...(travelerId
+              ? {
+                  TravelerIdentifier: {
+                    id: 'trav_1',
+                    Identifier: { value: travelerId },
+                  },
+                }
+              : {}),
+            AppliesTo: {
+              '@type': 'AppliesToOffer',
+              OfferIdentifier: [
+                {
+                  id: 'o0',
+                  offerRef: 'o0',
+                  Identifier: { authority: 'Travelport', value: offerId },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    'addSpecialService (with TravelerIdentifier)'
+  );
+
+  // Step 5: SSR WITHOUT TravelerIdentifier (answers open question)
+  const ssrWhole = await call(
+    'POST',
+    `${API_BASE}/air/book/specialservices/reservationworkbench/${encodeURIComponent(wbId)}/specialservices/list`,
+    token,
+    {
+      SpecialServiceListRequest: {
+        SpecialServiceID: [
+          {
+            '@type': 'SpecialService',
+            id: 'specialService_2',
+            Identifier: { authority: 'Travelport', value: crypto.randomUUID() },
+            SSRCode: 'WCHR',
+            AppliesTo: {
+              '@type': 'AppliesToOffer',
+              OfferIdentifier: [
+                {
+                  id: 'o0',
+                  offerRef: 'o0',
+                  Identifier: { authority: 'Travelport', value: offerId },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    'addSpecialService (WHOLE-BF — no TravelerIdentifier)'
+  );
+  if (ssrWhole.ok) {
+    console.log('      → OPEN QUESTION ANSWERED: server accepts SSR without TravelerIdentifier (whole-BF scope OK).');
+  } else if (ssrWhole.status === 400 || ssrWhole.status === 422) {
+    console.log(
+      '      → OPEN QUESTION ANSWERED: server REJECTS SSR without TravelerIdentifier. Body:',
+      previewBody(ssrWhole.body)
+    );
+  } else {
+    console.log(
+      '      → SSR without traveler returned non-validation error; inconclusive. Body:',
+      previewBody(ssrWhole.body)
+    );
+  }
+
+  // Step 6: NP. reservation comment
+  await call(
+    'POST',
+    `${API_BASE}/air/book/remarks/reservationworkbench/${encodeURIComponent(wbId)}/reservationcomments/list`,
+    token,
+    {
+      ReservationCommentListRequest: {
+        ReservationCommentID: [
+          {
+            '@type': 'ReservationComment',
+            id: 'ReservationComment_1',
+            commentSource: 'Agency',
+            Comment: [{ name: 'Notepad', value: 'PRE-PROD VALIDATION RUN' }],
+          },
+        ],
+      },
+    },
+    'addReservationComment (notepad)'
+  );
+
+  // Step 7: cash form-of-payment with canonical FormOfPaymentCash discriminator
+  await call(
+    'POST',
+    `${API_BASE}/air/payment/reservationworkbench/${encodeURIComponent(wbId)}/formofpayment`,
+    token,
+    {
+      FormOfPaymentCash: {
+        id: 'formOfPayment_1',
+        FormOfPaymentRef: 'formOfPayment_1',
+      },
+    },
+    'addFormOfPayment (FormOfPaymentCash)'
+  );
+
+  // Step 8: add primary contact (phone) — required for commit
+  await call(
+    'POST',
+    `${API_BASE}/air/book/primarycontact/reservationworkbench/${encodeURIComponent(wbId)}/primarycontacts`,
+    token,
+    { PrimaryContact: { Telephone: [{ phoneNumber: '02012345678', role: 'Mobile' }] } },
+    'addPrimaryContact'
+  );
+
+  // Step 9: commit → locator
+  const commit = await call(
+    'POST',
+    `${API_BASE}/air/book/reservation/reservations/${encodeURIComponent(wbId)}`,
+    token,
+    {
+      ReservationQueryCommitReservation: {
+        enableTwoStepCommitInd: false,
+      },
+    },
+    'commitWorkbench'
+  );
+  if (!commit.ok) {
+    console.error('△ commit failed — body:', previewBody(commit.body));
+    return;
+  }
+  const locator = extractFirstLocator(commit.body as any);
+  console.log(`      → locator = ${locator ?? '(not surfaced)'}`);
+  // After commit the workbench is consumed server-side; clear from cleanup
+  // so the DELETE pass doesn't hit a 404.
+  cleanup.workbenches = cleanup.workbenches.filter((id) => id !== wbId);
+  if (!locator) return;
+
+  // Step 10: retrieve by locator
+  await call(
+    'GET',
+    `${API_BASE}/air/book/reservation/reservations/${encodeURIComponent(locator)}`,
+    token,
+    undefined,
+    'retrieveReservation'
+  );
+
+  // Step 11: cancel committed BF with canonical CancelRequest body
+  await call(
+    'POST',
+    `${API_BASE}/air/receipt/reservations/${encodeURIComponent(locator)}/receipts`,
+    token,
+    { '@type': 'CancelRequest', cancelAllInd: true },
+    'cancelReservation (canonical CancelRequest)'
+  );
+}
+
+/**
+ * Phase 4 — Multi-pax `/travelers/list` batch envelope.
+ */
+async function phaseMultiPax(token: string, offerId: string): Promise<void> {
+  console.log('\n[4/5] Multi-pax /travelers/list');
+
+  const wb = await call(
+    'POST',
+    `${API_BASE}/air/book/session/reservationworkbench`,
+    token,
+    {},
+    'createWorkbench (multi-pax test)'
+  );
+  if (!wb.ok) return;
+  const wbId = extractFirstWbId(wb.body as any);
+  if (!wbId) return;
+  cleanup.workbenches.push(wbId);
+
+  // Add offer for 2 ADT so the workbench accepts the 2-traveler list.
+  const addOffer = await call(
+    'POST',
+    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
+    token,
+    {
+      OfferQueryRef: {
+        SearchOfferId: offerId,
+        PassengerCriteria: [{ number: 2, passengerTypeCode: 'ADT' }],
+      },
+    },
+    'addOffer (2 ADT)'
+  );
+  if (!addOffer.ok) {
+    console.log('      addOffer for 2 ADT failed — multi-pax batch skipped.');
+    return;
+  }
+
+  const batch = await call(
+    'POST',
+    `${API_BASE}/air/book/traveler/reservationworkbench/${encodeURIComponent(wbId)}/travelers/list`,
+    token,
+    {
+      TravelerListRequest: {
+        '@type': 'TravelerListRequest',
+        Traveler: [
+          {
+            '@type': 'Traveler',
+            passengerTypeCode: 'ADT',
+            PersonName: { '@type': 'PersonNameDetail', Given: 'JOHN', Surname: 'SMITH' },
+          },
+          {
+            '@type': 'Traveler',
+            passengerTypeCode: 'ADT',
+            PersonName: { '@type': 'PersonNameDetail', Given: 'JANE', Surname: 'SMITH' },
+          },
+        ],
+      },
+    },
+    'addTravelers (batch /travelers/list)'
+  );
+  if (batch.ok) {
+    const ids = extractTravelerIds(batch.body);
+    console.log(`      → travelerIds (${ids.length}): ${ids.join(', ') || '(none surfaced)'}`);
+  } else {
+    console.log('      → batch /travelers/list rejected — body:', previewBody(batch.body));
+  }
+}
+
+/**
+ * Phase 5 — Fare display + fare-rules-from-fare-display chain.
+ */
+async function phaseFareLookup(token: string): Promise<void> {
+  console.log('\n[5/5] Fare display + fare rules');
+  const fd = await call(
+    'POST',
+    `${API_BASE}/air/faredisplay/fares`,
+    token,
+    {
+      FareDisplayQueryRequest: {
+        from: { value: FROM },
+        to: { value: TO },
+        departureDate: DEPART,
+      },
+    },
+    'fareDisplay'
+  );
+  if (!fd.ok) return;
+  const root = (fd.body as any)?.FareDisplayResponse ?? fd.body;
+  const identifier = root?.Identifier?.value;
+  const firstFare =
+    root?.fareDisplay?.[0]?.fare?.[0]?.sequence ?? root?.FareDisplay?.[0]?.fare?.[0]?.sequence;
+  console.log(`      → Identifier.value = ${identifier ?? '(not surfaced)'}`);
+  console.log(`      → first fare sequence = ${firstFare ?? '(not surfaced)'}`);
+
+  if (identifier && firstFare != null) {
+    const params = new URLSearchParams({
+      fareRuleIdentifier: identifier,
+      FareID: String(firstFare),
+      fareRuleType: 'LongText',
+    });
+    await call(
+      'GET',
+      `${API_BASE}/air/farerule/farerules/fromfaredisplay?${params.toString()}`,
+      token,
+      undefined,
+      'fareRulesFromFareDisplay'
+    );
+  } else {
+    console.log('      Skipping /fromfaredisplay — no identifier or sequence to chain against.');
+  }
+}
+
+async function cleanupWorkbenches(token: string): Promise<void> {
+  if (cleanup.workbenches.length === 0) return;
+  console.log(`\n[cleanup] DELETE ${cleanup.workbenches.length} stray workbench(es)`);
+  for (const wbId of cleanup.workbenches) {
+    await call(
+      'DELETE',
+      `${API_BASE}/air/book/session/reservationworkbench/${encodeURIComponent(wbId)}`,
+      token,
+      undefined,
+      `deleteWorkbench ${wbId}`
+    );
+  }
 }
 
 async function main(): Promise<void> {
-  console.log('Travelport TripServices creds + live-search validation (pre-prod sandbox)');
+  console.log('Travelport TripServices validation (pre-prod sandbox)');
   console.log(`PCC=${PCC}  GDS=${GDS}  API_BASE=${API_BASE}`);
+  if (SKIP_PHASES.size > 0) {
+    console.log(`Skipping phases: ${[...SKIP_PHASES].join(', ')}`);
+  }
   requireCreds();
-  const token = await getToken();
-  await search(token);
-  console.log('\nDone. (Single call per endpoint — re-running hits the live API again.)');
+
+  let token = '';
+  if (!SKIP_PHASES.has('1')) {
+    token = await getToken();
+  } else {
+    console.log('Phase 1 skipped — no token; remaining phases will be skipped too.');
+    return;
+  }
+
+  let searchBody: any = undefined;
+  if (!SKIP_PHASES.has('2')) {
+    searchBody = await search(token);
+  }
+
+  // Phase 3 + 4 need an offer ID from search.
+  let offerId: string | undefined;
+  if (searchBody) offerId = extractFirstOfferId(searchBody);
+
+  try {
+    if (!SKIP_PHASES.has('3')) {
+      if (!offerId) {
+        console.log('\n[3/5] Skipped — no offer ID from search to build a workbench against.');
+      } else {
+        await phaseWorkbench(token, offerId);
+      }
+    }
+    if (!SKIP_PHASES.has('4')) {
+      if (!offerId) {
+        console.log('\n[4/5] Skipped — no offer ID from search.');
+      } else {
+        await phaseMultiPax(token, offerId);
+      }
+    }
+    if (!SKIP_PHASES.has('5')) {
+      await phaseFareLookup(token);
+    }
+  } finally {
+    if (token) await cleanupWorkbenches(token).catch(() => undefined);
+  }
+
+  console.log('\nDone. (Re-running hits the live API again.)');
 }
 
 main().catch((err) => {
