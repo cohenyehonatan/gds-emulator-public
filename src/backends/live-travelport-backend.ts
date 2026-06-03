@@ -59,6 +59,18 @@ export interface LiveTravelportBackendOptions {
   acceptVersion?: string;
   /** Initial ticket serial — only used for the local stub path, never sent live. */
   initialTicketSerial?: number;
+  /**
+   * Polite-citizen flag: when true, Galileo `R.<initials>` posts the
+   * agent identifier to the workbench via `/reservationcomments/list`
+   * with `commentSource: "Agency"`. The server's OAuth token already
+   * identifies the agent for audit purposes; this opt-in mirrors the
+   * identifier into the BF body where other agents reviewing the file
+   * see it.
+   *
+   * Off by default — R. stays local-only without it (matching the
+   * spec doc's ⛔ posture).
+   */
+  politeReceivedFromAudit?: boolean;
 }
 
 interface ResolvedOpts {
@@ -68,6 +80,7 @@ interface ResolvedOpts {
   gds: string;
   grantType: string;
   acceptVersion: string;
+  politeReceivedFromAudit: boolean;
 }
 
 const DEFAULT_OPTS: ResolvedOpts = {
@@ -77,6 +90,7 @@ const DEFAULT_OPTS: ResolvedOpts = {
   gds: '1G',
   grantType: 'password',
   acceptVersion: '11',
+  politeReceivedFromAudit: false,
 };
 
 interface TokenCache {
@@ -124,6 +138,10 @@ export class LiveTravelportBackend implements Backend {
   private serial: number;
   private token: TokenCache | undefined;
   private readonly opts: ResolvedOpts;
+  /** Surface the polite-citizen flag so handlers can branch on it. */
+  get politeReceivedFromAudit(): boolean {
+    return this.opts.politeReceivedFromAudit;
+  }
 
   constructor(
     private readonly creds: LiveTravelportCredentials,

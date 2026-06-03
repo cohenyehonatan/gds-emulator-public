@@ -169,7 +169,7 @@ export function dispatchGalileo(
         return handleGalileoTicketing(entry, wa);
 
       case 'received_from':
-        return handleGalileoReceivedFrom(entry, wa);
+        return handleGalileoReceivedFrom(entry, wa, ctx);
 
       case 'end_transaction':
         return handleGalileoEndTransaction(entry, wa, ctx);
@@ -522,10 +522,38 @@ function handleGalileoTicketing(entry: TicketingEntry, wa: WorkArea): string {
 }
 
 /**
- * `R.<rest>` — received from field. Mini Guide v2 p.16: `R.AGT`,
+ * `R.<rest>` — received-from field. Mini Guide v2 p.16: `R.AGT`,
  * `R.YY` (agent initials).
+ *
+ * Live REST: OAuth Bearer token already identifies the agent for
+ * audit purposes — that's the canonical `R.` posture. Under the
+ * polite-citizen opt-in (`LiveTravelportBackendOptions.
+ * politeReceivedFromAudit = true`), R. additionally POSTs the
+ * received-from text to the workbench's `/reservationcomments/list`
+ * with `commentSource: "Agency"` so the identifier surfaces in the
+ * BF body where other agents reviewing the file see it. Failure on
+ * the polite-citizen POST is non-fatal: the local `receivedFrom` is
+ * still set and a `LIVE BACKEND ERROR` returned (consistent with
+ * other live ops' failure-surfaces-but-local-still-good pattern).
  */
-function handleGalileoReceivedFrom(entry: ReceivedFromEntry, wa: WorkArea): string {
+async function handleGalileoReceivedFrom(
+  entry: ReceivedFromEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  if (
+    ctx.backend instanceof LiveTravelportBackend &&
+    wa.liveWorkbenchId &&
+    ctx.backend.politeReceivedFromAudit
+  ) {
+    try {
+      await ctx.backend.addReservationComment(wa.liveWorkbenchId, `R. ${entry.text}`, {
+        kind: 'notepad',
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
   addFieldTransition(wa, `R. ${entry.text}`);
   wa.pnr.receivedFrom = entry.text;
   return GalileoResponse.OK;
