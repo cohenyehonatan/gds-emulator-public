@@ -632,16 +632,21 @@ export class LiveTravelportBackend implements Backend {
    * The UUID is what SSR / remarks / FOP payloads use to reference
    * this passenger via `TravelerIdentifier.id` / `.Identifier.value`.
    */
-  async addTraveler(
-    workbenchId: string,
-    traveler: { givenName: string; surname: string; phone?: string; email?: string }
-  ): Promise<{ travelerId?: string; raw: unknown }> {
-    const url =
-      `${this.opts.apiBase}/air/book/traveler/reservationworkbench/${encodeURIComponent(workbenchId)}` +
-      `/travelers`;
+  /** Build a single Traveler payload shared by singular + list endpoints. */
+  private buildTravelerPayload(traveler: {
+    givenName: string;
+    surname: string;
+    phone?: string;
+    email?: string;
+  }): Record<string, unknown> {
     const t: Record<string, unknown> = {
+      '@type': 'Traveler',
       passengerTypeCode: 'ADT',
-      PersonName: { Given: traveler.givenName, Surname: traveler.surname },
+      PersonName: {
+        '@type': 'PersonNameDetail',
+        Given: traveler.givenName,
+        Surname: traveler.surname,
+      },
     };
     if (traveler.phone) {
       t.Telephone = [{ phoneNumber: traveler.phone, role: 'Mobile' }];
@@ -649,16 +654,88 @@ export class LiveTravelportBackend implements Backend {
     if (traveler.email) {
       t.Email = [{ value: traveler.email }];
     }
-    const raw = (await this.postJson(url, { Traveler: [t] }, 'addTraveler')) as any;
-    const trav = raw?.Traveler ?? raw?.travelers ?? raw?.travelerList;
-    const first = Array.isArray(trav) ? trav[0] : trav;
-    const travelerId =
-      first?.Identifier?.value ??
-      first?.id ??
-      raw?.Identifier?.value ??
-      raw?.travelerId ??
-      undefined;
-    return { travelerId: typeof travelerId === 'string' ? travelerId : undefined, raw };
+    return t;
+  }
+
+  /**
+   * Extract the server-assigned traveler UUID from a Traveler-shaped
+   * node. Tries the documented `Identifier.value` first plus a few
+   * defensive fallbacks for pre-prod shape drift.
+   */
+  private extractTravelerId(node: any): string | undefined {
+    const id =
+      node?.Identifier?.value ?? node?.id ?? node?.travelerId ?? undefined;
+    return typeof id === 'string' ? id : undefined;
+  }
+
+  /**
+   * Add a single ADT traveler to a workbench. Body shape per
+   * `APIRef_TravelerAdd.htm` (verified): `{ Traveler: { ... } }` —
+   * single object, NOT array. (Our prior body posted `{ Traveler:
+   * [t] }`, which mocked tests accepted but is wrong against the
+   * documented shape; same bug class as the cancel/queue-place/FOP
+   * body fixes.)
+   *
+   * Returns `{ travelerId, raw }` so callers can index travellers by
+   * the server-assigned UUID for SSR / FOP / remarks references.
+   */
+  async addTraveler(
+    workbenchId: string,
+    traveler: { givenName: string; surname: string; phone?: string; email?: string }
+  ): Promise<{ travelerId?: string; raw: unknown }> {
+    const url =
+      `${this.opts.apiBase}/air/book/traveler/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/travelers`;
+    const t = this.buildTravelerPayload(traveler);
+    const raw = (await this.postJson(url, { Traveler: t }, 'addTraveler')) as any;
+    // Response defensively traverses both object and array shapes —
+    // pre-prod has been observed returning either.
+    const node = Array.isArray(raw?.Traveler)
+      ? raw.Traveler[0]
+      : (raw?.Traveler ?? raw);
+    const travelerId = this.extractTravelerId(node);
+    return { travelerId, raw };
+  }
+
+  /**
+   * Add multiple travelers in one round-trip via `/travelers/list`.
+   * Body per `APIRef_TravelerAdd.htm` (verified):
+   *
+   *   {
+   *     "TravelerListRequest": {
+   *       "@type": "TravelerListRequest",
+   *       "Traveler": [{...}, {...}, ...]
+   *     }
+   *   }
+   *
+   * Limit: 9 travelers per request (documented). We don't enforce
+   * client-side — server 4xx will surface.
+   *
+   * Returns `travelerIds` in the same order as the request (with
+   * empty string placeholders for any traveler whose response node
+   * didn't carry an Identifier, so the index alignment with the
+   * input array is preserved).
+   */
+  async addTravelers(
+    workbenchId: string,
+    travelers: Array<{ givenName: string; surname: string; phone?: string; email?: string }>
+  ): Promise<{ travelerIds: string[]; raw: unknown }> {
+    const url =
+      `${this.opts.apiBase}/air/book/traveler/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/travelers/list`;
+    const body = {
+      TravelerListRequest: {
+        '@type': 'TravelerListRequest',
+        Traveler: travelers.map((t) => this.buildTravelerPayload(t)),
+      },
+    };
+    const raw = (await this.postJson(url, body, 'addTravelers')) as any;
+    const list = raw?.TravelerListResponse?.Traveler ?? raw?.Traveler ?? [];
+    const nodes: any[] = Array.isArray(list) ? list : [list];
+    const travelerIds = travelers.map(
+      (_, i) => this.extractTravelerId(nodes[i]) ?? ''
+    );
+    return { travelerIds, raw };
   }
 
   /**

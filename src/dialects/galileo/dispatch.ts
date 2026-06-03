@@ -377,9 +377,10 @@ async function handleGalileoSell(
  * pushed to wa.pnr.names so cryptic-side queries (*R, FQ) operate on
  * a coherent view.
  *
- * Multi-passenger names (`N.3SMITH/JOHN MR/JANE MRS/...`) emit one
- * Traveler call per passenger sequentially. The Travelport batch
- * endpoint (`/travelers/list`) would be the optimization.
+ * Multi-passenger names (`N.SMITH/JOHN MR/JANE MRS/...`) post to the
+ * `/travelers/list` batch endpoint when more than one passenger is
+ * present — one round-trip instead of N. Single-passenger names use
+ * the singular `/travelers` endpoint to keep the body shape minimal.
  */
 async function handleGalileoName(
   entry: NameEntry,
@@ -394,20 +395,32 @@ async function handleGalileoName(
       if (!wa.liveWorkbenchId) {
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
-      for (const pax of nameItem.passengers) {
-        const result = await liveBackend.addTraveler(wa.liveWorkbenchId, {
-          givenName: pax.firstName,
-          surname: nameItem.surname,
-        });
-        // Capture the server-assigned traveler UUID so SSR / remarks
-        // live wiring can reference this passenger via
-        // `TravelerIdentifier`. Push undefined if the response didn't
-        // surface one (pre-prod schema drift): keeps the index aligned
-        // with `pnr.names` flattened by passenger.
-        const ids = wa.liveTravelerIds ?? [];
-        ids.push(result.travelerId ?? '');
-        wa.liveTravelerIds = ids;
+      const ids = wa.liveTravelerIds ?? [];
+      if (nameItem.passengers.length > 1) {
+        // Multi-pax: batch via `/travelers/list` — one round-trip.
+        const result = await liveBackend.addTravelers(
+          wa.liveWorkbenchId,
+          nameItem.passengers.map((pax) => ({
+            givenName: pax.firstName,
+            surname: nameItem.surname,
+          }))
+        );
+        for (const id of result.travelerIds) ids.push(id);
+      } else {
+        // Single-pax: simpler `/travelers` shape.
+        const pax = nameItem.passengers[0];
+        if (pax) {
+          const result = await liveBackend.addTraveler(wa.liveWorkbenchId, {
+            givenName: pax.firstName,
+            surname: nameItem.surname,
+          });
+          ids.push(result.travelerId ?? '');
+        }
       }
+      // Push captured UUIDs into wa.liveTravelerIds — index-aligned
+      // with `pnr.names` flattened by passenger. Empty string entries
+      // preserve alignment when the response didn't surface a UUID.
+      wa.liveTravelerIds = ids;
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }

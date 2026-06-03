@@ -130,9 +130,11 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     const [travelerUrl, travelerInit] = fetchSpy.mock.calls[4];
     expect(travelerUrl).toContain('/reservationworkbench/WB-X/travelers');
     const tbody = JSON.parse((travelerInit?.body as string) ?? '{}');
-    expect(tbody.Traveler?.[0]?.PersonName?.Surname).toBe('SMITH');
-    expect(tbody.Traveler?.[0]?.PersonName?.Given).toContain('JOHN');
-    expect(tbody.Traveler?.[0]?.passengerTypeCode).toBe('ADT');
+    // Single-pax `/travelers` uses object shape, not array (per
+    // APIRef_TravelerAdd.htm). Multi-pax uses array on `/travelers/list`.
+    expect(tbody.Traveler?.PersonName?.Surname).toBe('SMITH');
+    expect(tbody.Traveler?.PersonName?.Given).toContain('JOHN');
+    expect(tbody.Traveler?.passengerTypeCode).toBe('ADT');
 
     // Verify the addPrimaryContact call's URL + body:
     const [pcUrl, pcInit] = fetchSpy.mock.calls[5];
