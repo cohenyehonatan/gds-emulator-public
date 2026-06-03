@@ -773,6 +773,23 @@ function handleGalileoDisplay(
   if (upper === 'HFF') return historyFiledFaresGalileo(wa);
   if (upper === 'HNP') return historyNotepadsGalileo(wa);
 
+  // `*TE<n>` / `*TE/<ticket>` — Mini Format Guide v2 (verbatim
+  // 2026-06-03):
+  //   *TE2                Display second eticket from a list
+  //   *TE/<13-digit>      Display eticket by ticket number
+  // Both reuse the same `/receipts` GET as *HTE/*HTI, then filter or
+  // index into the result. The ticket-detail render is the same
+  // single-row format we use today for the list.
+  if (upper.startsWith('TE')) {
+    const after = arg.slice(2);
+    if (/^\d+$/.test(after)) {
+      return ticketShowGalileo(wa, ctx, { index: Number(after) });
+    }
+    if (after.startsWith('/') && /^\d{10,14}$/.test(after.slice(1))) {
+      return ticketShowGalileo(wa, ctx, { number: after.slice(1) });
+    }
+  }
+
   // Surname retrieve — `*-SMITH`. No documented REST equivalent in
   // TripServices (the spec calls surname search "GDS-host-only"), so
   // this stays local-only even when the backend is live. The local
@@ -1573,6 +1590,41 @@ function ticketListGalileo(
   }
   if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
   return renderGalileoTicketList(wa.pnr.tickets);
+}
+
+/**
+ * `*TE<n>` / `*TE/<ticket>` — display one eticket from the list.
+ *
+ * Live path: fetch `/receipts` (same as `*HTE`), then index by
+ * `opts.index` (1-based) or match by `opts.number`. Emulated reads
+ * `wa.pnr.tickets`.
+ *
+ * Output: a single ticket line (same format as the list, just one
+ * row). The Mini Guide documents the entry, not the detail screen;
+ * the v1 render is the same `renderGalileoTicketList` filtered to one.
+ * Empty match: `TICKET NOT FOUND` (reconstructed).
+ */
+async function ticketShowGalileo(
+  wa: WorkArea,
+  ctx: HandlerContext,
+  opts: { index?: number; number?: string }
+): Promise<string> {
+  if (ctx.backend instanceof LiveTravelportBackend && wa.pnr.locator) {
+    try {
+      const response = await ctx.backend.listReceipts(wa.pnr.locator);
+      wa.pnr.tickets = mapReceipts(response);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/HTTP 40[4]|HTTP 410/.test(msg)) return GalileoResponse.NO_PNR;
+      return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
+    }
+  }
+  if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+  let ticket: typeof wa.pnr.tickets[number] | undefined;
+  if (opts.index != null) ticket = wa.pnr.tickets[opts.index - 1];
+  if (opts.number != null) ticket = wa.pnr.tickets.find((t) => t.number === opts.number);
+  if (!ticket) return 'TICKET NOT FOUND'; // reconstructed
+  return renderGalileoTicketList([ticket]);
 }
 
 /**
