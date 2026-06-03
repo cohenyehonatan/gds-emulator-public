@@ -773,6 +773,23 @@ function handleGalileoDisplay(
   if (upper === 'HFF') return historyFiledFaresGalileo(wa);
   if (upper === 'HNP') return historyNotepadsGalileo(wa);
 
+  // `PQ/R-<locator>` — past-date BF retrieve by locator. v11 has no
+  // past-date REST endpoint; falls back to the local pnrStore which
+  // retains every committed PNR for the session lifetime.
+  if (arg.startsWith('PQ-R:')) {
+    const locator = arg.slice('PQ-R:'.length);
+    const pnr = ctx.backend.pnrs.get(locator);
+    if (!pnr) return 'PAST DATE BF NOT FOUND'; // reconstructed
+    wa.pnr = pnr;
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    return renderGalileoPnr(pnr, sig);
+  }
+  // Other PQ forms (name/date search) — deferred since v11 archive
+  // lookup isn't exposed.
+  if (arg.startsWith('PQ-DEFERRED:')) {
+    return 'PAST DATE BF SEARCH DEFERRED'; // reconstructed
+  }
+
   // `*TE<n>` / `*TE/<ticket>` — Mini Format Guide v2 (verbatim
   // 2026-06-03):
   //   *TE2                Display second eticket from a list

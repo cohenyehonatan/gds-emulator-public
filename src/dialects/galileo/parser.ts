@@ -106,6 +106,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (/^TMU\d/.test(u)) return parseTicketModifier(trimmed, u);
   if (u.startsWith('FD')) return parseFareDisplay(trimmed, u);
+  if (u.startsWith('PQ/')) return parsePastDateRetrieve(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
@@ -1088,6 +1089,37 @@ function parseFareDisplay(raw: string, u: string): FareDisplayEntry {
     date,
     carriers: carriers.length > 0 ? carriers : undefined,
   };
+}
+
+/**
+ * `PQ/<...>` — Past Date Booking File retrieve. Source: Mini Format
+ * Guide v2 (verbatim 2026-06-03):
+ *
+ *   PQ/R-<locator>                     by record locator
+ *   PQ/<DDMMMYY><surname>/<given>      by date + name
+ *   PQ/<from><to>-<surname>            date range + name (own branch)
+ *   PQ/B/<DDMMMYY>-<surname>           branch + date + surname
+ *
+ * v11 has NO past-date REST endpoint — confirmed via the v11
+ * Reservation Retrieve Guide (verified 2026-06-03). Past-date PNRs
+ * are an archive tier outside the active retention window
+ * (`/reservations/{LocatorCode}` only handles active reservations).
+ *
+ * v1 wires only the `PQ/R-<locator>` form, which falls back to the
+ * local `pnrStore` (which retains everything we've ever committed
+ * in this session). Other forms parse to a deferred-feature stub
+ * since name/date search against the live archive isn't available.
+ */
+function parsePastDateRetrieve(raw: string, u: string): DisplayEntry {
+  // Reuse DisplayEntry — dispatch routes off the `argument` payload.
+  // We encode the PQ kind into the argument with a `PQ:` prefix so
+  // the display handler can recognise it.
+  const m = /^PQ\/R-([A-Z0-9]{5,7})$/.exec(u);
+  if (m) {
+    return { kind: 'display', raw, timestamp: new Date(), argument: `PQ-R:${m[1]}` };
+  }
+  // Other PQ forms route to a deferred stub.
+  return { kind: 'display', raw, timestamp: new Date(), argument: `PQ-DEFERRED:${u}` };
 }
 
 function parseQueuePrevious(raw: string, u: string): QueueEntry {
