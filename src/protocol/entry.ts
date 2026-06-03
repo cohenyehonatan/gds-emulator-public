@@ -221,6 +221,26 @@ export interface PricingEntry extends BaseEntry {
   taxMode?: 'none' | 'fees'; // WPTN (exempt all) / WPTE (exempt taxes, keep fees)
 }
 
+/**
+ * Galileo `FD<...>` — fare display. Source: Mini Format Guide v2
+ * (verbatim 2026-06-03). Dispatches to `POST /11/air/faredisplay/fares`
+ * or emulated tariff lookup.
+ *
+ * `date` is optional — Mini Guide says "assumes today's date" when
+ * omitted. `origin` is required in v1; the Mini Guide allows it to
+ * default to the current city (e.g. `FDPAR` from sign-on city), but
+ * we don't model that robustly yet — deferred.
+ */
+export interface FareDisplayEntry extends BaseEntry {
+  kind: 'fare_display';
+  origin: string;
+  destination: string;
+  /** Sabre-style DDMMM token. Undefined means "today". */
+  date?: import('../utils/validation.js').SabreDate;
+  /** Optional carrier filter — up to 3 (REST limit). */
+  carriers?: string[];
+}
+
 export interface IgnoreEntry extends BaseEntry {
   kind: 'ignore';
   /**
@@ -460,6 +480,7 @@ export type ParsedEntry =
   | QueueEntry
   | TicketEntry
   | TicketModifierEntry
+  | FareDisplayEntry
   | AuditTrailEntry
   | RefundEntry
   | CancelRefundEntry

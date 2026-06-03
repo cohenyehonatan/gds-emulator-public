@@ -189,6 +189,44 @@ export function renderGalileoIssuedTickets(tickets: TicketRecord[]): string {
 }
 
 /**
+ * `FD<...>` response — published-fare display. Reconstructed: Mini
+ * Format Guide v2 documents the entry but not the host screen.
+ * Format chosen:
+ *
+ *   FARE DISPLAY <ORIG><DEST>  <DATE>   <CURRENCY>
+ *     1. <CARRIER> <AMOUNT>  <FARE_BASIS>  <CLASS> <JOURNEY>
+ *     2. ...
+ *
+ * Empty result: `NO FARES <ORIG><DEST>`. Aligns with the convention
+ * established for QCA/QW/QPB* — reconstructed flagged in the handler.
+ */
+export function renderGalileoFareDisplay(result: {
+  origin: string;
+  destination: string;
+  departureDate: string;
+  currency: string;
+  lines: Array<{
+    sequence: number;
+    carrier: string;
+    amount: number;
+    fareBasisCode: string;
+    bookingClass: string;
+    journeyType: 'OW' | 'RT';
+  }>;
+}): string {
+  if (result.lines.length === 0) {
+    return `NO FARES ${result.origin}${result.destination}`; // reconstructed
+  }
+  const header = `FARE DISPLAY ${result.origin}${result.destination}  ${result.departureDate}  ${result.currency}`;
+  const rows = result.lines.map((l) => {
+    const idx = `${l.sequence}.`.padEnd(4);
+    const amount = l.amount.toFixed(2).padStart(8);
+    return `  ${idx}${l.carrier} ${amount}  ${l.fareBasisCode.padEnd(10)} ${l.bookingClass} ${l.journeyType}`;
+  });
+  return [header, ...rows].join('\n'); // reconstructed
+}
+
+/**
  * `Q/<n>` response — display queue contents. Reconstructed: Mini
  * Format Guide v2 p.41 documents the entry (`Q/0 (URG)`, `Q/1 (GEN)`,
  * `Q/10 ...`) but not the response layout. Format chosen here:

@@ -596,3 +596,55 @@ export function mapReceipts(response: unknown): import('../models/ticket.js').Ti
   }
   return out;
 }
+
+/**
+ * `FareDisplayResponse` → `FareDisplayResult`. Source: `APIRef_
+ * FareDisplay.htm` (verbatim 2026-06-03). The response groups fares
+ * under `fareDisplay[].fare[]` — we flatten to a single
+ * `FareDisplayResult.lines[]`.
+ *
+ * Defensive against shape drift: we try the documented paths first,
+ * then a few common alternatives.
+ */
+export function mapFareDisplay(
+  response: unknown,
+  ctx: { origin: string; destination: string; departureDate: string; carriers: string[] }
+): import('../models/fare-display.js').FareDisplayResult {
+  const r = response as any;
+  const root = r?.FareDisplayResponse ?? r;
+  const groups = arrayish(root?.fareDisplay ?? root?.FareDisplay);
+  const lines: import('../models/fare-display.js').FareDisplayLine[] = [];
+  let currency = 'USD';
+  let seq = 1;
+  for (const g of groups) {
+    if (g?.listCurrency) {
+      currency = String(g.listCurrency?.value ?? g.listCurrency);
+    }
+    const fares = arrayish(g?.fare ?? g?.Fare);
+    for (const f of fares) {
+      const carrier = String(f?.carrier ?? f?.Carrier ?? '');
+      if (!carrier) continue;
+      const amount = Number(f?.amount?.value ?? f?.amount ?? f?.Amount ?? 0);
+      const fareBasisCode = String(f?.fareBasisCode ?? f?.FareBasisCode ?? '');
+      const bookingClass = String(f?.bookingClass ?? f?.BookingClass ?? '');
+      const journeyType: 'OW' | 'RT' = f?.oneWayInd === true || f?.OneWayInd === true ? 'OW' : 'RT';
+      lines.push({
+        sequence: Number(f?.sequence ?? f?.Sequence ?? seq),
+        carrier,
+        amount,
+        fareBasisCode,
+        bookingClass,
+        journeyType,
+      });
+      seq++;
+    }
+  }
+  return {
+    origin: ctx.origin,
+    destination: ctx.destination,
+    departureDate: ctx.departureDate,
+    currency,
+    carriers: ctx.carriers,
+    lines,
+  };
+}

@@ -40,6 +40,7 @@ import type {
   OsiEntry,
   RemarkEntry,
   TicketModifierEntry,
+  FareDisplayEntry,
 } from '../../protocol/entry.js';
 import { MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -53,6 +54,7 @@ import {
   mapReceipts,
   extractSegmentOfferIds,
   mapQueueList,
+  mapFareDisplay,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -77,6 +79,7 @@ import {
   renderGalileoTicketList,
   renderGalileoFlightInfo,
   renderGalileoQueueList,
+  renderGalileoFareDisplay,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 
@@ -190,6 +193,9 @@ export function dispatchGalileo(
 
       case 'ticket_modifier':
         return handleGalileoTicketModifier(entry, wa);
+
+      case 'fare_display':
+        return handleGalileoFareDisplay(entry, wa, ctx);
 
       default:
         return GALILEO_NOT_IMPLEMENTED;
@@ -1071,6 +1077,127 @@ async function handleGalileoSsr(
     status: 'NN', // requested; airline confirms HK/HN/KK asynchronously
   });
   return renderGalileoSsrs(wa.pnr);
+}
+
+/**
+ * `FD<...>` — Fare Display. Source: Mini Format Guide v2 (cryptic)
+ * + `APIRef_FareDisplay.htm` (REST, verbatim 2026-06-03).
+ *
+ * Live path: POST `/11/air/faredisplay/fares` with
+ * `FareDisplayQueryRequest` carrying `from`/`to`/`departureDate`/
+ * optional `carrier[]`. Map response → cryptic tabular screen.
+ *
+ * Emulated path: synthesize lines from the inventory tariff —
+ * one row per booking class for the requested O&D (or empty if no
+ * inventory). Year defaults handled at the date-encode level: the
+ * Sabre-style DDMMM cryptic doesn't carry a year, so we use current
+ * year (assumption flagged here, not validated against the live
+ * server's wrap behavior).
+ */
+async function handleGalileoFareDisplay(
+  entry: FareDisplayEntry,
+  _wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string> {
+  const dateToken = entry.date ? entry.date.raw : '';
+  const isoDate = entry.date ? sabreDateToIso(entry.date) : undefined;
+
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      const response = await ctx.backend.fareDisplay({
+        from: entry.origin,
+        to: entry.destination,
+        departureDate: isoDate,
+        carriers: entry.carriers,
+      });
+      const result = mapFareDisplay(response, {
+        origin: entry.origin,
+        destination: entry.destination,
+        departureDate: dateToken || 'TODAY',
+        carriers: entry.carriers ?? [],
+      });
+      return renderGalileoFareDisplay(result);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
+  // Emulated: synthesize from the local tariff. Returns one row per
+  // booking class observed on the requested O&D in inventory, with
+  // amounts computed from `priceItinerary`'s tariff function. v1 is a
+  // rough approximation — real fare display is a separate published-
+  // fare table, not a per-leg inventory join.
+  const classes = inventoryClassesForOd(ctx, entry.origin, entry.destination);
+  const lines = classes.map((c, i) => ({
+    sequence: i + 1,
+    carrier: c.carrier,
+    amount: c.amount,
+    fareBasisCode: `${c.bookingClass}EM`,
+    bookingClass: c.bookingClass,
+    journeyType: 'OW' as const,
+  }));
+  return renderGalileoFareDisplay({
+    origin: entry.origin,
+    destination: entry.destination,
+    departureDate: dateToken || 'TODAY',
+    currency: 'USD',
+    lines,
+  });
+}
+
+/**
+ * Convert a Sabre-style DDMMM date token to ISO YYYY-MM-DD. Uses the
+ * current year — the Galileo cryptic doesn't carry a year, and v1
+ * doesn't model server-side wrap (Mini Guide says the server picks
+ * the next future occurrence). Pre-prod will surface any wrap drift.
+ */
+function sabreDateToIso(d: import('../../utils/validation.js').SabreDate): string {
+  const year = new Date().getUTCFullYear();
+  const month = String(d.month + 1).padStart(2, '0');
+  const day = String(d.day).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Synthesize fare-display rows from the emulated inventory. One row
+ * per (carrier, bookingClass) pair observed for the O&D, with
+ * `amount` from the tariff. v1 approximation — see
+ * `handleGalileoFareDisplay` docstring.
+ */
+function inventoryClassesForOd(
+  ctx: HandlerContext,
+  origin: string,
+  destination: string
+): Array<{ carrier: string; bookingClass: string; amount: number }> {
+  // Reuse the existing availability lookup for a near-term date and
+  // walk each line's classes map. v1 doesn't model a separate
+  // published-fare table — the inventory's classes are the proxy.
+  const today = new Date();
+  const day = today.getUTCDate();
+  const monthIdx = today.getUTCMonth();
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const dateToken = `${day}${months[monthIdx]}`;
+  const lines = ctx.backend.inventory.availability(
+    dateToken,
+    { letter: '?', num: 0 },
+    origin,
+    destination
+  );
+  const out: Array<{ carrier: string; bookingClass: string; amount: number }> = [];
+  const seen = new Set<string>();
+  for (const f of lines) {
+    for (const bookingClass of Object.keys(f.classes)) {
+      const key = `${f.carrier}-${bookingClass}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // Emulated base × class multiplier — same tariff convention as
+      // priceItinerary uses; inlined to avoid a cycle.
+      const base = 200;
+      const mult = bookingClass === 'F' ? 4 : bookingClass === 'J' ? 3 : bookingClass === 'C' ? 2.5 : 1;
+      out.push({ carrier: f.carrier, bookingClass, amount: base * mult });
+    }
+  }
+  return out;
 }
 
 /**

@@ -52,6 +52,7 @@ import type {
   OsiEntry,
   RemarkEntry,
   TicketModifierEntry,
+  FareDisplayEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -104,6 +105,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'FQ') return parsePricing(trimmed);
   if (u.startsWith('TKP')) return parseTicketIssue(trimmed, u);
   if (/^TMU\d/.test(u)) return parseTicketModifier(trimmed, u);
+  if (u.startsWith('FD')) return parseFareDisplay(trimmed, u);
   if (u.startsWith('TRV/')) return parseVoid(trimmed, u);
   if (u.startsWith('QEB/')) return parseQueuePlaceEnd(trimmed, u);
   if (u.startsWith('Q/')) return parseQueueAccess(trimmed, u);
@@ -1012,6 +1014,80 @@ function parseTicketModifier(raw: string, u: string): TicketModifierEntry {
     `Galileo TMU: unsupported FOP form "${formStr}" in "${raw}" ` +
       `(supported: S, NONREF, <brand><pan>*D<MMYY>)`
   );
+}
+
+/**
+ * `FD<...>` — Fare Display. Source: Mini Format Guide v2 (verbatim
+ * 2026-06-03).
+ *
+ * Forms wired:
+ *   FD<orig><dest>                  today, no carrier filter
+ *   FD<date><orig><dest>            with date — date floats
+ *   FD<orig><date><dest>            (same; date can sit anywhere)
+ *   FD<orig><dest><date>            (same)
+ *   FD<...>/<carrier>               with carrier filter (up to 3)
+ *
+ * The cryptic allows DDMMM to sit at the start, middle, or end of the
+ * locations string. We scan for a `\d{1,2}[A-Z]{3}` match and peel
+ * it out, leaving 6 alphabetic chars for origin+destination.
+ *
+ * Deferred (parser-level):
+ *   - `FDPAR` — dest only, origin defaults to sign-on city
+ *   - Journey type qualifiers `-RT`/`-OW`/`-RTW`/`-CTF`
+ *   - `*PTC` passenger types
+ *   - `.T<date>` historical ticketing date
+ */
+function parseFareDisplay(raw: string, u: string): FareDisplayEntry {
+  // Strip "FD" prefix.
+  const body = u.slice(2);
+  if (body.length === 0) {
+    throw new ParseError(`Galileo FD: expected FD[<date>]<orig><dest>[/<carrier>...] in "${raw}"`);
+  }
+
+  // Split on "/" — first segment is locations+date, rest are carriers.
+  const [head, ...carriers] = body.split('/');
+  for (const c of carriers) {
+    if (!/^[A-Z]{2}$/.test(c)) {
+      throw new ParseError(`Galileo FD: bad carrier code "${c}" in "${raw}"`);
+    }
+  }
+  if (carriers.length > 3) {
+    throw new ParseError(`Galileo FD: max 3 carriers per REST limit in "${raw}"`);
+  }
+
+  // Look for date pattern DDMMM in head.
+  let date: import('../../utils/validation.js').SabreDate | undefined;
+  let cities = head;
+  const dateRe = /(\d{1,2})([A-Z]{3})/;
+  const dm = dateRe.exec(head);
+  if (dm) {
+    const parsed = parseSabreDate(head.slice(dm.index));
+    if (parsed && parsed.length === dm[0].length) {
+      date = parsed.date;
+      cities = head.slice(0, dm.index) + head.slice(dm.index + dm[0].length);
+    }
+  }
+
+  if (!/^[A-Z]{6}$/.test(cities)) {
+    if (/^[A-Z]{3}$/.test(cities)) {
+      throw new ParseError(
+        `Galileo FD: current-city default not modelled; use FD[<date>]<orig><dest> in "${raw}"`
+      );
+    }
+    throw new ParseError(
+      `Galileo FD: expected 6 location chars after stripping date in "${raw}" (got "${cities}")`
+    );
+  }
+
+  return {
+    kind: 'fare_display',
+    raw,
+    timestamp: new Date(),
+    origin: cities.slice(0, 3),
+    destination: cities.slice(3),
+    date,
+    carriers: carriers.length > 0 ? carriers : undefined,
+  };
 }
 
 function parseQueuePrevious(raw: string, u: string): QueueEntry {

@@ -142,6 +142,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'ticket_modifier':
         // Galileo-only `TMU<n>F<form>` — Sabre's parser never emits this.
         return Response.FORMAT;
+
+      case 'fare_display':
+        // Galileo-only `FD<...>` — Sabre's parser never emits this.
+        return Response.FORMAT;
     }
   } catch (err) {
     if (err instanceof InvalidTransitionError) {

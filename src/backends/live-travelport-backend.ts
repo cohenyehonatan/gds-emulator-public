@@ -571,6 +571,44 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Fare display — list published fares for an O&D pair. Source:
+   * `APIRef_FareDisplay.htm` (verbatim 2026-06-03). Endpoint is
+   * standalone (no workbench required) — used by Galileo `FD<...>`.
+   *
+   * Request body:
+   *   {
+   *     "FareDisplayQueryRequest": {
+   *       "from": { "value": "<IATA>" },
+   *       "to":   { "value": "<IATA>" },
+   *       "departureDate": "YYYY-MM-DD"?,
+   *       "returnDate":    "YYYY-MM-DD"?,
+   *       "carrier": ["<IATA>"]?
+   *     }
+   *   }
+   *
+   * Journey type is determined server-side by presence/absence of
+   * `returnDate` (no explicit RT/OW flag in the body). Up to 3
+   * carriers per docs.
+   */
+  async fareDisplay(opts: {
+    from: string;
+    to: string;
+    departureDate?: string; // YYYY-MM-DD
+    returnDate?: string; // YYYY-MM-DD
+    carriers?: string[];
+  }): Promise<unknown> {
+    const url = `${this.opts.apiBase}/air/faredisplay/fares`;
+    const request: Record<string, unknown> = {
+      from: { value: opts.from },
+      to: { value: opts.to },
+    };
+    if (opts.departureDate) request.departureDate = opts.departureDate;
+    if (opts.returnDate) request.returnDate = opts.returnDate;
+    if (opts.carriers && opts.carriers.length > 0) request.carrier = opts.carriers;
+    return this.postJson(url, { FareDisplayQueryRequest: request }, 'fareDisplay');
+  }
+
+  /**
    * Add a notepad / remark / OSI to a workbench via
    * `/reservationcomments/list`. Source: canonical schema verified
    * in the v11 spec doc (`Book/RemarksGuide.htm`).
