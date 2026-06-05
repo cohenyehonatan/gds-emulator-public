@@ -20,6 +20,7 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -34,7 +35,7 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

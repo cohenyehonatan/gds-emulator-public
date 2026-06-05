@@ -49,6 +49,7 @@ import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
 import {
+  extractSearchIdentifier,
   mapCatalogProductOfferings,
   mapReservation,
   mapPricedOffer,
@@ -263,6 +264,7 @@ async function handleGalileoAvailability(
   // (CatalogProductOfferings), then run the response through the mapper.
   // Emulated path: the existing dialect-shared Inventory.availability.
   let lines;
+  let searchIdentifier: string | undefined;
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {
       const response = await ctx.backend.airSearch({
@@ -275,6 +277,7 @@ async function handleGalileoAvailability(
         dayOfWeekLetter: dow.letter,
         dayOfWeekNum: dow.num,
       });
+      searchIdentifier = extractSearchIdentifier(response);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -290,6 +293,7 @@ async function handleGalileoAvailability(
     origin: entry.origin!,
     destination: entry.destination!,
     lines,
+    searchIdentifier,
   };
   wa.lastAvailability = result;
   if (lines.length === 0) return 'NO FLIGHTS'; // reconstructed
@@ -346,14 +350,17 @@ async function handleGalileoSell(
   }
 
   // Live path: ensure a workbench, then POST one offer per leg.
-  // Each leg's vendorRef.offerId must have been captured by the
-  // availability mapper; absent it, we can't address the offer on
-  // the live side and refuse rather than silently fall back.
+  // addOffer needs THREE identifiers: the search-transaction
+  // identifier (one per availability cache), plus per-leg offerId +
+  // productId on each AvailabilityLine.vendorRef. Refuse cleanly if
+  // any are missing rather than POSTing an invalid body.
   if (ctx.backend instanceof LiveTravelportBackend) {
     const liveBackend = ctx.backend;
+    if (!avail.searchIdentifier) return 'LIVE SEARCH ID MISSING'; // reconstructed
     for (const leg of legs) {
       const line = avail.lines.find((l) => l.line === leg.line)!;
       if (!line.vendorRef?.offerId) return 'LIVE OFFER ID MISSING'; // reconstructed
+      if (!line.vendorRef?.productId) return 'LIVE PRODUCT ID MISSING'; // reconstructed
     }
     try {
       if (!wa.liveWorkbenchId) {
@@ -361,7 +368,11 @@ async function handleGalileoSell(
       }
       for (const leg of legs) {
         const line = avail.lines.find((l) => l.line === leg.line)!;
-        await liveBackend.addOffer(wa.liveWorkbenchId, line.vendorRef!.offerId!, entry.seats);
+        await liveBackend.addOffer(wa.liveWorkbenchId, {
+          searchIdentifier: avail.searchIdentifier,
+          offerId: line.vendorRef!.offerId!,
+          productId: line.vendorRef!.productId!,
+        });
       }
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed

@@ -393,9 +393,13 @@ export class LiveTravelportBackend implements Backend {
    * live path: pull a `vendorRef.offerId` from cached availability,
    * post it, get back a priced offer that maps to FareQuote.
    *
-   * The body shape mirrors addOffer's `OfferQueryRef` form (the
-   * reference-payload pattern is documented as shared across endpoints
-   * that accept catalog offer IDs).
+   * ⚠️ NOT YET VALIDATED LIVE. Body shape inherited from the
+   * pre-2026-06-05 addOffer envelope (`OfferQueryRef`/`SearchOfferId`).
+   * That envelope was proven WRONG for addOffer (pre-prod returns
+   * "INVALID INPUT FORMAT"); priceOffer almost certainly needs the
+   * same three-ID canonical body (`OfferQueryBuildFromCatalogProduct-
+   * Offerings` with searchIdentifier + offerId + productId). Fix when
+   * the FQ-live validation pass runs.
    */
   async priceOffer(offerId: string, adults = 1): Promise<unknown> {
     const url =
@@ -409,18 +413,48 @@ export class LiveTravelportBackend implements Backend {
     return this.postJson(url, body, 'priceOffer');
   }
 
+  /**
+   * Add a CatalogProductOffering to a workbench by reference. The
+   * canonical body (VERIFIED PRE-PROD 2026-06-05 against
+   * `APIRef_AddOfferRefPayload.htm`) needs THREE identifiers:
+   * - `searchIdentifier` — the search-transaction UUID from
+   *   `CatalogProductOfferingsResponse.CatalogProductOfferings.Identifier.value`
+   * - `offerId` — the per-offer short ref (`o1`/`o2`/...) from
+   *   `CatalogProductOffering.id`
+   * - `productId` — the per-product short ref (`p0`/`p1`/...) from
+   *   `ProductBrandOffering[].Product[].productRef`
+   *
+   * Earlier code sent `{ OfferQueryRef: { SearchOfferId } }` which
+   * pre-prod rejected with bare "INVALID INPUT FORMAT" (no field-level
+   * detail, because the entire envelope was wrong). The PassengerCriteria
+   * field that used to be on the request body isn't part of the canonical
+   * shape — passenger count is implicit in the search context.
+   */
   async addOffer(
     workbenchId: string,
-    offerId: string,
-    adults = 1
+    opts: { searchIdentifier: string; offerId: string; productId: string }
   ): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/book/airoffer/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/offers/buildfromcatalogofferings`;
     const body = {
-      OfferQueryRef: {
-        SearchOfferId: offerId,
-        PassengerCriteria: [{ number: adults, passengerTypeCode: 'ADT' }],
+      OfferQueryBuildFromCatalogProductOfferings: {
+        BuildFromCatalogProductOfferingsRequest: {
+          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+          CatalogProductOfferingsIdentifier: {
+            Identifier: { value: opts.searchIdentifier },
+          },
+          CatalogProductOfferingSelection: [
+            {
+              CatalogProductOfferingIdentifier: {
+                Identifier: { value: opts.offerId },
+              },
+              ProductIdentifier: [
+                { Identifier: { value: opts.productId } },
+              ],
+            },
+          ],
+        },
       },
     };
     return this.postJson(url, body, 'addOffer');

@@ -137,6 +137,7 @@ describe('Galileo TKP — uses stored TMU FOP for live addFormOfPayment', () => 
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -150,7 +151,7 @@ describe('Galileo TKP — uses stored TMU FOP for live addFormOfPayment', () => 
                         Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
                       },
                     ],
-                    ProductBrandOffering: [{ FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+                    ProductBrandOffering: [{ Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
                   },
                 ],
               },

@@ -112,6 +112,7 @@ describe('Galileo E / ER — live end-tx invariants', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -126,7 +127,7 @@ describe('Galileo E / ER — live end-tx invariants', () => {
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

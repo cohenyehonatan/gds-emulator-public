@@ -28,6 +28,7 @@ describe('Galileo dialect ↔ LiveTravelportBackend (mocked fetch)', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 ProductBrandOptions: [
@@ -43,7 +44,7 @@ describe('Galileo dialect ↔ LiveTravelportBackend (mocked fetch)', () => {
                     ],
                     ProductBrandOffering: [
                       {
-                        FareDetail: [
+                        Product: [{ productRef: 'p0' }], FareDetail: [
                           { FareBasis: 'YPRO', BookingCode: { code: 'Y', count: 9 } },
                         ],
                       },

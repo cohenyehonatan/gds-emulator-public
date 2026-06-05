@@ -103,13 +103,38 @@ export function mapCatalogProductOfferings(
  * Returns undefined when nothing useful was found — better an absent
  * vendorRef than one with empty strings that a downstream live-sell
  * handler would post in an invalid payload.
+ *
+ * VERIFIED PRE-PROD 2026-06-05: the per-offer productRef Travelport
+ * wants in `addOffer.ProductIdentifier[]` is NOT a vendor Identifier on
+ * the ProductBrandOption — it's the short ref `p0`/`p1`/... at
+ * `ProductBrandOffering[0].Product[0].productRef`. The mapper used to
+ * fall back to `extractIdentifier(brandOpt)` which returned undefined
+ * for real responses (mocked tests didn't catch this because they
+ * inject Identifier nodes the live API doesn't emit).
  */
 function buildVendorRef(offerId: string | undefined, brandOpt: any): VendorRef | undefined {
-  const productId = extractIdentifier(brandOpt);
   const firstBrand = arrayish(brandOpt?.ProductBrandOffering)[0];
+  const productId =
+    arrayish(firstBrand?.Product)[0]?.productRef ??
+    extractIdentifier(brandOpt); // legacy fallback for mocked test fixtures
   const brandId = extractIdentifier(firstBrand);
   if (!offerId && !productId && !brandId) return undefined;
   return { offerId, productId, brandId };
+}
+
+/**
+ * Pull the search-transaction Identifier (`CatalogProductOfferingsResponse.
+ * CatalogProductOfferings.Identifier.value`) off a search response.
+ * Travelport's `addOffer` needs this as the
+ * `CatalogProductOfferingsIdentifier.Identifier.value` — the per-offer
+ * short refs (`o1`/`p0`) only make sense in the context of this
+ * transaction. Returns undefined for mocked / non-live responses.
+ */
+export function extractSearchIdentifier(response: unknown): string | undefined {
+  const r = response as any;
+  const env = r?.CatalogProductOfferingsResponse ?? r;
+  const ident = env?.CatalogProductOfferings?.Identifier?.value;
+  return typeof ident === 'string' && ident.length > 0 ? ident : undefined;
 }
 
 /**

@@ -108,6 +108,7 @@ describe('Galileo live queue qualifiers — pass-through to v11 body', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -122,7 +123,7 @@ describe('Galileo live queue qualifiers — pass-through to v11 body', () => {
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

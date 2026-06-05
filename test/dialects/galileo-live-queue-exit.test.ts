@@ -53,6 +53,7 @@ describe('Galileo QX family — semantics', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -67,7 +68,7 @@ describe('Galileo QX family — semantics', () => {
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

@@ -36,6 +36,7 @@ describe('Galileo live I / IR — workbench DELETE + re-retrieve', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-001' },
@@ -50,7 +51,7 @@ describe('Galileo live I / IR — workbench DELETE + re-retrieve', () => {
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

@@ -42,7 +42,8 @@ describe('Galileo live QEB/<queue> — end-tx + queue place', () => {
     new Response(JSON.stringify({
       CatalogProductOfferingsResponse: {
         CatalogProductOfferings: {
-          CatalogProductOffering: [{
+          Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [{
             Identifier: { value: 'OFF-001' },
             ProductBrandOptions: [{
               Flight: [{
@@ -50,7 +51,7 @@ describe('Galileo live QEB/<queue> — end-tx + queue place', () => {
                 Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
                 Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
               }],
-              ProductBrandOffering: [{ FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+              ProductBrandOffering: [{ Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
             }],
           }],
         },

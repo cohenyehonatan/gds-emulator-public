@@ -16,7 +16,8 @@ const searchResp = () =>
     JSON.stringify({
       CatalogProductOfferingsResponse: {
         CatalogProductOfferings: {
-          CatalogProductOffering: [
+          Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [
             {
               Identifier: { value: 'OFF-001' },
               ProductBrandOptions: [
@@ -30,7 +31,7 @@ const searchResp = () =>
                     },
                   ],
                   ProductBrandOffering: [
-                    { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                    { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                   ],
                 },
               ],

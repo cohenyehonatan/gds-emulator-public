@@ -124,7 +124,8 @@ describe('Galileo `I` inside queue context — return BF to bottom + advance', (
         JSON.stringify({
           CatalogProductOfferingsResponse: {
             CatalogProductOfferings: {
-              CatalogProductOffering: [
+              Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [
                 {
                   Identifier: { value: 'OFF-001' },
                   ProductBrandOptions: [
@@ -138,7 +139,7 @@ describe('Galileo `I` inside queue context — return BF to bottom + advance', (
                         },
                       ],
                       ProductBrandOffering: [
-                        { FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                        { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
                       ],
                     },
                   ],

@@ -415,20 +415,36 @@ async function search(token: string): Promise<any | undefined> {
   return json;
 }
 
+interface SearchRefs {
+  searchIdentifier: string;
+  offerId: string;
+  productId: string;
+}
+
 /**
- * Extract a usable offer ID from a search response. Mirrors the
- * `mapCatalogProductOfferings` defensive lookup.
+ * Extract the three identifiers `addOffer` needs (VERIFIED 2026-06-05):
+ * - searchIdentifier: `CatalogProductOfferingsResponse.CatalogProductOfferings.Identifier.value`
+ * - offerId: first `CatalogProductOffering.id` (short ref like "o1")
+ * - productId: first `ProductBrandOffering[].Product[].productRef` (short ref like "p0")
  */
-function extractFirstOfferId(searchResponse: any): string | undefined {
+function extractSearchRefs(searchResponse: any): SearchRefs | undefined {
+  const root = searchResponse?.CatalogProductOfferingsResponse ?? searchResponse;
+  const searchIdentifier = root?.CatalogProductOfferings?.Identifier?.value;
   const offerings =
-    searchResponse?.CatalogProductOfferingsResponse?.CatalogProductOfferings
-      ?.CatalogProductOffering ??
-    searchResponse?.CatalogProductOfferings?.CatalogProductOffering ??
+    root?.CatalogProductOfferings?.CatalogProductOffering ??
+    root?.CatalogProductOfferings ??
     [];
   const arr = Array.isArray(offerings) ? offerings : [offerings];
   for (const o of arr) {
-    const id = o?.Identifier?.value ?? o?.id ?? o?.identifier;
-    if (typeof id === 'string' && id.length > 0) return id;
+    const offerId: string | undefined = o?.id ?? o?.Identifier?.value;
+    if (!offerId) continue;
+    const pbo = (Array.isArray(o?.ProductBrandOptions) ? o.ProductBrandOptions : [])[0];
+    const firstBrand = (Array.isArray(pbo?.ProductBrandOffering) ? pbo.ProductBrandOffering : [])[0];
+    const firstProduct = (Array.isArray(firstBrand?.Product) ? firstBrand.Product : [])[0];
+    const productId: string | undefined = firstProduct?.productRef;
+    if (typeof searchIdentifier === 'string' && typeof productId === 'string') {
+      return { searchIdentifier, offerId, productId };
+    }
   }
   return undefined;
 }
@@ -482,7 +498,7 @@ function extractTravelerIds(travResp: any): string[] {
  * stops at the first hard error so we don't keep poking after a 4xx
  * tells us the shape is wrong.
  */
-async function phaseWorkbench(token: string, offerId: string): Promise<void> {
+async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
   console.log('\n[3/5] Workbench lifecycle');
 
   // Step 1: create workbench
@@ -508,15 +524,26 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
   cleanup.workbenches.push(wbId);
   console.log(`      workbenchID = ${wbId}`);
 
-  // Step 2: add offer (open question: workbench-side offer ref vs search-side)
+  // Step 2: add offer — canonical body verified pre-prod 2026-06-05.
+  // Uses the three IDs from search response: searchIdentifier (the
+  // transaction-level UUID), offerId (the short ref `o<n>`), and
+  // productId (the short ref `p<n>` from the first ProductBrandOffering).
   const addOffer = await call(
     'POST',
     `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
     token,
     {
-      OfferQueryRef: {
-        SearchOfferId: offerId,
-        PassengerCriteria: [{ number: 1, passengerTypeCode: 'ADT' }],
+      OfferQueryBuildFromCatalogProductOfferings: {
+        BuildFromCatalogProductOfferingsRequest: {
+          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+          CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
+          CatalogProductOfferingSelection: [
+            {
+              CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
+              ProductIdentifier: [{ Identifier: { value: refs.productId } }],
+            },
+          ],
+        },
       },
     },
     'addOffer'
@@ -578,7 +605,7 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
                 {
                   id: 'o0',
                   offerRef: 'o0',
-                  Identifier: { authority: 'Travelport', value: offerId },
+                  Identifier: { authority: 'Travelport', value: refs.offerId },
                 },
               ],
             },
@@ -608,7 +635,7 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
                 {
                   id: 'o0',
                   offerRef: 'o0',
-                  Identifier: { authority: 'Travelport', value: offerId },
+                  Identifier: { authority: 'Travelport', value: refs.offerId },
                 },
               ],
             },
@@ -717,7 +744,7 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
 /**
  * Phase 4 — Multi-pax `/travelers/list` batch envelope.
  */
-async function phaseMultiPax(token: string, offerId: string): Promise<void> {
+async function phaseMultiPax(token: string, refs: SearchRefs): Promise<void> {
   console.log('\n[4/5] Multi-pax /travelers/list');
 
   const wb = await call(
@@ -737,18 +764,30 @@ async function phaseMultiPax(token: string, offerId: string): Promise<void> {
   }
   cleanup.workbenches.push(wbId);
 
-  // Add offer for 2 ADT so the workbench accepts the 2-traveler list.
+  // Add offer using the canonical body. The 1-ADT search response carries
+  // a 1-ADT offer; Phase 4's "2 ADT" framing reflects the post-addOffer
+  // traveler-list batch, not the offer's pax count. (If pre-prod requires
+  // a 2-pax-sized offer at this step, the search call needs to be reissued
+  // with `number: 2` — but that's a Phase 4 limitation we surface later.)
   const addOffer = await call(
     'POST',
     `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
     token,
     {
-      OfferQueryRef: {
-        SearchOfferId: offerId,
-        PassengerCriteria: [{ number: 2, passengerTypeCode: 'ADT' }],
+      OfferQueryBuildFromCatalogProductOfferings: {
+        BuildFromCatalogProductOfferingsRequest: {
+          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+          CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
+          CatalogProductOfferingSelection: [
+            {
+              CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
+              ProductIdentifier: [{ Identifier: { value: refs.productId } }],
+            },
+          ],
+        },
       },
     },
-    'addOffer (2 ADT)'
+    'addOffer (canonical body)'
   );
   if (!addOffer.ok) {
     console.log('      addOffer for 2 ADT failed — multi-pax batch skipped.');
@@ -834,10 +873,15 @@ async function phaseFareLookup(token: string): Promise<void> {
   }
 
   if (identifier && firstFare != null) {
+    // VERIFIED 2026-06-05 against APIRef_FareRules.htm: /fromfaredisplay
+    // accepts ShortText OR LongText. Pre-prod previously rejected LongText
+    // with "INVALID INPUT FORMAT" — the docs' example uses ShortText, so
+    // start there. If ShortText also 400s, the issue is the identifier
+    // shape (possibly needs the same _PC suffix the /fromoffer variant uses).
     const params = new URLSearchParams({
       fareRuleIdentifier: identifier,
       FareID: String(firstFare),
-      fareRuleType: 'LongText',
+      fareRuleType: 'ShortText',
     });
     const rules = await call(
       'GET',
@@ -890,23 +934,32 @@ async function main(): Promise<void> {
     searchBody = await search(token);
   }
 
-  // Phase 3 + 4 need an offer ID from search.
-  let offerId: string | undefined;
-  if (searchBody) offerId = extractFirstOfferId(searchBody);
+  // Phase 3 + 4 need the search-transaction Identifier plus per-offer
+  // and per-product short refs — see extractSearchRefs() for the
+  // verified pre-prod paths.
+  let refs: SearchRefs | undefined;
+  if (searchBody) {
+    refs = extractSearchRefs(searchBody);
+    if (refs) {
+      console.log(
+        `      ↳ addOffer refs: search=${refs.searchIdentifier.slice(0, 8)}…  offer=${refs.offerId}  product=${refs.productId}`
+      );
+    }
+  }
 
   try {
     if (!SKIP_PHASES.has('3')) {
-      if (!offerId) {
-        console.log('\n[3/5] Skipped — no offer ID from search to build a workbench against.');
+      if (!refs) {
+        console.log('\n[3/5] Skipped — could not extract search/offer/product IDs from search response.');
       } else {
-        await phaseWorkbench(token, offerId);
+        await phaseWorkbench(token, refs);
       }
     }
     if (!SKIP_PHASES.has('4')) {
-      if (!offerId) {
-        console.log('\n[4/5] Skipped — no offer ID from search.');
+      if (!refs) {
+        console.log('\n[4/5] Skipped — could not extract search/offer/product IDs.');
       } else {
-        await phaseMultiPax(token, offerId);
+        await phaseMultiPax(token, refs);
       }
     }
     if (!SKIP_PHASES.has('5')) {

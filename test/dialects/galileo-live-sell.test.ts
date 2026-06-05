@@ -29,6 +29,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-7K9S-001' },
@@ -46,7 +47,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
                     ],
                     ProductBrandOffering: [
                       {
-                        Identifier: { value: 'BRD-Y' },
+                        Product: [{ productRef: 'p0' }], Identifier: { value: 'BRD-Y' },
                         FareDetail: [{ FareBasis: 'Y', BookingCode: { code: 'Y', count: 9 } }],
                       },
                     ],
@@ -115,12 +116,18 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     const [createUrl] = fetchSpy.mock.calls[2];
     expect(createUrl).toContain('/air/book/session/reservationworkbench');
 
-    // Verify the addOffer call carries the SearchOfferId:
+    // Verify the addOffer call carries the canonical three-ID body
+    // (VERIFIED PRE-PROD 2026-06-05): searchIdentifier + offerId +
+    // productId, wrapped in OfferQueryBuildFromCatalogProductOfferings.
     const [addUrl, addInit] = fetchSpy.mock.calls[3];
     expect(addUrl).toContain('/reservationworkbench/WB-001/offers/buildfromcatalogofferings');
     const body = JSON.parse((addInit?.body as string) ?? '{}');
-    expect(body.OfferQueryRef?.SearchOfferId).toBe('OFF-7K9S-001');
-    expect(body.OfferQueryRef?.PassengerCriteria?.[0]?.passengerTypeCode).toBe('ADT');
+    const req = body.OfferQueryBuildFromCatalogProductOfferings?.BuildFromCatalogProductOfferingsRequest;
+    expect(req?.['@type']).toBe('BuildFromCatalogProductOfferingsRequestAir');
+    expect(req?.CatalogProductOfferingsIdentifier?.Identifier?.value).toBe('SRCH-FIXTURE');
+    const selection = req?.CatalogProductOfferingSelection?.[0];
+    expect(selection?.CatalogProductOfferingIdentifier?.Identifier?.value).toBe('OFF-7K9S-001');
+    expect(selection?.ProductIdentifier?.[0]?.Identifier?.value).toBe('p0');
   });
 
   it('a second N<seats><class><line> reuses the existing workbench', async () => {
@@ -149,6 +156,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [{
               // NO Identifier — vendorRef will be undefined
               ProductBrandOptions: [{
@@ -157,7 +165,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
                   Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
                   Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
                 }],
-                ProductBrandOffering: [{ FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+                ProductBrandOffering: [{ Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
               }],
             }],
           },
@@ -165,7 +173,9 @@ describe('Galileo live sell (mocked fetch chain)', () => {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
 
     await host.process('A27JUNDENFRA', wa);
-    expect(wa.lastAvailability?.lines[0].vendorRef).toBeUndefined();
+    // vendorRef is populated (productRef present) but offerId is missing
+    // — sell handler refuses on the offerId check.
+    expect(wa.lastAvailability?.lines[0].vendorRef?.offerId).toBeUndefined();
 
     const sellResp = await host.process('N1Y1', wa);
     expect(sellResp).toBe('LIVE OFFER ID MISSING');

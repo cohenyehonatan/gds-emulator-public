@@ -9,14 +9,15 @@ describe('mapPricedOffer', () => {
   const PRICED_FIXTURE = {
     CatalogProductOfferingsResponse: {
       CatalogProductOfferings: {
-        CatalogProductOffering: [
+        Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [
           {
             ProductBrandOptions: [
               {
                 Flight: [{ carrier: 'UA', number: 1234 }],
                 ProductBrandOffering: [
                   {
-                    FareDetail: [{ FareBasis: 'YPRO' }],
+                    Product: [{ productRef: 'p0' }], FareDetail: [{ FareBasis: 'YPRO' }],
                     Price: {
                       currencyCode: 'USD',
                       passengerType: 'ADT',
@@ -58,7 +59,8 @@ describe('mapPricedOffer', () => {
     expect(mapPricedOffer({})).toBeNull();
     expect(mapPricedOffer(null)).toBeNull();
     expect(mapPricedOffer({
-      CatalogProductOfferingsResponse: { CatalogProductOfferings: { CatalogProductOffering: [] } },
+      CatalogProductOfferingsResponse: { CatalogProductOfferings: { Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [] } },
     })).toBeNull();
   });
 });
@@ -83,7 +85,8 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
     new Response(JSON.stringify({
       CatalogProductOfferingsResponse: {
         CatalogProductOfferings: {
-          CatalogProductOffering: [{
+          Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [{
             Identifier: { value: 'OFF-001' },
             ProductBrandOptions: [{
               Flight: [{
@@ -91,7 +94,7 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
                 Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
                 Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
               }],
-              ProductBrandOffering: [{ FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+              ProductBrandOffering: [{ Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
             }],
           }],
         },
@@ -101,11 +104,12 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
     new Response(JSON.stringify({
       CatalogProductOfferingsResponse: {
         CatalogProductOfferings: {
-          CatalogProductOffering: [{
+          Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [{
             ProductBrandOptions: [{
               Flight: [{ carrier: 'UA', number: 1234 }],
               ProductBrandOffering: [{
-                FareDetail: [{ FareBasis: 'YPRO' }],
+                Product: [{ productRef: 'p0' }], FareDetail: [{ FareBasis: 'YPRO' }],
                 Price: {
                   currencyCode: 'USD',
                   passengerType: 'ADT',

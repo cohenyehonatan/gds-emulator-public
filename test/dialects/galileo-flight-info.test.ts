@@ -79,6 +79,7 @@ describe('Galileo TTL<n> with LiveTravelportBackend (mocked fetch) surfaces vend
       JSON.stringify({
         CatalogProductOfferingsResponse: {
           CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
             CatalogProductOffering: [
               {
                 Identifier: { value: 'OFF-7K9S-LIVE-001' },
@@ -94,7 +95,7 @@ describe('Galileo TTL<n> with LiveTravelportBackend (mocked fetch) surfaces vend
                       },
                     ],
                     ProductBrandOffering: [
-                      { FareDetail: [{ FareBasis: 'Y', BookingCode: { code: 'Y', count: 9 } }] },
+                      { Product: [{ productRef: 'p0' }], FareDetail: [{ FareBasis: 'Y', BookingCode: { code: 'Y', count: 9 } }] },
                     ],
                   },
                 ],

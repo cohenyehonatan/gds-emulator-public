@@ -52,4 +52,13 @@ export interface AvailabilityResult {
   origin: string;
   destination: string;
   lines: AvailabilityLine[];
+  /**
+   * Search-transaction identifier from the Travelport search response
+   * (`CatalogProductOfferingsResponse.CatalogProductOfferings.Identifier.value`).
+   * Required by `addOffer`'s canonical
+   * `CatalogProductOfferingsIdentifier.Identifier.value` field — without
+   * it the workbench has no context to look up the per-offer short refs
+   * (`o1`, `p0`) we hand it. EmulatedBackend leaves this undefined.
+   */
+  searchIdentifier?: string;
 }
