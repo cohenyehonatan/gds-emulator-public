@@ -228,6 +228,49 @@ function previewBody(body: unknown): string {
   }
 }
 
+/**
+ * Travelport wraps validation failures in `<...Response>.Result.Error[]`
+ * with a structured `category` / `Message` (often quite long). Walk the
+ * body and surface every Message we find so the truncated "INVALID
+ * INPUT FORMA…" preview becomes the full diagnostic.
+ */
+function extractTravelportErrors(body: unknown): string[] {
+  const messages: string[] = [];
+  function walk(node: unknown, depth = 0): void {
+    if (depth > 8 || node == null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, depth + 1);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    // Direct Message field (Travelport error nodes).
+    if (typeof record.Message === 'string' && record.Message.length > 0) {
+      const category = typeof record.category === 'string' ? record.category : '?';
+      const status = typeof record.StatusCode === 'number' ? record.StatusCode : '?';
+      messages.push(`[${category}/${status}] ${record.Message}`);
+    }
+    for (const v of Object.values(record)) walk(v, depth + 1);
+  }
+  walk(body);
+  return messages;
+}
+
+/**
+ * Log a full error diagnostic for a non-OK CallResult: surface every
+ * Travelport Result.Error[].Message and dump the body to disk.
+ */
+async function diagnoseError(label: string, result: { body: unknown; rawText: string }): Promise<void> {
+  const messages = extractTravelportErrors(result.body);
+  if (messages.length > 0) {
+    console.error(`      ↳ Travelport errors (${messages.length}):`);
+    for (const m of messages) console.error(`        • ${m}`);
+  } else {
+    console.error(`      ↳ no structured Result.Error[] in body`);
+  }
+  const file = await dumpForDiagnostics(`error-${label}`, result.body ?? result.rawText);
+  if (file) console.error(`      ↳ full error body written to ${file}`);
+}
+
 function requireCreds(): void {
   const missing = (
     [
@@ -451,7 +494,8 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
     'createWorkbench'
   );
   if (!wb.ok) {
-    console.error('△ createWorkbench failed — body:', previewBody(wb.body));
+    console.error('△ createWorkbench failed');
+    await diagnoseError('createwb-phase3', wb);
     return;
   }
   const wbId = extractFirstWbId(wb.body as any);
@@ -478,10 +522,8 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
     'addOffer'
   );
   if (!addOffer.ok) {
-    console.error(
-      '△ addOffer rejected — answers OPEN QUESTION: workbench-side offer ref ≠ search-side. Body:',
-      previewBody(addOffer.body)
-    );
+    console.error('△ addOffer rejected — answers OPEN QUESTION: workbench-side offer ref ≠ search-side.');
+    await diagnoseError('addoffer-phase3', addOffer);
     return;
   }
 
@@ -500,10 +542,8 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
     'addTraveler (singular, object body)'
   );
   if (!trav.ok) {
-    console.error(
-      '△ addTraveler rejected — Traveler body shape may need adjustment. Body:',
-      previewBody(trav.body)
-    );
+    console.error('△ addTraveler rejected — Traveler body shape may need adjustment');
+    await diagnoseError('addtraveler', trav);
     return;
   }
   const travelerId = extractTravelerIds(trav.body)[0];
@@ -581,15 +621,11 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
   if (ssrWhole.ok) {
     console.log('      → OPEN QUESTION ANSWERED: server accepts SSR without TravelerIdentifier (whole-BF scope OK).');
   } else if (ssrWhole.status === 400 || ssrWhole.status === 422) {
-    console.log(
-      '      → OPEN QUESTION ANSWERED: server REJECTS SSR without TravelerIdentifier. Body:',
-      previewBody(ssrWhole.body)
-    );
+    console.log('      → OPEN QUESTION ANSWERED: server REJECTS SSR without TravelerIdentifier.');
+    await diagnoseError('ssr-no-traveler', ssrWhole);
   } else {
-    console.log(
-      '      → SSR without traveler returned non-validation error; inconclusive. Body:',
-      previewBody(ssrWhole.body)
-    );
+    console.log('      → SSR without traveler returned non-validation error; inconclusive.');
+    await diagnoseError('ssr-no-traveler', ssrWhole);
   }
 
   // Step 6: NP. reservation comment
@@ -648,7 +684,8 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
     'commitWorkbench'
   );
   if (!commit.ok) {
-    console.error('△ commit failed — body:', previewBody(commit.body));
+    console.error('△ commit failed');
+    await diagnoseError('commit', commit);
     return;
   }
   const locator = extractFirstLocator(commit.body as any);
@@ -715,6 +752,7 @@ async function phaseMultiPax(token: string, offerId: string): Promise<void> {
   );
   if (!addOffer.ok) {
     console.log('      addOffer for 2 ADT failed — multi-pax batch skipped.');
+    await diagnoseError('addoffer-phase4', addOffer);
     return;
   }
 
@@ -745,7 +783,8 @@ async function phaseMultiPax(token: string, offerId: string): Promise<void> {
     const ids = extractTravelerIds(batch.body);
     console.log(`      → travelerIds (${ids.length}): ${ids.join(', ') || '(none surfaced)'}`);
   } else {
-    console.log('      → batch /travelers/list rejected — body:', previewBody(batch.body));
+    console.log('      → batch /travelers/list rejected');
+    await diagnoseError('travelers-list', batch);
   }
 }
 
@@ -800,13 +839,17 @@ async function phaseFareLookup(token: string): Promise<void> {
       FareID: String(firstFare),
       fareRuleType: 'LongText',
     });
-    await call(
+    const rules = await call(
       'GET',
       `${API_BASE}/air/farerule/farerules/fromfaredisplay?${params.toString()}`,
       token,
       undefined,
       'fareRulesFromFareDisplay'
     );
+    if (!rules.ok) {
+      console.error('      △ /fromfaredisplay rejected');
+      await diagnoseError('farerules-fromfaredisplay', rules);
+    }
   } else {
     console.log('      Skipping /fromfaredisplay — no identifier or sequence to chain against.');
   }
