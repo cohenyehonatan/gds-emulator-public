@@ -116,6 +116,10 @@ function commonHeaders(token: string): Record<string, string> {
     'Accept-Encoding': 'gzip, deflate',
     'Cache-Control': 'no-cache',
     'Accept-Version': ACCEPT_VERSION,
+    // Canonical Postman devkit sets BOTH Accept-Version AND Content-Version.
+    // addOffer required both; omitting Content-Version 400s with bare
+    // INVALID INPUT FORMAT.
+    'Content-Version': ACCEPT_VERSION,
   };
   if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
   else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
@@ -358,6 +362,7 @@ async function search(token: string): Promise<any | undefined> {
     'Accept-Encoding': 'gzip, deflate', // mandatory per Travelport docs
     'Cache-Control': 'no-cache',
     'Accept-Version': ACCEPT_VERSION, // required for Air Search
+    'Content-Version': ACCEPT_VERSION, // canonical devkit sets both
   };
   if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
   else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`; // e.g. 7K9S_1G
@@ -554,7 +559,7 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
   };
   const addOffer = await call(
     'POST',
-    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
+    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogproductofferings`,
     token,
     addOfferBody,
     'addOffer'
@@ -796,7 +801,7 @@ async function phaseMultiPax(token: string, refs: SearchRefs): Promise<void> {
   };
   const addOffer = await call(
     'POST',
-    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
+    `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogproductofferings`,
     token,
     addOfferBody,
     'addOffer (canonical body)'

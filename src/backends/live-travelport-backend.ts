@@ -222,6 +222,13 @@ export class LiveTravelportBackend implements Backend {
       'Accept-Encoding': 'gzip, deflate',
       'Cache-Control': 'no-cache',
       'Accept-Version': this.opts.acceptVersion,
+      // The canonical Postman devkit sets BOTH Accept-Version and
+      // Content-Version on every call. Omitting Content-Version is what
+      // caused addOffer to 400 with generic INVALID INPUT FORMAT —
+      // search/createWorkbench/fareDisplay coincidentally accept the
+      // single Accept-Version header but the body-validating endpoints
+      // gate on Content-Version too.
+      'Content-Version': this.opts.acceptVersion,
       'TVP-PCC-CORE': `${this.opts.pcc}_${this.opts.gds}`,
     };
   }
@@ -378,7 +385,7 @@ export class LiveTravelportBackend implements Backend {
    * `AvailabilityLine.vendorRef.offerId` during the preceding search.
    *
    * Source: POST /11/air/book/airoffer/reservationworkbench/{workbenchID}
-   * /offers/buildfromcatalogofferings — request shape `OfferQueryRef`
+   * /offers/buildfromcatalogproductofferings — request shape `OfferQueryRef`
    * with `SearchOfferId` and `PassengerCriteria`.
    *
    * Returns the raw response so a Galileo serializer can map it to a
@@ -436,7 +443,7 @@ export class LiveTravelportBackend implements Backend {
   ): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/book/airoffer/reservationworkbench/${encodeURIComponent(workbenchId)}` +
-      `/offers/buildfromcatalogofferings`;
+      `/offers/buildfromcatalogproductofferings`;
     const body = {
       OfferQueryBuildFromCatalogProductOfferings: {
         BuildFromCatalogProductOfferingsRequest: {

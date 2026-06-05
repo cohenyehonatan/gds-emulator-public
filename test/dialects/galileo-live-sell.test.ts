@@ -120,7 +120,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     // (VERIFIED PRE-PROD 2026-06-05): searchIdentifier + offerId +
     // productId, wrapped in OfferQueryBuildFromCatalogProductOfferings.
     const [addUrl, addInit] = fetchSpy.mock.calls[3];
-    expect(addUrl).toContain('/reservationworkbench/WB-001/offers/buildfromcatalogofferings');
+    expect(addUrl).toContain('/reservationworkbench/WB-001/offers/buildfromcatalogproductofferings');
     const body = JSON.parse((addInit?.body as string) ?? '{}');
     const req = body.OfferQueryBuildFromCatalogProductOfferings?.BuildFromCatalogProductOfferingsRequest;
     expect(req?.['@type']).toBe('BuildFromCatalogProductOfferingsRequestAir');
@@ -147,7 +147,7 @@ describe('Galileo live sell (mocked fetch chain)', () => {
 
     // Confirm second-sell fetch was addOffer, not createWorkbench:
     const [lastUrl] = fetchSpy.mock.calls[4];
-    expect(lastUrl).toContain('/offers/buildfromcatalogofferings');
+    expect(lastUrl).toContain('/offers/buildfromcatalogproductofferings');
   });
 
   it('refuses to sell a line whose vendorRef.offerId is missing', async () => {
