@@ -258,8 +258,14 @@ function extractTravelportErrors(body: unknown): string[] {
 /**
  * Log a full error diagnostic for a non-OK CallResult: surface every
  * Travelport Result.Error[].Message and dump the body to disk.
+ * Also dumps the REQUEST body so you can diff against a known-good
+ * sample (e.g. the GDS reference-payload devkit's Postman collection).
  */
-async function diagnoseError(label: string, result: { body: unknown; rawText: string }): Promise<void> {
+async function diagnoseError(
+  label: string,
+  result: { body: unknown; rawText: string },
+  requestBody?: unknown
+): Promise<void> {
   const messages = extractTravelportErrors(result.body);
   if (messages.length > 0) {
     console.error(`      ↳ Travelport errors (${messages.length}):`);
@@ -269,6 +275,10 @@ async function diagnoseError(label: string, result: { body: unknown; rawText: st
   }
   const file = await dumpForDiagnostics(`error-${label}`, result.body ?? result.rawText);
   if (file) console.error(`      ↳ full error body written to ${file}`);
+  if (requestBody !== undefined) {
+    const reqFile = await dumpForDiagnostics(`request-${label}`, requestBody);
+    if (reqFile) console.error(`      ↳ request body we sent written to ${reqFile}`);
+  }
 }
 
 function requireCreds(): void {
@@ -528,29 +538,30 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
   // Uses the three IDs from search response: searchIdentifier (the
   // transaction-level UUID), offerId (the short ref `o<n>`), and
   // productId (the short ref `p<n>` from the first ProductBrandOffering).
+  const addOfferBody = {
+    OfferQueryBuildFromCatalogProductOfferings: {
+      BuildFromCatalogProductOfferingsRequest: {
+        '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+        CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
+        CatalogProductOfferingSelection: [
+          {
+            CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
+            ProductIdentifier: [{ Identifier: { value: refs.productId } }],
+          },
+        ],
+      },
+    },
+  };
   const addOffer = await call(
     'POST',
     `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
     token,
-    {
-      OfferQueryBuildFromCatalogProductOfferings: {
-        BuildFromCatalogProductOfferingsRequest: {
-          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
-          CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
-          CatalogProductOfferingSelection: [
-            {
-              CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
-              ProductIdentifier: [{ Identifier: { value: refs.productId } }],
-            },
-          ],
-        },
-      },
-    },
+    addOfferBody,
     'addOffer'
   );
   if (!addOffer.ok) {
-    console.error('△ addOffer rejected — answers OPEN QUESTION: workbench-side offer ref ≠ search-side.');
-    await diagnoseError('addoffer-phase3', addOffer);
+    console.error('△ addOffer rejected.');
+    await diagnoseError('addoffer-phase3', addOffer, addOfferBody);
     return;
   }
 
@@ -769,29 +780,30 @@ async function phaseMultiPax(token: string, refs: SearchRefs): Promise<void> {
   // traveler-list batch, not the offer's pax count. (If pre-prod requires
   // a 2-pax-sized offer at this step, the search call needs to be reissued
   // with `number: 2` — but that's a Phase 4 limitation we surface later.)
+  const addOfferBody = {
+    OfferQueryBuildFromCatalogProductOfferings: {
+      BuildFromCatalogProductOfferingsRequest: {
+        '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+        CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
+        CatalogProductOfferingSelection: [
+          {
+            CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
+            ProductIdentifier: [{ Identifier: { value: refs.productId } }],
+          },
+        ],
+      },
+    },
+  };
   const addOffer = await call(
     'POST',
     `${API_BASE}/air/book/airoffer/reservationworkbench/${encodeURIComponent(wbId)}/offers/buildfromcatalogofferings`,
     token,
-    {
-      OfferQueryBuildFromCatalogProductOfferings: {
-        BuildFromCatalogProductOfferingsRequest: {
-          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
-          CatalogProductOfferingsIdentifier: { Identifier: { value: refs.searchIdentifier } },
-          CatalogProductOfferingSelection: [
-            {
-              CatalogProductOfferingIdentifier: { Identifier: { value: refs.offerId } },
-              ProductIdentifier: [{ Identifier: { value: refs.productId } }],
-            },
-          ],
-        },
-      },
-    },
+    addOfferBody,
     'addOffer (canonical body)'
   );
   if (!addOffer.ok) {
     console.log('      addOffer for 2 ADT failed — multi-pax batch skipped.');
-    await diagnoseError('addoffer-phase4', addOffer);
+    await diagnoseError('addoffer-phase4', addOffer, addOfferBody);
     return;
   }
 
