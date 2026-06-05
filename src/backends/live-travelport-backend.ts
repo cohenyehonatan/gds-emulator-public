@@ -817,11 +817,14 @@ export class LiveTravelportBackend implements Backend {
       `/travelers`;
     const t = this.buildTravelerPayload(traveler);
     const raw = (await this.postJson(url, { Traveler: t }, 'addTraveler')) as any;
-    // Response defensively traverses both object and array shapes —
-    // pre-prod has been observed returning either.
-    const node = Array.isArray(raw?.Traveler)
-      ? raw.Traveler[0]
-      : (raw?.Traveler ?? raw);
+    // VERIFIED PRE-PROD via GDS reference-payload devkit: response shape
+    // is `{ TravelerResponse: { Traveler: { Identifier: { value }}}}` —
+    // singular Traveler object wrapped in a TravelerResponse envelope.
+    // Legacy paths kept as defensive fallbacks for mocked-fixture drift.
+    const node =
+      raw?.TravelerResponse?.Traveler ??
+      (Array.isArray(raw?.Traveler) ? raw.Traveler[0] : raw?.Traveler) ??
+      raw;
     const travelerId = this.extractTravelerId(node);
     return { travelerId, raw };
   }
@@ -859,7 +862,14 @@ export class LiveTravelportBackend implements Backend {
       },
     };
     const raw = (await this.postJson(url, body, 'addTravelers')) as any;
-    const list = raw?.TravelerListResponse?.Traveler ?? raw?.Traveler ?? [];
+    // Defensive across the documented batch shape, the singular envelope
+    // (some tenants return TravelerResponse for the list endpoint too),
+    // and legacy fallbacks.
+    const list =
+      raw?.TravelerListResponse?.Traveler ??
+      raw?.TravelerResponse?.Traveler ??
+      raw?.Traveler ??
+      [];
     const nodes: any[] = Array.isArray(list) ? list : [list];
     const travelerIds = travelers.map(
       (_, i) => this.extractTravelerId(nodes[i]) ?? ''
@@ -1261,8 +1271,24 @@ export class LiveTravelportBackend implements Backend {
       },
     };
     const json = (await this.postJson(url, body, 'commitWorkbench')) as any;
+    // VERIFIED PRE-PROD via GDS reference-payload devkit. Response is
+    // `{ ReservationResponse: { Reservation: { Receipt: [{Confirmation: {Locator: { value, source }}}, ...] }}}`.
+    // Receipt is an ARRAY — multiple receipts for combined GDS/NDC
+    // bookings, ticket receipts, etc. For a GDS PNR we want the one
+    // whose `Confirmation.Locator.source === "1G"`; if none matches,
+    // fall through to the first locator-bearing receipt.
+    const receipts: any[] = Array.isArray(json?.ReservationResponse?.Reservation?.Receipt)
+      ? json.ReservationResponse.Reservation.Receipt
+      : Array.isArray(json?.Receipt)
+      ? json.Receipt
+      : [];
+    const gdsReceipt = receipts.find(
+      (r) => r?.Confirmation?.Locator?.source === '1G'
+    );
+    const fallback = receipts.find((r) => r?.Confirmation?.Locator?.value);
     const locator =
-      json?.Receipt?.[0]?.Confirmation?.Locator?.value ??
+      gdsReceipt?.Confirmation?.Locator?.value ??
+      fallback?.Confirmation?.Locator?.value ??
       json?.Confirmation?.Locator?.value ??
       json?.Locator?.value ??
       json?.locator;

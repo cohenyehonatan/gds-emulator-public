@@ -465,8 +465,19 @@ function extractSearchRefs(searchResponse: any): SearchRefs | undefined {
 }
 
 function extractFirstLocator(commitResp: any): string | undefined {
+  // VERIFIED PRE-PROD via GDS reference-payload devkit's Postman:
+  // `ReservationResponse.Reservation.Receipt[]` is an array — for a 1G
+  // booking we want the entry whose `Confirmation.Locator.source === "1G"`.
+  const receipts: any[] = Array.isArray(commitResp?.ReservationResponse?.Reservation?.Receipt)
+    ? commitResp.ReservationResponse.Reservation.Receipt
+    : Array.isArray(commitResp?.Receipt)
+    ? commitResp.Receipt
+    : [];
+  const gds = receipts.find((r) => r?.Confirmation?.Locator?.source === '1G');
+  const fallback = receipts.find((r) => r?.Confirmation?.Locator?.value);
   return (
-    commitResp?.Receipt?.[0]?.Confirmation?.Locator?.value ??
+    gds?.Confirmation?.Locator?.value ??
+    fallback?.Confirmation?.Locator?.value ??
     commitResp?.Confirmation?.Locator?.value ??
     commitResp?.Locator?.value ??
     commitResp?.locator
@@ -500,11 +511,19 @@ async function diagnoseWorkbenchShape(label: string, wbBody: unknown): Promise<v
 }
 
 function extractTravelerIds(travResp: any): string[] {
-  const arr = travResp?.TravelerListResponse?.Traveler ?? travResp?.Traveler ?? [];
+  // VERIFIED PRE-PROD via the devkit. Singular endpoint: response is
+  // `{ TravelerResponse: { Traveler: { Identifier: { value } } } }` —
+  // singular Traveler object, NOT array. Batch endpoint
+  // (`/travelers/list`) returns `TravelerListResponse.Traveler[]`.
+  const arr =
+    travResp?.TravelerResponse?.Traveler ??
+    travResp?.TravelerListResponse?.Traveler ??
+    travResp?.Traveler ??
+    [];
   const nodes = Array.isArray(arr) ? arr : [arr];
   return nodes
     .map((n: any) => n?.Identifier?.value ?? n?.id ?? '')
-    .filter((s: string) => typeof s === 'string');
+    .filter((s: string) => typeof s === 'string' && s.length > 0);
 }
 
 /**
