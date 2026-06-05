@@ -2,3 +2,8 @@
 node_modules/
 dist/
 references/*.txt
+
+# validate-travelport-creds.ts runtime artifacts (live API responses)
+travelport-response.json
+tvp-diag-*.json
+tvp-*.json

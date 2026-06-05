@@ -173,6 +173,51 @@ function urlShort(url: string): string {
   return url.replace(API_BASE, '…').replace(OAUTH_URL, '…(oauth)');
 }
 
+/**
+ * Force-dump a response body for offline shape mapping. Called from
+ * extraction-failure paths so we always get a re-runnable diagnostic
+ * artifact even when TVP_DUMP_ALL is off. Returns the dump file path
+ * (or undefined if the body was empty / unwritable).
+ */
+async function dumpForDiagnostics(label: string, body: unknown): Promise<string | undefined> {
+  try {
+    const fs = await import('node:fs/promises');
+    const safeLabel = label.replace(/[^a-z0-9-]/gi, '_');
+    const path = `./tvp-diag-${safeLabel}.json`;
+    const text =
+      typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+    if (!text) return undefined;
+    await fs.writeFile(path, text, 'utf8');
+    return path;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Recursively walk an object looking for the first string value at any
+ * key matching the given regex. Used when our nominal extractor paths
+ * miss — gives us a "found at path X" hint rather than just silence.
+ */
+function findFirstByKey(
+  node: unknown,
+  keyMatcher: RegExp,
+  path: string[] = [],
+  depth = 0
+): { path: string; value: string } | undefined {
+  if (depth > 8 || node == null || typeof node !== 'object') return undefined;
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (keyMatcher.test(k) && typeof v === 'string' && v.length > 0) {
+      return { path: [...path, k].join('.'), value: v };
+    }
+    if (v && typeof v === 'object') {
+      const hit = findFirstByKey(v, keyMatcher, [...path, k], depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
 function previewBody(body: unknown): string {
   if (body == null) return '(empty)';
   if (typeof body === 'string') return body.slice(0, 280);
@@ -360,8 +405,29 @@ function extractFirstWbId(wbResp: any): string | undefined {
     wbResp?.Workbench?.Identifier?.value ??
     wbResp?.Identifier?.value ??
     wbResp?.workbenchID ??
-    wbResp?.workbenchId
+    wbResp?.workbenchId ??
+    // Pre-prod has been observed returning the workbench under
+    // CreateReservationWorkbenchRsp / ReservationWorkbenchCreateResponse
+    // envelopes; try those before falling back to the recursive sweep.
+    wbResp?.CreateReservationWorkbenchRsp?.ReservationWorkbench?.Identifier?.value ??
+    wbResp?.ReservationWorkbenchCreateResponse?.ReservationWorkbench?.Identifier?.value ??
+    wbResp?.ReservationWorkbenchResponse?.ReservationWorkbench?.Identifier?.value ??
+    wbResp?.ReservationWorkbenchResponse?.Identifier?.value
   );
+}
+
+/** Diagnostic: dump response + scan for any plausible workbench-id field. */
+async function diagnoseWorkbenchShape(label: string, wbBody: unknown): Promise<void> {
+  const file = await dumpForDiagnostics(label, wbBody);
+  if (file) console.error(`      ↳ full response written to ${file}`);
+  if (wbBody && typeof wbBody === 'object') {
+    console.error(`      ↳ top-level keys: ${Object.keys(wbBody as object).join(', ')}`);
+    // Heuristic search: any key matching /Identifier|workbench/i with a string value.
+    const id = findFirstByKey(wbBody, /^(Identifier|workbench|id)$/i);
+    if (id) console.error(`      ↳ heuristic hit: ${id.path} = ${id.value}`);
+  } else {
+    console.error(`      ↳ body preview: ${previewBody(wbBody)}`);
+  }
 }
 
 function extractTravelerIds(travResp: any): string[] {
@@ -395,7 +461,9 @@ async function phaseWorkbench(token: string, offerId: string): Promise<void> {
   }
   const wbId = extractFirstWbId(wb.body as any);
   if (!wbId) {
-    console.error('△ createWorkbench: no workbenchID in response');
+    console.error('△ createWorkbench: no workbenchID in any nominal path');
+    await diagnoseWorkbenchShape('workbench-create-phase3', wb.body);
+    console.error('      → Phase 3 cannot proceed; map this shape into LiveTravelportBackend');
     return;
   }
   cleanup.workbenches.push(wbId);
@@ -629,7 +697,12 @@ async function phaseMultiPax(token: string, offerId: string): Promise<void> {
   );
   if (!wb.ok) return;
   const wbId = extractFirstWbId(wb.body as any);
-  if (!wbId) return;
+  if (!wbId) {
+    console.error('△ createWorkbench (multi-pax): no workbenchID in any nominal path');
+    await diagnoseWorkbenchShape('workbench-create-phase4', wb.body);
+    console.error('      → Phase 4 cannot proceed without a wbId');
+    return;
+  }
   cleanup.workbenches.push(wbId);
 
   // Add offer for 2 ADT so the workbench accepts the 2-traveler list.
@@ -702,10 +775,32 @@ async function phaseFareLookup(token: string): Promise<void> {
   if (!fd.ok) return;
   const root = (fd.body as any)?.FareDisplayResponse ?? fd.body;
   const identifier = root?.Identifier?.value;
+  // Try every shape Travelport docs vs. pre-prod has been observed using.
+  // The /fromfaredisplay GET wants a per-fare ID (the line number on a
+  // FareDisplay screen). Path candidates, in priority order:
   const firstFare =
-    root?.fareDisplay?.[0]?.fare?.[0]?.sequence ?? root?.FareDisplay?.[0]?.fare?.[0]?.sequence;
+    root?.fareDisplay?.[0]?.fare?.[0]?.sequence ??
+    root?.FareDisplay?.[0]?.fare?.[0]?.sequence ??
+    root?.FareDisplay?.[0]?.FareID ??
+    root?.FareDisplay?.[0]?.sequence ??
+    root?.FareDisplay?.[0]?.fareId ??
+    root?.fares?.[0]?.FareID ??
+    root?.Fare?.[0]?.FareID ??
+    root?.Fare?.[0]?.sequence;
   console.log(`      → Identifier.value = ${identifier ?? '(not surfaced)'}`);
   console.log(`      → first fare sequence = ${firstFare ?? '(not surfaced)'}`);
+
+  if (firstFare == null) {
+    // Dump shape so the next iteration of the script can encode the
+    // canonical path and we can fix `mapFareDisplay` accordingly.
+    const file = await dumpForDiagnostics('fareDisplay', fd.body);
+    if (file) console.error(`      ↳ fareDisplay full response written to ${file}`);
+    if (root && typeof root === 'object') {
+      console.error(`      ↳ FareDisplayResponse keys: ${Object.keys(root).join(', ')}`);
+      const hit = findFirstByKey(root, /^(FareID|fareId|sequence|fareSequence)$/);
+      if (hit) console.error(`      ↳ heuristic hit: ${hit.path} = ${hit.value}`);
+    }
+  }
 
   if (identifier && firstFare != null) {
     const params = new URLSearchParams({
