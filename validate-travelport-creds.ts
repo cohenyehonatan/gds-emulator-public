@@ -752,6 +752,18 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
   }
   const locator = extractFirstLocator(commit.body as any);
   console.log(`      → locator = ${locator ?? '(not surfaced)'}`);
+  if (!locator) {
+    // Diagnostic: dump the commit response so we can map the actual
+    // Receipt-array shape. The Postman test assumes
+    // ReservationResponse.Reservation.Receipt[] but pre-prod may put
+    // it elsewhere or use a different `source` enum than "1G".
+    const f = await dumpForDiagnostics('commit-response', commit.body);
+    if (f) console.error(`      ↳ commit response dumped to ${f}`);
+    // Surface a heuristic hit for any value-looking field — the
+    // 6-char alphanumeric PNR locator is recognizable.
+    const hit = findFirstByKey(commit.body, /^(value|Locator|PNR|RecordLocator)$/);
+    if (hit) console.error(`      ↳ heuristic locator-ish hit: ${hit.path} = ${hit.value}`);
+  }
   // After commit the workbench is consumed server-side; clear from cleanup
   // so the DELETE pass doesn't hit a 404.
   cleanup.workbenches = cleanup.workbenches.filter((id) => id !== wbId);
@@ -857,6 +869,16 @@ async function phaseMultiPax(token: string, refs: SearchRefs): Promise<void> {
   if (batch.ok) {
     const ids = extractTravelerIds(batch.body);
     console.log(`      → travelerIds (${ids.length}): ${ids.join(', ') || '(none surfaced)'}`);
+    if (ids.length === 0) {
+      // Singular addTraveler returns TravelerResponse.Traveler.Identifier;
+      // batch /travelers/list shape is undocumented in the devkit's
+      // example responses. Dump it so we can map the envelope.
+      const f = await dumpForDiagnostics('travelers-list-response', batch.body);
+      if (f) console.error(`      ↳ batch response dumped to ${f}`);
+      if (batch.body && typeof batch.body === 'object') {
+        console.error(`      ↳ top-level keys: ${Object.keys(batch.body as object).join(', ')}`);
+      }
+    }
   } else {
     console.log('      → batch /travelers/list rejected');
     await diagnoseError('travelers-list', batch);
