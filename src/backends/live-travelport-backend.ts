@@ -353,10 +353,14 @@ export class LiveTravelportBackend implements Backend {
     // Minimal payload per the spec; the workbench is created empty and
     // populated via subsequent endpoints.
     const json = (await this.postJson(url, {}, 'createWorkbench')) as any;
-    // The response shape isn't precisely documented in the spec —
-    // defensive extraction tries the documented Identifier path plus
-    // a flat `workbenchID` fallback some pre-prod tenants return.
+    // VERIFIED PRE-PROD 2026-06-05: pre-prod returns a Reservation
+    // envelope (the workbench IS the in-progress reservation), NOT the
+    // ReservationWorkbench envelope the docs imply — see
+    // references/galileo/Travelport-JSON-Air-v11-API-Spec.md "Verified
+    // response shapes". Other paths kept as defensive fallbacks against
+    // tenant/version drift.
     const id =
+      json?.ReservationResponse?.Reservation?.Identifier?.value ??
       json?.ReservationWorkbench?.Identifier?.value ??
       json?.Workbench?.Identifier?.value ??
       json?.Identifier?.value ??
@@ -1179,7 +1183,10 @@ export class LiveTravelportBackend implements Backend {
       `${this.opts.apiBase}/air/book/session/reservationworkbench/buildfromlocator` +
       `?Locator=${encodeURIComponent(locator)}`;
     const json = (await this.postJson(url, {}, 'openWorkbenchFromLocator')) as any;
+    // Mirror createWorkbench's verified shape: pre-prod returns a
+    // Reservation envelope. See "Verified response shapes" in the spec.
     const id =
+      json?.ReservationResponse?.Reservation?.Identifier?.value ??
       json?.Identifier?.value ??
       json?.ReservationWorkbench?.Identifier?.value ??
       json?.Workbench?.Identifier?.value ??

@@ -177,3 +177,72 @@ describe('LiveTravelportBackend — GdsHost wiring', () => {
     expect(host.backend.id).toBe('travelport-1g');
   });
 });
+
+describe('LiveTravelportBackend — createWorkbench response shapes', () => {
+  const creds = {
+    clientId: 'x',
+    clientSecret: 'y',
+    username: 'z',
+    password: 'w',
+  };
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  function tokenResponse(): Response {
+    return new Response(
+      JSON.stringify({ access_token: 'TKN', token_type: 'Bearer', expires_in: 3600 }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('extracts wbId from ReservationResponse.Reservation.Identifier (verified pre-prod shape)', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ReservationResponse: {
+              '@type': 'ReservationResponse',
+              Reservation: {
+                '@type': 'Reservation',
+                Identifier: { authority: 'Travelport', value: 'WB-CANONICAL' },
+              },
+            },
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+    const b = new LiveTravelportBackend(creds);
+    expect(await b.createWorkbench()).toBe('WB-CANONICAL');
+  });
+
+  it('still accepts legacy ReservationWorkbench.Identifier shape (defensive fallback)', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ ReservationWorkbench: { Identifier: { value: 'WB-LEGACY' } } }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+    const b = new LiveTravelportBackend(creds);
+    expect(await b.createWorkbench()).toBe('WB-LEGACY');
+  });
+
+  it('throws when no recognized Identifier path is present', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ Unrelated: {} }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    const b = new LiveTravelportBackend(creds);
+    await expect(b.createWorkbench()).rejects.toThrow(/missing workbenchID/);
+  });
+});

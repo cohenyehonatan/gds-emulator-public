@@ -401,18 +401,13 @@ function extractFirstLocator(commitResp: any): string | undefined {
 
 function extractFirstWbId(wbResp: any): string | undefined {
   return (
+    // VERIFIED PRE-PROD 2026-06-05: ReservationResponse.Reservation.Identifier.
+    wbResp?.ReservationResponse?.Reservation?.Identifier?.value ??
     wbResp?.ReservationWorkbench?.Identifier?.value ??
     wbResp?.Workbench?.Identifier?.value ??
     wbResp?.Identifier?.value ??
     wbResp?.workbenchID ??
-    wbResp?.workbenchId ??
-    // Pre-prod has been observed returning the workbench under
-    // CreateReservationWorkbenchRsp / ReservationWorkbenchCreateResponse
-    // envelopes; try those before falling back to the recursive sweep.
-    wbResp?.CreateReservationWorkbenchRsp?.ReservationWorkbench?.Identifier?.value ??
-    wbResp?.ReservationWorkbenchCreateResponse?.ReservationWorkbench?.Identifier?.value ??
-    wbResp?.ReservationWorkbenchResponse?.ReservationWorkbench?.Identifier?.value ??
-    wbResp?.ReservationWorkbenchResponse?.Identifier?.value
+    wbResp?.workbenchId
   );
 }
 
@@ -775,18 +770,15 @@ async function phaseFareLookup(token: string): Promise<void> {
   if (!fd.ok) return;
   const root = (fd.body as any)?.FareDisplayResponse ?? fd.body;
   const identifier = root?.Identifier?.value;
-  // Try every shape Travelport docs vs. pre-prod has been observed using.
-  // The /fromfaredisplay GET wants a per-fare ID (the line number on a
-  // FareDisplay screen). Path candidates, in priority order:
+  // VERIFIED PRE-PROD 2026-06-05: `fareDisplay` is a SINGULAR object
+  // containing `fare[]`, each with a numeric `sequence` (the per-line
+  // FareID for /fromfaredisplay). Earlier guess assumed `fareDisplay`
+  // was an array, off by one bracket pair.
   const firstFare =
+    root?.fareDisplay?.fare?.[0]?.sequence ??
+    root?.FareDisplay?.fare?.[0]?.sequence ??
     root?.fareDisplay?.[0]?.fare?.[0]?.sequence ??
-    root?.FareDisplay?.[0]?.fare?.[0]?.sequence ??
-    root?.FareDisplay?.[0]?.FareID ??
-    root?.FareDisplay?.[0]?.sequence ??
-    root?.FareDisplay?.[0]?.fareId ??
-    root?.fares?.[0]?.FareID ??
-    root?.Fare?.[0]?.FareID ??
-    root?.Fare?.[0]?.sequence;
+    root?.FareDisplay?.[0]?.fare?.[0]?.sequence;
   console.log(`      → Identifier.value = ${identifier ?? '(not surfaced)'}`);
   console.log(`      → first fare sequence = ${firstFare ?? '(not surfaced)'}`);
 
