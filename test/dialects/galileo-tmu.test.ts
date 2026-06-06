@@ -240,17 +240,22 @@ describe('Galileo TKP — uses stored TMU FOP for live addFormOfPayment', () => 
 
     await host.process('TMU1FVI4111111111111111*D0530', wa);
 
-    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ok());
-
+    // After the 2026-06-06 ticket-issuance refactor, TKP doesn't post
+    // FOP at build time — the live FOP call moved to the post-commit
+    // dance to avoid duplicate-id collisions on pre-prod. Verify the
+    // TMU parser stored the credit-card details on fq.fop so the
+    // post-commit dance picks them up.
     await host.process('TKP1', wa);
 
-    const [fopUrl, fopInit] = fetchSpy.mock.calls[1];
-    expect(fopUrl).toContain('/payment/reservationworkbench/WB-TMU/formofpayment');
-    const body = JSON.parse((fopInit?.body as string) ?? '{}');
-    expect(body.FormOfPaymentPaymentCard?.PaymentCard?.CardCode).toBe('VI');
-    expect(body.FormOfPaymentPaymentCard?.PaymentCard?.CardNumber?.PlainText).toBe('4111111111111111');
-    expect(body.FormOfPaymentPaymentCard?.PaymentCard?.expireDate).toBe('0530');
-    expect(body.FormOfPaymentPaymentCard?.PaymentCard?.CardType).toBe('Credit');
+    const fop = wa.pnr.priceQuotes[0].fop;
+    expect(fop?.kind).toBe('credit_card');
+    if (fop?.kind === 'credit_card') {
+      expect(fop.brand).toBe('VI');
+      expect(fop.pan).toBe('4111111111111111');
+      expect(fop.expiry).toBe('0530');
+    }
+    // Local ticket records still get stamped at TKP time.
+    expect(wa.pnr.tickets).toHaveLength(1);
   });
 
   it('TKP after TMU<n>FNONREF sets agentNonRefundableInd:true on the cash body', async () => {
@@ -282,12 +287,15 @@ describe('Galileo TKP — uses stored TMU FOP for live addFormOfPayment', () => 
 
     await host.process('TMU1FNONREF', wa);
 
-    fetchSpy.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ok());
-
     await host.process('TKP1', wa);
 
-    const [, init] = fetchSpy.mock.calls[1];
-    const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.FormOfPaymentCash?.agentNonRefundableInd).toBe(true);
+    // After the ticket-issuance refactor (2026-06-06), the FOP body
+    // is built at post-commit time, not at TKP time. Verify the TMU
+    // parser stored the non-refundable flag on fq.fop.
+    const fop = wa.pnr.priceQuotes[0].fop;
+    expect(fop?.kind).toBe('cash');
+    if (fop?.kind === 'cash') {
+      expect(fop.nonRefundable).toBe(true);
+    }
   });
 });

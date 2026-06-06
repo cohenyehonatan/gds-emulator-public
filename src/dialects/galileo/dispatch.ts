@@ -2132,27 +2132,15 @@ async function handleGalileoTicket(
   // FOP and the ticketing field are on the workbench. Government
   // warrants (`TMU<n>FGR<...>`) deferred — v11 REST shape not
   // captured.
-  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
-    try {
-      await ctx.backend.addFormOfPayment(
-        wa.liveWorkbenchId,
-        fq.fop ?? { kind: 'cash' }
-      );
-      // Note: the FOP alone doesn't actually issue tickets at commit
-      // — `listReceipts` post-commit returns `DOCUMENT TICKET DOES
-      // NOT EXIST`. The canonical workflow per the GDS devkit's
-      // "5 - Ticket" folder requires a post-commit ticket-issuance
-      // dance (buildfromlocator → addFOP → applyPayment → commit
-      // again), which the TKP handler can't do in-flight because
-      // we're still pre-commit. The post-commit pass needs to fire
-      // from commitGalileoLive after the initial commit returns a
-      // locator — see issueTicketsPostCommit (to be wired). For
-      // now TKP just stamps the local ticket records so *T queries
-      // work locally; live ticket issuance is a follow-up.
-    } catch (err) {
-      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
-    }
-  }
+  // Live FOP + Payment + ticket-issue commit happens POST-COMMIT, not
+  // here — see issueTicketsPostCommit in commitGalileoLive. An earlier
+  // version of this handler called addFormOfPayment on the BUILD
+  // workbench, but that created a duplicate-id collision when the
+  // post-commit dance tried to call addFormOfPayment again ("FORM OF
+  // PAYMENT REQUEST INVALID. DUPLICATE ID REFERENCE" — pre-prod
+  // tracks FOP ids per-locator, not per-workbench). TKP-during-build
+  // is now LOCAL-ONLY for ticket-record construction; the live
+  // post-commit dance owns all FOP / Payment / ticket-commit work.
 
   // One ticket per passenger, per the Sabre ticketing convention.
   // Each ticket lumps every priced segment's tariff into a single base/tax.
@@ -2262,12 +2250,24 @@ async function ticketShowGalileo(
 }
 
 /**
- * `*H` — Display entire history. v11 REST has no change-log
- * endpoint; we shadow mutations into `wa.pnr.history[]` client-side
- * at the dispatch wrappers (`modifyTransition`, `sellTransition`,
- * `addFieldTransition`). When `history` is populated, render it as
- * the change log; otherwise fall back to the composite of current
- * state (legacy v1 behaviour preserved for empty / partial PNRs).
+ * `*H` / `*HI` / `*HFF` / `*HNP` — display BF change-log history.
+ *
+ * LOCAL-ONLY BY DESIGN. Re-verified 2026-06-06 against the GDS
+ * reference-payload devkit: v11 has ONLY `POST /documents/history`
+ * which is TICKET-SCOPED (TKT/MCO/EMD/INV) and doesn't cover
+ * itinerary / name / remark / filed-fare change history. Same
+ * structural constraint as `@<n>HK` segment-status override —
+ * Travelport's modern REST surface doesn't expose mainframe-style
+ * mutation logs. We shadow mutations into `wa.pnr.history[]`
+ * client-side at the dispatch wrappers (`modifyTransition`,
+ * `sellTransition`, `addFieldTransition`); when populated, render
+ * it as the change log; otherwise fall back to the composite of
+ * current state (legacy v1 behaviour preserved for empty PNRs).
+ *
+ * `*HTE` / `*HTI` (ticket history specifically) are NOT this path —
+ * they fetch live tickets via `listReceipts` + render through
+ * `ticketListGalileo`. The cryptic family overlaps but the data
+ * sources are different.
  */
 function historyAllGalileo(wa: WorkArea): string {
   if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;

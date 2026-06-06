@@ -77,7 +77,12 @@ describe('Galileo live TKP — form of payment + commit', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('TKP1 during build POSTs cash form-of-payment to /payment/.../formofpayment', async () => {
+  it('TKP1 during build stamps local ticket records (FOP is post-commit only)', async () => {
+    // After the 2026-06-06 ticket-issuance refactor, TKP at build time
+    // doesn't POST a FOP — the FOP+Payment+commit-for-tickets dance
+    // runs from commitGalileoLive after the initial commit returns a
+    // locator. Verify TKP just files local TicketRecord(s); no live
+    // fetch fires at TKP time.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -85,28 +90,20 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(ok())                // addOffer
       .mockResolvedValueOnce(ok())                // addTraveler (at P.)
       .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
-      .mockResolvedValueOnce(priceResp())         // FQ
-      .mockResolvedValueOnce(ok());               // addFormOfPayment
+      .mockResolvedValueOnce(priceResp());        // FQ
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
     await host.process('P.LON*02012345678', wa);
     await host.process('FQ', wa);
+    const fetchesBeforeTkp = fetchSpy.mock.calls.length;
     const resp = await host.process('TKP1', wa);
 
     expect(resp).toMatch(/^TKT \d{13}/m);
     expect(wa.pnr.tickets).toHaveLength(1);
-
-    const [fopUrl, fopInit] = fetchSpy.mock.calls[7];
-    expect(fopUrl).toContain('/payment/reservationworkbench/WB-T/formofpayment');
-    const body = JSON.parse((fopInit?.body as string) ?? '{}');
-    // Canonical body per APIRef_AddFOP.htm (verified 2026-05-29):
-    // top-level discriminator is `FormOfPaymentCash`, not the bare
-    // `FormOfPayment[].Type` we'd been posting.
-    expect(body.FormOfPaymentCash).toBeDefined();
-    expect(body.FormOfPaymentCash.id).toBe('formOfPayment_1');
-    expect(body.FormOfPaymentCash.agentNonRefundableInd).toBeUndefined();
+    // No extra fetch at TKP time — the FOP call moved to commit.
+    expect(fetchSpy.mock.calls.length).toBe(fetchesBeforeTkp);
   });
 
   it('TKP without a filed fare returns FILED FARE NOT FOUND (no fetch)', async () => {
@@ -127,7 +124,14 @@ describe('Galileo live TKP — form of payment + commit', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(6);  // no FOP fetch
   });
 
-  it('form-of-payment failure (5xx) surfaces as LIVE BACKEND ERROR; no tickets issued', async () => {
+  it('TKP1 + ER: post-commit ticket dance is non-fatal — BF still commits if FOP fails', async () => {
+    // After the 2026-06-06 refactor, FOP/Payment/commit-for-tickets
+    // runs post-commit via issueTicketsPostCommit. A failure there is
+    // logged as a warning but doesn't unwind the already-committed
+    // BF (it's a console.warn, and the locator still surfaces). The
+    // user sees the rendered BF and `wa.pnr.tickets` keeps the local
+    // ticket record that TKP stamped — only server-side tickets are
+    // missing.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -136,20 +140,28 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(ok())                // addTraveler (at P.)
       .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
       .mockResolvedValueOnce(priceResp())         // FQ
-      .mockResolvedValueOnce(new Response('"payment system down"', {
-        status: 503, statusText: 'Service Unavailable',
-      }));
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ Receipt: [{ Confirmation: { Locator: { value: 'ABC123' } } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )                                            // initial commit (succeeds)
+      .mockResolvedValueOnce(
+        new Response('"workbench gone"', { status: 410, statusText: 'Gone' })
+      );                                           // post-commit buildfromlocator (fails)
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
     await host.process('P.LON*02012345678', wa);
     await host.process('FQ', wa);
-    const resp = await host.process('TKP1', wa);
+    await host.process('TKP1', wa);
+    await host.process('R.AGT', wa);
+    await host.process('T.TAU/10JUN', wa);
+    const erResp = await host.process('ER', wa);
 
-    expect(resp).toContain('LIVE BACKEND ERROR');
-    expect(resp).toContain('503');
-    expect(wa.pnr.tickets).toHaveLength(0);  // no local issuance on failure
+    // The post-commit dance failure is non-fatal — locator surfaces.
+    expect(erResp).toContain('ABC123');
   });
 
   it('emulated TKP still works locally without any fetch', async () => {
