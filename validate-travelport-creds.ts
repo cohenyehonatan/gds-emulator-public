@@ -178,6 +178,11 @@ async function call(
       ? `  (HTTP 200 but ${semanticErrors.length} Result.Error[])`
       : '';
   console.log(`      ${tag} ${method} ${urlShort(url)}  →  ${res.status} ${res.statusText}${note}  [${label}]`);
+  // Inline the buried error messages so we don't have to grep separate
+  // dump files for every "HTTP 200 but Result.Error" case.
+  if (res.ok && !semanticOk) {
+    for (const m of semanticErrors) console.log(`         • ${m}`);
+  }
   if (DUMP_ALL && text) {
     const fs = await import('node:fs/promises');
     const safeLabel = label.replace(/[^a-z0-9-]/gi, '_');
@@ -618,6 +623,18 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     await diagnoseError('addoffer-phase3', addOffer, addOfferBody);
     return;
   }
+  // Always dump the addOffer response — the workbench reassigns offer
+  // IDs after addOffer, and SSR's AppliesTo.OfferIdentifier needs the
+  // workbench-side ID, not the search-side `o1` we sent in. The dump
+  // lets us see what offer Identifier landed inside the workbench.
+  {
+    const f = await dumpForDiagnostics('addoffer-response-phase3', addOffer.body);
+    if (f) console.log(`      ↳ addOffer response dumped to ${f}`);
+    // Heuristic: surface any `Identifier.value` and `OfferID`-shaped
+    // fields so the workbench-side offer ID is one log line away.
+    const hit = findFirstByKey(addOffer.body, /^(OfferID|offerID|offerId|OfferIdentifier)$/);
+    if (hit) console.log(`      ↳ workbench offer hit: ${hit.path} = ${hit.value}`);
+  }
 
   // Step 3: add singular traveler. The canonical devkit body embeds
   // Telephone[] (and optionally Email[]) directly on the Traveler.
@@ -718,14 +735,17 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     },
     'addSpecialService (WHOLE-BF — no TravelerIdentifier)'
   );
-  if (ssrWhole.ok) {
-    console.log('      → OPEN QUESTION ANSWERED: server accepts SSR without TravelerIdentifier (whole-BF scope OK).');
-  } else if (ssrWhole.status === 400 || ssrWhole.status === 422) {
-    console.log('      → OPEN QUESTION ANSWERED: server REJECTS SSR without TravelerIdentifier.');
-    await diagnoseError('ssr-no-traveler', ssrWhole);
+  // Open question (TravelerIdentifier required for whole-BF scope?)
+  // can't be answered until we send the correct workbench-side offer
+  // ID in AppliesTo.OfferIdentifier — the current `refs.offerId`
+  // (search-side `o1`) triggers OFFER ID MISMATCH for both with-trav
+  // and no-trav variants, masking the actual TravelerIdentifier
+  // behavior. The semantic-error printer already surfaces the cause
+  // via the call() log line.
+  if (!ssrWhole.ok) {
+    console.log('      → SSR open question still gated on workbench-offer-ID fix; see SSR error above.');
   } else {
-    console.log('      → SSR without traveler returned non-validation error; inconclusive.');
-    await diagnoseError('ssr-no-traveler', ssrWhole);
+    console.log('      → OPEN QUESTION ANSWERED: server accepts whole-BF SSR (200 OK, no Result.Error[]).');
   }
 
   // Step 6: NP. reservation comment
