@@ -430,15 +430,49 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
       flight-detail surfaces the offerId on a `TVP OFFER <id>` trailer
       so an operator can confirm which Travelport offer a cached line
       maps to.
-- [ ] **Cryptic → REST mapping — remaining verbs**:
-      `N<seats><class><line>` sell → use cached vendorRef.offerId in
-      `CreateOrder` (or whichever endpoint provisioning permits).
-      `*<locator>` retrieve → order lookup.
-      `FQ` → `OfferPriceRequest` against the vendorRef.
-      `ER` (commit) → `CreateOrder` finalize.
-      Same template as the availability commit: live class method +
-      response mapper + dispatch instanceof discrimination + mocked
-      tests + env-gated integration test.
+- [x] **Cryptic → REST mapping — remaining verbs** (multiple commits
+      through 2026-06-06, capped by `03cd43e`) — full PNR-build
+      lifecycle end-to-end against pre-prod via
+      `validate-galileo-handler-live.ts`:
+      * `N<seats><class><line>` sell — `addOffer` against the canonical
+        `OfferQueryBuildFromCatalogProductOfferings` body; threads
+        workbench-side offer UUIDs via `wa.liveWorkbenchOfferIds`
+        (deduplicates connection legs on the (offerId, productId) pair).
+      * `N.<name>` — multi-name with delta-aware live posting; first
+        N.+P. posts via `/travelers/list` batch, subsequent N. entries
+        post just the delta via singular `/travelers`.
+      * `P.<phone>` — `addTraveler` (embedded Telephone, per the
+        `TELEPHONE IS A REQUIRED FIELD` commit-time rule) + `addPrimary-
+        Contact`. Cryptic-strips city/digits before posting.
+      * `FQ` — `priceOffer` per unique workbench offer + merged into a
+        single FareQuote (multi-offer FQ verified live with 4 fareBasis
+        codes from 2 offers, total 1098.60 = 2× single-offer 552.10).
+      * `SI.<code>` — `/specialservices/list` with `TravelerIdentifier`
+        from `wa.liveTravelerIds` and per-segment `segmentRef` (S<n>).
+      * `X1` / `XI` cancel — routes to `cancelitems` with
+        `cancelAllInd: true` when cancelling everything in the workbench,
+        per-offer `canceloffer` otherwise. Pragmatic fallback handles
+        the trial-tenant's per-offer authorization gap.
+      * `@<n>XK` passive cancel — `canceloffer` with
+        `sendPassiveNotificationInd: true`.
+      * `TKP` — local ticket records + sets 0% commission on the build
+        workbench (per the canonical commission-by-passenger flow).
+      * `ER` — `commitWorkbench` with the wrapped build body produces a
+        real 6-char locator; post-commit ticket-issuance dance fires
+        canonically (buildfromlocator → setCommission → addFOP →
+        applyPayment → preTicketReview → commit with the flat ticket
+        body). Trial-tenant `documentoverrides` silently no-ops →
+        tickets gated on production tenant access.
+      * `*<locator>` retrieve — live REST GET, walks
+        `Reservation.Offer[].Product[].FlightSegment[].Flight` to
+        produce mapped segments (fixed real shipping bug in mapper).
+      * `*-<surname>` — local `pnrStore` shadow mirrored at commit time.
+      * `QEB/<n>` queue place + `Q/<n>` queue access — both live-
+        verified against pre-prod 2026-06-06.
+
+      For Apollo 1V (next dialect), the template stays the same:
+      live class method + response mapper + dispatch instanceof
+      discrimination + mocked tests + env-gated REPL verifier.
 - [x] **JSON → Galileo screen rendering** (`069dbf9`) — established by
       `mapCatalogProductOfferings` + `renderGalileoAvailability`. The
       same dialect serializer renders the emulated and live responses
@@ -455,6 +489,24 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
 - [ ] **Sandbox caveats documented** — pre-prod = synthetic inventory, no real
       tickets, trial creds expirable. Make these surface in the banner, not in
       a comment somewhere.
+
+- [ ] **Production tenant access** — five live behaviors are wired canonically
+      against the GDS reference-payload devkit but provably broken on the 7K9S
+      trial tenant via silent-failure (POST returns 200 + UUID, server-side
+      state doesn't change):
+      * `documentoverrides` commission → ticket-issuance commit rejects with
+        `COMMISSION PERCENTAGE MUST BE ENTERED` regardless of what we POST
+      * `reservationcomments/list` (the addReservationComment family) →
+        generic `1586 / INVALID INPUT FORMAT`
+      * `/air/farerule/farerules/fromfaredisplay` → same generic 1586
+      * `/offers/canceloffer` per-offer cancel → "Not Authorized to Access
+        this API"
+      * `CancelSelectedOffers` via cancelitems → 200 OK with empty body but
+        offer isn't actually removed (worse than a 4xx because failure is
+        silent)
+      Wire is correct; verification gated on production-tier credentials.
+      Without production access the project is feature-complete against
+      pre-prod for everything it can actually exercise.
 
 ### Amadeus — emulated, format-grounded
 
