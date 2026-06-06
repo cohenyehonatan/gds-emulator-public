@@ -307,8 +307,24 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
   });
 
   it('partial cancel against a committed BF opens workbench, cancels offer, commits', async () => {
-    // Reservation response with one Offer carrying our UA1234 flight,
-    // so extractSegmentOfferIds can map segment 1 → OFF-COMMIT.
+    // TWO-segment BF so X1 is genuinely partial (cancelling segment 1
+    // leaves segment 2 alive). For a single-segment BF the handler
+    // now short-circuits to cancelReservation (verified working path).
+    const twoSegReservation = new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: 'ABC123' },
+          Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+          AirReservation: {
+            Flights: [
+              { carrier: 'UA', number: '1234', Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } },
+              { carrier: 'UA', number: '5678', Departure: { location: 'FRA', time: '2026-07-04T08:00:00Z' }, Arrival: { location: 'DEN', time: '2026-07-04T15:00:00Z' } },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
     const reservationWithOffer = new Response(
       JSON.stringify({
         Reservation: {
@@ -318,23 +334,20 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
             {
               Identifier: { value: 'OFF-COMMIT' },
               Flight: [
-                {
-                  carrier: 'UA',
-                  number: '1234',
-                  Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
-                  Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
-                },
+                { carrier: 'UA', number: '1234', Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } },
+              ],
+            },
+            {
+              Identifier: { value: 'OFF-COMMIT-2' },
+              Flight: [
+                { carrier: 'UA', number: '5678', Departure: { location: 'FRA', time: '2026-07-04T08:00:00Z' }, Arrival: { location: 'DEN', time: '2026-07-04T15:00:00Z' } },
               ],
             },
           ],
           AirReservation: {
             Flights: [
-              {
-                carrier: 'UA',
-                number: '1234',
-                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
-                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
-              },
+              { carrier: 'UA', number: '1234', Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } },
+              { carrier: 'UA', number: '5678', Departure: { location: 'FRA', time: '2026-07-04T08:00:00Z' }, Arrival: { location: 'DEN', time: '2026-07-04T15:00:00Z' } },
             ],
           },
         },
@@ -350,15 +363,17 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
     );
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(reservationResponse('ABC123'))   // *<locator>
+      .mockResolvedValueOnce(twoSegReservation)               // *<locator>
       .mockResolvedValueOnce(reservationWithOffer)            // buildfromlocator
-      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))  // cancelitems
+      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))  // canceloffer
       .mockResolvedValueOnce(commitResp);                     // commit
 
     await host.process('*ABC123', wa);
+    expect(wa.pnr.segments.length).toBe(2);
+    // X1 leaves segment 2 alive — genuine partial cancel.
     const resp = await host.process('X1', wa);
-    expect(resp).toBe('ITINERARY CANCELLED');
-    expect(wa.pnr.segments.length).toBe(0);
+    expect(resp).toContain('UA');     // segment 2 still rendered
+    expect(wa.pnr.segments.length).toBe(1);
 
     const [bflUrl] = fetchSpy.mock.calls[2];
     expect(bflUrl).toContain('/book/session/reservationworkbench/buildfromlocator');
@@ -378,18 +393,32 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
   it('partial cancel: buildfromlocator returns Reservation without offer IDs → LIVE OFFER ID MISSING', async () => {
     // Open workbench succeeds but the response has no Offer nodes,
     // so we can't map segment → offerId. Should NOT post cancelitems.
+    // Two-segment BF so X1 is genuinely partial — single-segment X1
+    // would short-circuit through cancelReservation instead of opening
+    // the workbench at all.
+    const twoSegResp = new Response(
+      JSON.stringify({
+        Reservation: {
+          Identifier: { value: 'ABC123' },
+          Traveler: [{ PersonName: { Given: 'JOHN', Surname: 'SMITH' } }],
+          AirReservation: {
+            Flights: [
+              { carrier: 'UA', number: '1234', Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } },
+              { carrier: 'UA', number: '5678', Departure: { location: 'FRA', time: '2026-07-04T08:00:00Z' }, Arrival: { location: 'DEN', time: '2026-07-04T15:00:00Z' } },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
     const noOfferResp = new Response(
       JSON.stringify({
         Reservation: {
           Identifier: { value: 'ABC123' },
           AirReservation: {
             Flights: [
-              {
-                carrier: 'UA',
-                number: '1234',
-                Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' },
-                Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' },
-              },
+              { carrier: 'UA', number: '1234', Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } },
+              { carrier: 'UA', number: '5678', Departure: { location: 'FRA', time: '2026-07-04T08:00:00Z' }, Arrival: { location: 'DEN', time: '2026-07-04T15:00:00Z' } },
             ],
           },
         },
@@ -399,14 +428,15 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
     );
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(reservationResponse('ABC123'))
+      .mockResolvedValueOnce(twoSegResp)
       .mockResolvedValueOnce(noOfferResp);
 
     await host.process('*ABC123', wa);
+    expect(wa.pnr.segments.length).toBe(2);
     const resp = await host.process('X1', wa);
     expect(resp).toBe('LIVE OFFER ID MISSING');
-    expect(wa.pnr.segments.length).toBe(1);  // untouched
-    expect(fetchSpy).toHaveBeenCalledTimes(3);  // no cancelitems / commit
+    expect(wa.pnr.segments.length).toBe(2);  // untouched
+    expect(fetchSpy).toHaveBeenCalledTimes(3);  // no canceloffer / commit
   });
 
   it('cancelReservation 5xx surfaces as LIVE BACKEND ERROR', async () => {

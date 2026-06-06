@@ -1188,6 +1188,27 @@ async function cancelGalileoLiveCommitted(
   for (const n of entry.segments) {
     if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
   }
+  // Same routing trick as the pre-commit partial cancel: when the
+  // user names every segment, route through cancelReservation
+  // against the locator instead of the workbench+canceloffer dance.
+  // The 7K9S trial tenant returns "Not Authorized to Access this
+  // API" on canceloffer; cancelReservation is verified working.
+  const cancelledSegs = new Set(entry.segments);
+  const cancellingAllSegments =
+    wa.pnr.segments.length > 0 &&
+    wa.pnr.segments.every((s) => cancelledSegs.has(s.segmentNumber));
+  if (cancellingAllSegments) {
+    try {
+      await backend.cancelReservation(wa.pnr.locator!);
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+    modifyTransition(wa);
+    wa.pnr.segments = [];
+    const local = ctx.backend.pnrs.get(wa.pnr.locator!);
+    if (local) local.segments = [];
+    return 'ITINERARY CANCELLED'; // reconstructed
+  }
   let workbenchId: string;
   let segmentOfferIds: Map<string, string>;
   try {
@@ -1221,7 +1242,13 @@ async function cancelGalileoLiveCommitted(
   wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
   wa.pnr.renumberSegments();
   const local = ctx.backend.pnrs.get(wa.pnr.locator!);
-  if (local) {
+  // After a live retrieve, the pnrStore holds a reference to the same
+  // Pnr object that wa.pnr now points at — filtering+renumbering
+  // wa.pnr.segments already mutated the local copy. Skip the local
+  // re-filter when they alias, otherwise the second filter would
+  // remove the renumbered survivor whose new segmentNumber happens
+  // to collide with the original `remove` set.
+  if (local && local !== wa.pnr) {
     local.segments = local.segments.filter((s) => !remove.has(s.segmentNumber));
     local.renumberSegments();
   }
