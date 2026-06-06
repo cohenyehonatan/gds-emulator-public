@@ -11,6 +11,7 @@
     "start:terminal": "tsx src/index.ts terminal",
     "start:terminal:sabre": "tsx src/index.ts terminal sabre",
     "start:terminal:galileo": "tsx src/index.ts terminal galileo",
+    "start:terminal:apollo": "tsx src/index.ts terminal apollo",
     "scenario": "tsx src/index.ts scenario",
     "test": "vitest run",
     "test:watch": "vitest",

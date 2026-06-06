@@ -20,6 +20,7 @@ import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scena
 import { startRepl } from './terminal/repl.js';
 import type { Dialect } from './dialects/dialect.js';
 import { GalileoDialect } from './dialects/galileo/index.js';
+import { ApolloDialect } from './dialects/apollo/index.js';
 import { DEFAULT_PORT } from './protocol/constants.js';
 import { Logger } from './logging/logger.js';
 
@@ -35,8 +36,10 @@ function pickDialect(name: string | undefined): Dialect | undefined {
       return undefined; // host default
     case 'galileo':
       return new GalileoDialect();
+    case 'apollo':
+      return new ApolloDialect();
     default:
-      throw new Error(`Unknown dialect: '${name}'. Known: sabre, galileo.`);
+      throw new Error(`Unknown dialect: '${name}'. Known: sabre, galileo, apollo.`);
   }
 }
 
