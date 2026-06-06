@@ -89,6 +89,33 @@ import { GalileoResponse } from './responses.js';
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
 
 /**
+ * Trailer appended to responses from verbs that are LOCAL-ONLY BY DESIGN
+ * (no v11 REST equivalent) when running against a live backend. The
+ * roadmap principle is "silent stubs are worse than an honest
+ * boundary" — operators should see immediately when a response
+ * reflects only the in-memory PNR shadow, not authoritative server
+ * state. Verified 2026-06-06 via the GDS reference-payload devkit:
+ * neither `*H` (BF change-log history), `@<n>HK` (segment-status
+ * manual override), nor `*-<surname>` (surname-keyed retrieve) have
+ * a corresponding endpoint — they're mainframe-era patterns that
+ * Travelport's modern REST surface doesn't expose.
+ *
+ * Emulated backend: no trailer (the local store IS authoritative).
+ * Live backend: trailer makes the local-only nature visible.
+ */
+const LOCAL_ONLY_TRAILER = '[LOCAL VIEW ONLY — no v11 REST equivalent]';
+
+function appendLocalOnlyTrailer(response: string, ctx: HandlerContext): string {
+  if (!(ctx.backend instanceof LiveTravelportBackend)) return response;
+  // Don't pollute error responses — the operator already gets feedback
+  // there, and a trailer on FORMAT/NEED_PNR/etc. adds noise.
+  if (response === GalileoResponse.FORMAT || response === GalileoResponse.NO_PNR) {
+    return response;
+  }
+  return `${response}\n${LOCAL_ONLY_TRAILER}`;
+}
+
+/**
  * Mirror of `wa.machine.transition(SessionEvent.MODIFY)` that ALSO
  * marks the queue working set's current item dirty when we're in a
  * queue context. QP consults this flag to refuse a navigation that
@@ -186,7 +213,7 @@ export function dispatchGalileo(
         return handleGalileoCancel(entry, wa, ctx);
 
       case 'segment_status':
-        return handleGalileoSegmentStatus(entry, wa);
+        return handleGalileoSegmentStatus(entry, wa, ctx);
 
       case 'passive_cancel':
         return handleGalileoPassiveCancel(entry, wa, ctx);
@@ -1048,10 +1075,10 @@ function handleGalileoDisplay(
   // spec doc. Once a true change-log source materializes (or we
   // shadow it client-side) the rendering surface stays stable.
   const upper = arg.toUpperCase();
-  if (upper === 'H') return historyAllGalileo(wa);
-  if (upper === 'HI' || upper === 'HIA') return historyItineraryGalileo(wa);
-  if (upper === 'HFF') return historyFiledFaresGalileo(wa);
-  if (upper === 'HNP') return historyNotepadsGalileo(wa);
+  if (upper === 'H') return appendLocalOnlyTrailer(historyAllGalileo(wa), ctx);
+  if (upper === 'HI' || upper === 'HIA') return appendLocalOnlyTrailer(historyItineraryGalileo(wa), ctx);
+  if (upper === 'HFF') return appendLocalOnlyTrailer(historyFiledFaresGalileo(wa), ctx);
+  if (upper === 'HNP') return appendLocalOnlyTrailer(historyNotepadsGalileo(wa), ctx);
 
   // `PQ/R-<locator>` — past-date BF retrieve by locator. v11 has no
   // past-date REST endpoint; falls back to the local pnrStore which
@@ -1091,7 +1118,9 @@ function handleGalileoDisplay(
   // TripServices (the spec calls surname search "GDS-host-only"), so
   // this stays local-only even when the backend is live. The local
   // pnrStore was populated as a pragmatic shadow by the live commit
-  // path, so committed live PNRs are findable by name here too.
+  // path, so committed live PNRs are findable by name here too —
+  // but the trailer makes the session-only scope explicit when
+  // running live.
   if (arg.startsWith('-')) {
     const surname = arg.slice(1).trim().split('/')[0]; // strip any "/GIVEN"
     const matches = ctx.backend.pnrs.findBySurname(surname);
@@ -1103,7 +1132,7 @@ function handleGalileoDisplay(
     }
     wa.pnr = matches[0];
     wa.machine.transition(SessionEvent.RETRIEVE);
-    return renderGalileoPnr(matches[0], sig);
+    return appendLocalOnlyTrailer(renderGalileoPnr(matches[0], sig), ctx);
   }
 
   // Record locator (6-char alphanumeric). Live path GETs the reservation
@@ -1426,14 +1455,18 @@ async function cancelGalileoLiveCommitted(
  * reflect the agent's intent; the next live retrieve will
  * re-sync from the actual server-side state.
  */
-function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): string {
+function handleGalileoSegmentStatus(
+  entry: SegmentStatusEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string {
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
   if (!MANUAL_STATUS_CODES.has(entry.status)) return 'INVALID STATUS CODE'; // reconstructed
   const seg = wa.pnr.segments.find((s) => s.segmentNumber === entry.segment);
   if (!seg) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
   modifyTransition(wa);
   seg.status = entry.status;
-  return renderGalileoItinerary(wa.pnr);
+  return appendLocalOnlyTrailer(renderGalileoItinerary(wa.pnr), ctx);
 }
 
 /**
