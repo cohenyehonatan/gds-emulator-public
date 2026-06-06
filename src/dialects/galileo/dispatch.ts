@@ -366,19 +366,33 @@ async function handleGalileoSell(
       if (!wa.liveWorkbenchId) {
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
+      // Connection legs share the same offer + product (a single
+      // CatalogProductOffering covers the whole journey including all
+      // its segments). Posting addOffer twice with the same
+      // (offerId, productId) pair triggers pre-prod's "OFFER ID AND
+      // PRODUCT ID CANNOT BE DUPLICATE WHEN ADDING AN OFFER TO THE
+      // BOOKING" — so dedupe by the pair and only POST once per
+      // unique offer. wa.liveWorkbenchOfferIds still gets one entry
+      // per leg (same UUID repeated for connection legs) so
+      // downstream per-leg SSR / cancel can index it cleanly.
       const wbOfferIds = wa.liveWorkbenchOfferIds ?? [];
+      const posted = new Map<string, string>(); // (offerId|productId) → workbench UUID
       for (const leg of legs) {
         const line = avail.lines.find((l) => l.line === leg.line)!;
-        const result = await liveBackend.addOffer(wa.liveWorkbenchId, {
-          searchIdentifier: avail.searchIdentifier,
-          offerId: line.vendorRef!.offerId!,
-          productId: line.vendorRef!.productId!,
-        });
-        // Capture the workbench-side offer UUID for downstream SSR /
-        // remarks that need AppliesTo.OfferIdentifier. Empty string
-        // placeholder if the response didn't surface one (preserves
-        // index alignment with pnr.segments).
-        wbOfferIds.push(result.workbenchOfferId ?? '');
+        const offerId = line.vendorRef!.offerId!;
+        const productId = line.vendorRef!.productId!;
+        const key = `${offerId}|${productId}`;
+        let wbUuid = posted.get(key);
+        if (wbUuid === undefined) {
+          const result = await liveBackend.addOffer(wa.liveWorkbenchId, {
+            searchIdentifier: avail.searchIdentifier,
+            offerId,
+            productId,
+          });
+          wbUuid = result.workbenchOfferId ?? '';
+          posted.set(key, wbUuid);
+        }
+        wbOfferIds.push(wbUuid);
       }
       wa.liveWorkbenchOfferIds = wbOfferIds;
     } catch (err) {

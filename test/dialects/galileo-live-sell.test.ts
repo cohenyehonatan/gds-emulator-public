@@ -213,4 +213,74 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     await host.process('I', wa);
     expect(wa.liveWorkbenchId).toBeUndefined();
   });
+
+  it('connection sell (two legs sharing offer+product) dedupes to ONE addOffer call', async () => {
+    // Mocked search returns ONE offering with TWO embedded flights —
+    // i.e. a connection — so both legs resolve to the same vendorRef.
+    // Pre-prod's `OFFER ID AND PRODUCT ID CANNOT BE DUPLICATE WHEN
+    // ADDING AN OFFER TO THE BOOKING` rejects a second addOffer call
+    // for the same pair, so the handler must dedupe.
+    const connectionSearchResp = () =>
+      new Response(
+        JSON.stringify({
+          CatalogProductOfferingsResponse: {
+            CatalogProductOfferings: {
+              Identifier: { value: 'SRCH-FIXTURE' },
+              CatalogProductOffering: [
+                {
+                  Identifier: { value: 'OFF-CONN-001' },
+                  ProductBrandOptions: [
+                    {
+                      Identifier: { value: 'PRD-001' },
+                      Flight: [
+                        {
+                          carrier: 'EI',
+                          number: 58,
+                          Departure: { location: 'DEN', time: '2026-06-27T10:00:00Z' },
+                          Arrival: { location: 'DUB', time: '2026-06-27T22:00:00Z' },
+                          equipment: '332',
+                        },
+                        {
+                          carrier: 'EI',
+                          number: 650,
+                          Departure: { location: 'DUB', time: '2026-06-28T07:30:00Z' },
+                          Arrival: { location: 'FRA', time: '2026-06-28T11:00:00Z' },
+                          equipment: '320',
+                        },
+                      ],
+                      ProductBrandOffering: [
+                        { Product: [{ productRef: 'p0' }], Identifier: { value: 'BRD-O' }, FareDetail: [{ BookingCode: { code: 'O', count: 9 } }] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(connectionSearchResp())
+      .mockResolvedValueOnce(createWorkbenchResponse('WB-CONN'))
+      .mockResolvedValueOnce(addOfferResponse());  // EXACTLY ONE addOffer
+
+    await host.process('A27JUNDENFRA', wa);
+    expect(wa.lastAvailability?.lines).toHaveLength(2);
+    // Multi-leg sell on lines 1 + 2 (the two connection legs).
+    const resp = await host.process('N1O1O2', wa);
+    expect(resp).toContain('SS');
+    expect(wa.pnr.segments).toHaveLength(2);
+
+    // Token + search + createWb + addOffer = 4. NOT 5 (which would
+    // mean two addOffer calls, which pre-prod rejects).
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+
+    // Both legs share the same workbench offer UUID — index-aligned
+    // with pnr.segments so per-leg SSR / cancel can still pick by
+    // segmentRef.
+    expect(wa.liveWorkbenchOfferIds).toHaveLength(2);
+    expect(wa.liveWorkbenchOfferIds?.[0]).toBe(wa.liveWorkbenchOfferIds?.[1]);
+  });
 });
