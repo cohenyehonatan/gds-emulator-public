@@ -1074,23 +1074,25 @@ async function cancelGalileoLiveWorkbench(
       if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
     }
   }
+  let cancelledOfferUuids: Set<string> = new Set();
   try {
     const isFull = entry.mode === 'itinerary' || entry.mode === 'all_air';
     if (isFull) {
       await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { all: true });
     } else {
-      // Per-segment cancel: resolve each segment's `vendorRef.offerId` by
-      // matching against the cached availability lines (carrier + flight
-      // number). Group by offer ID — TripServices cancels at the offer
-      // level when we don't supply per-segment productID + sequence,
-      // which means selecting any segment of a multi-leg offer cancels
-      // the whole offer. The local view is renumbered to match after
-      // the POST returns OK.
+      // Per-segment cancel: resolve each segment's workbench offer UUID
+      // (NOT the search-side ref — see collectOfferIdsForSegments).
+      // TripServices cancels at the OFFER level when we don't supply
+      // per-segment productID + sequence, so selecting any segment of
+      // a multi-leg offer cancels the whole offer. We capture the set
+      // we sent so the local-state-cleanup step below drops the full
+      // set of cancelled segments, not just the explicitly-listed one.
       const offerIds = collectOfferIdsForSegments(wa, entry.segments);
       if (offerIds.length === 0) {
         return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
       }
       await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { offerIds });
+      cancelledOfferUuids = new Set(offerIds);
     }
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
@@ -1102,15 +1104,27 @@ async function cancelGalileoLiveWorkbench(
     // alongside the segments so a subsequent addOffer starts clean.
     wa.liveWorkbenchOfferIds = undefined;
   } else {
-    const remove = new Set(entry.segments);
-    // Snapshot which array indices we're about to drop BEFORE the
-    // filter — needed for liveWorkbenchOfferIds alignment.
-    const cancelledIndices = wa.pnr.segments
-      .map((s, i) => (remove.has(s.segmentNumber) ? i : -1))
+    // Cancelled offers cover every segment whose workbench UUID is in
+    // the set we just sent — the server dropped them all even though
+    // the cryptic only named some. Drop them all locally too, so the
+    // workbench view matches the server's.
+    const wbIds = wa.liveWorkbenchOfferIds ?? [];
+    const cancelledIndices = wbIds
+      .map((uuid, i) => (uuid && cancelledOfferUuids.has(uuid) ? i : -1))
       .filter((i) => i >= 0);
-    wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+    // Fall back to the cryptic-named segments if we have no UUID
+    // tracking (emulated fixtures, etc.).
+    const cancelledSet =
+      cancelledIndices.length > 0
+        ? new Set(cancelledIndices.map((i) => wa.pnr.segments[i]?.segmentNumber).filter((n): n is number => typeof n === 'number'))
+        : new Set(entry.segments);
+    const dropIndices =
+      cancelledIndices.length > 0
+        ? cancelledIndices
+        : wa.pnr.segments.map((s, i) => (cancelledSet.has(s.segmentNumber) ? i : -1)).filter((i) => i >= 0);
+    wa.pnr.segments = wa.pnr.segments.filter((s) => !cancelledSet.has(s.segmentNumber));
     wa.pnr.renumberSegments();
-    dropLiveWorkbenchOfferIds(wa, cancelledIndices);
+    dropLiveWorkbenchOfferIds(wa, dropIndices);
   }
   return wa.pnr.segments.length > 0
     ? renderGalileoItinerary(wa.pnr)

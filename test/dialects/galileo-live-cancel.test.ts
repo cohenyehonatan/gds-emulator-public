@@ -131,6 +131,80 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
     ]);
   });
 
+  it('X1 on a connection cancels BOTH legs locally (server cancels at offer level)', async () => {
+    // Single CatalogProductOffering with TWO embedded Flights = connection.
+    // After N1O1O2, both segments share one workbench offer UUID.
+    // X1 sends the offer UUID to cancelitems — server cancels the
+    // whole offer (both legs). Local state must drop BOTH segments,
+    // not just segment 1, or pnr.segments will drift from the
+    // workbench's reality and commit will fail downstream.
+    const connectionResp = () =>
+      new Response(
+        JSON.stringify({
+          CatalogProductOfferingsResponse: {
+            CatalogProductOfferings: {
+              Identifier: { value: 'SRCH-FIXTURE' },
+              CatalogProductOffering: [
+                {
+                  Identifier: { value: 'OFF-CONN-001' },
+                  ProductBrandOptions: [
+                    {
+                      Identifier: { value: 'PRD-CONN' },
+                      Flight: [
+                        {
+                          carrier: 'EI', number: 58,
+                          Departure: { location: 'DEN', time: '2026-06-27T10:00:00Z' },
+                          Arrival: { location: 'DUB', time: '2026-06-27T22:00:00Z' },
+                          equipment: '332',
+                        },
+                        {
+                          carrier: 'EI', number: 650,
+                          Departure: { location: 'DUB', time: '2026-06-28T07:30:00Z' },
+                          Arrival: { location: 'FRA', time: '2026-06-28T11:00:00Z' },
+                          equipment: '320',
+                        },
+                      ],
+                      ProductBrandOffering: [
+                        { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'O', count: 9 } }] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    // addOffer response carries the workbench-side offer UUID.
+    const addOfferWithUuid = () =>
+      new Response(
+        JSON.stringify({
+          OfferListResponse: { OfferID: [{ Identifier: { value: 'WB-OFFER-AAA' } }] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(connectionResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(addOfferWithUuid())  // one addOffer for the whole connection
+      .mockResolvedValueOnce(ok());                // cancelitems
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1O1O2', wa);
+    expect(wa.pnr.segments.length).toBe(2);
+    expect(wa.liveWorkbenchOfferIds).toEqual(['WB-OFFER-AAA', 'WB-OFFER-AAA']);
+
+    const resp = await host.process('X1', wa);
+    expect(resp).toBe('ITINERARY CANCELLED');
+    // BOTH segments gone (the X1 cryptic only named segment 1, but
+    // the offer that covered it also covered segment 2 — server
+    // dropped both).
+    expect(wa.pnr.segments.length).toBe(0);
+    expect(wa.liveWorkbenchOfferIds).toEqual([]);
+  });
+
   it('X<n> out of range is rejected BEFORE any cancel POST', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
