@@ -66,7 +66,9 @@ async function main(): Promise<void> {
   }
 
   console.log('Galileo live-handler REPL verification (pre-prod sandbox)');
-  console.log(`PCC=${backend.id}  workflow: SON → A → N (sell) → N. → P. → FQ → SI. → R. → T. → ER`);
+  console.log(
+    `PCC=${backend.id}  workflow: SON → A → N (sell) → X1 (cancel) → N (re-sell) → N. → P. → FQ → SI. → R. → T. → ER`
+  );
 
   const host = new GdsHost({
     port: 0,
@@ -131,6 +133,52 @@ async function main(): Promise<void> {
   console.log(
     `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}`
   );
+
+  // 2.5) Pre-commit cancel via cryptic `X1` — exercises
+  // cancelGalileoLiveWorkbench against pre-prod with a real workbench
+  // offer UUID. For a connection sell, both legs share one offer in
+  // the workbench, so `X1` removes the entire offer (both segments
+  // drop). After cancel, sell the NEXT connection in the cache to
+  // continue the build — verifies the workbench survives and a
+  // fresh addOffer captures a new UUID.
+  await run(host, wa, 'X1');
+  const segsAfter = wa.pnr.segments.length;
+  const wbAfter = wa.liveWorkbenchOfferIds?.length ?? 0;
+  if (segsAfter > 0 || wbAfter > 0) {
+    console.log(`    △ unexpected residue after X1: ${segsAfter} segments, ${wbAfter} wb UUIDs`);
+  } else {
+    console.log('    ✓ pre-commit cancel cleared segments + wb UUIDs; workbench survives');
+  }
+  console.log(
+    `    workbench after cancel: ${wa.liveWorkbenchId ? wa.liveWorkbenchId.slice(0, 8) + '…' : '(cleared — handler bug?)'}`
+  );
+
+  // Re-sell: pick a DIFFERENT connection (or fall back to the same
+  // pair, accepting pre-prod might rate-limit a duplicate sell).
+  const altConnIdx = lines.findIndex(
+    (l, i) =>
+      i > connLeg1Idx + 1 &&
+      i + 1 < lines.length &&
+      l.connectionGroup !== undefined &&
+      lines[i + 1].connectionGroup === l.connectionGroup
+  );
+  if (altConnIdx >= 0) {
+    const a = lines[altConnIdx];
+    const b = lines[altConnIdx + 1];
+    const cA = Object.entries(a.classes).find(([, n]) => n > 0)?.[0];
+    const cB = Object.entries(b.classes).find(([, n]) => n > 0)?.[0];
+    if (cA && cB) {
+      const reEntry = `N1${cA}${a.line}${cB}${b.line}`;
+      console.log(`\n(post-cancel re-sell: line ${a.line} + line ${b.line} → "${reEntry}")`);
+      await run(host, wa, reEntry);
+      console.log(
+        `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}`
+      );
+    }
+  } else {
+    console.log('\n△ No alternative connection in cache — re-issuing original sell.');
+    await run(host, wa, sellEntry);
+  }
 
   // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
   await run(host, wa, 'N.SMITH/JOHN MR');
