@@ -238,4 +238,44 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
 
     expect(wa.liveTravelerIds).toEqual(['uuid-A', 'uuid-B', 'uuid-C']);
   });
+
+  it('N. AFTER P. posts only the delta (the new traveler), appended to existing IDs', async () => {
+    // First N. + P. posts uuid-A. The second N. that arrives later
+    // must post the new traveler too — `ensureLiveTravelersPosted`
+    // now slices `allTravelers` from the count of already-captured
+    // IDs and posts just the suffix, appending the new IDs onto
+    // wa.liveTravelerIds.
+    const singularTravelerResp = (uuid: string) =>
+      new Response(
+        JSON.stringify({
+          TravelerResponse: { Traveler: { Identifier: { value: uuid } } },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok())                              // addOffer (1 ADT — single-pax sell)
+      .mockResolvedValueOnce(singularTravelerResp('uuid-A'))   // addTraveler at P. (initial post)
+      .mockResolvedValueOnce(ok())                              // addPrimaryContact at P.
+      .mockResolvedValueOnce(singularTravelerResp('uuid-B'));   // addTraveler at second N. (delta post)
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N2Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    expect(wa.liveTravelerIds).toEqual(['uuid-A']);
+
+    // Second N. — should fire a singular addTraveler for just JANE
+    // and APPEND uuid-B to liveTravelerIds.
+    await host.process('N.SMITH/JANE MRS', wa);
+    expect(wa.liveTravelerIds).toEqual(['uuid-A', 'uuid-B']);
+
+    // Verify the second addTraveler call carries JANE (not JOHN).
+    const [secondTravelerUrl, secondTravelerInit] = fetchSpy.mock.calls[6];
+    expect(secondTravelerUrl).toContain('/travelers');
+    const body = JSON.parse((secondTravelerInit?.body as string) ?? '{}');
+    expect(body.Traveler?.PersonName?.Given).toContain('JANE');
+  });
 });

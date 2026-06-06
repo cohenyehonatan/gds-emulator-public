@@ -460,11 +460,19 @@ async function handleGalileoSell(
  * BOTH a name (pnr.names) AND a phone — Travelport's commit rejects
  * Travelers without an embedded `Telephone[]` ("TELEPHONE IS A
  * REQUIRED FIELD"), and Galileo cryptic separates `N.` from `P.`.
- * Idempotent on `wa.liveTravelerIds` being populated: once we've
- * posted, subsequent N. / P. entries don't re-post (multi-step name
- * additions after the first post are a known v1 limitation — see
- * spec doc). Call this from both N. and P. handlers after their
- * local pnr push so the right state is in place.
+ * Idempotent on the (name count, traveler IDs captured) pair:
+ *   - 0 names → noop (wait for first N.)
+ *   - 0 phone → noop (wait for P.)
+ *   - all names already posted (length matches) → noop
+ *   - some new names since last post → post just the delta (the
+ *     names added AFTER the previous post), append the returned
+ *     traveler IDs to `wa.liveTravelerIds`. Batches when the delta
+ *     has >1 passenger, singular otherwise.
+ *
+ * Call from both N. and P. handlers; from N. the new name rides
+ * along in `extraNames` so we don't have to mutate `pnr.names`
+ * before the live call (which would leak local state on a live
+ * error).
  */
 async function ensureLiveTravelersPosted(
   wa: WorkArea,
@@ -472,34 +480,36 @@ async function ensureLiveTravelersPosted(
   phoneOverride?: string,
   extraNames?: ReturnType<typeof parseNameText>[]
 ): Promise<void> {
-  if ((wa.liveTravelerIds?.length ?? 0) > 0) return;
   const phone = phoneOverride ?? wa.pnr.phones[0]?.number;
   if (!phone) return;
   // Compose the name list from already-saved pnr.names + any
-  // not-yet-pushed names handed in via extraNames. Callers can include
-  // their in-flight name without having to mutate wa.pnr.names first
-  // (which would leak local state on a live error).
+  // not-yet-pushed names handed in via extraNames.
   const allNames = [...wa.pnr.names, ...(extraNames ?? [])];
   if (allNames.length === 0) return;
-  if (!wa.liveWorkbenchId) {
-    wa.liveWorkbenchId = await backend.createWorkbench();
-  }
-  // Flatten the name list into a Traveler list — each name entry can
-  // carry multiple passengers (`N.SMITH/JOHN/JANE`).
-  const travelers = allNames.flatMap((nameItem) =>
+  const allTravelers = allNames.flatMap((nameItem) =>
     nameItem.passengers.map((pax) => ({
       givenName: pax.firstName,
       surname: nameItem.surname,
       phone,
     }))
   );
-  if (travelers.length > 1) {
-    const result = await backend.addTravelers(wa.liveWorkbenchId, travelers);
-    wa.liveTravelerIds = result.travelerIds;
-  } else if (travelers.length === 1) {
-    const result = await backend.addTraveler(wa.liveWorkbenchId, travelers[0]);
-    wa.liveTravelerIds = [result.travelerId ?? ''];
+  const alreadyPosted = wa.liveTravelerIds?.length ?? 0;
+  if (allTravelers.length === alreadyPosted) return; // already current
+  const newTravelers = allTravelers.slice(alreadyPosted);
+  if (newTravelers.length === 0) return;
+  if (!wa.liveWorkbenchId) {
+    wa.liveWorkbenchId = await backend.createWorkbench();
   }
+  const prevIds = wa.liveTravelerIds ?? [];
+  let newIds: string[];
+  if (newTravelers.length > 1) {
+    const result = await backend.addTravelers(wa.liveWorkbenchId, newTravelers);
+    newIds = result.travelerIds;
+  } else {
+    const result = await backend.addTraveler(wa.liveWorkbenchId, newTravelers[0]);
+    newIds = [result.travelerId ?? ''];
+  }
+  wa.liveTravelerIds = [...prevIds, ...newIds];
 }
 
 async function handleGalileoName(
