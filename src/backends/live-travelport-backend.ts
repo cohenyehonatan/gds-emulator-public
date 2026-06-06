@@ -589,7 +589,7 @@ export class LiveTravelportBackend implements Backend {
           expiry: string; // MMYY
           holderName?: string;
         } = { kind: 'cash' }
-  ): Promise<unknown> {
+  ): Promise<{ fopUuid?: string; raw: unknown }> {
     const url =
       `${this.opts.apiBase}/air/payment/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/formofpayment`;
@@ -624,7 +624,67 @@ export class LiveTravelportBackend implements Backend {
         },
       };
     }
-    return this.postJson(url, body, 'addFormOfPayment');
+    const raw = (await this.postJson(url, body, 'addFormOfPayment')) as any;
+    // VERIFIED 2026-06-06 (devkit Ticket > Step 2 script):
+    // FormOfPaymentResponse.FormOfPayment.Identifier.value is the FOP UUID
+    // that applyPayment's `FormOfPaymentIdentifier.Identifier.value` needs.
+    const fopUuid: string | undefined =
+      raw?.FormOfPaymentResponse?.FormOfPayment?.Identifier?.value;
+    return { fopUuid, raw };
+  }
+
+  /**
+   * Apply a Payment to a workbench — links the previously-added FOP
+   * to the offers being paid for. This is the missing step between
+   * `addFormOfPayment` and the ticket-issuance commit per the devkit's
+   * `5 - Ticket > Step 3 Apply Payment` sample.
+   *
+   * Canonical body verbatim from the devkit:
+   *   { "@type": "Payment", id, Identifier: {value: <uuid>},
+   *     Amount: { code, minorUnit: 2, currencySource: "Charged", value },
+   *     FormOfPaymentIdentifier: { id, FormOfPaymentRef,
+   *                                Identifier: { authority, value: <fopUuid> } },
+   *     OfferIdentifier: [{ id, offerRef,
+   *                         Identifier: { authority, value: <offerUuid> } }, ...] }
+   *
+   * Without this call, the server's TKP-then-commit flow stores the FOP
+   * but never actually issues a ticket — `listReceipts` afterwards
+   * returns `DOCUMENT TICKET DOES NOT EXIST`.
+   */
+  async applyPayment(
+    workbenchId: string,
+    opts: {
+      fopUuid: string;
+      offerUuids: string[];
+      amount: number;
+      currency: string;
+    }
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/paymentoffer/reservationworkbench/${encodeURIComponent(workbenchId)}` +
+      `/payments`;
+    const body = {
+      '@type': 'Payment',
+      id: 'payment_1',
+      Identifier: { authority: 'Travelport', value: crypto.randomUUID() },
+      Amount: {
+        code: opts.currency,
+        minorUnit: 2,
+        currencySource: 'Charged',
+        value: opts.amount,
+      },
+      FormOfPaymentIdentifier: {
+        id: 'formOfPayment_1',
+        FormOfPaymentRef: 'formOfPayment_1',
+        Identifier: { authority: 'Travelport', value: opts.fopUuid },
+      },
+      OfferIdentifier: opts.offerUuids.map((uuid, i) => ({
+        id: `offer_${i + 1}`,
+        offerRef: `offer_${i + 1}`,
+        Identifier: { authority: 'Travelport', value: uuid },
+      })),
+    };
+    return this.postJson(url, body, 'applyPayment');
   }
 
   async addPrimaryContact(workbenchId: string, phone: string): Promise<unknown> {

@@ -849,9 +849,78 @@ async function commitGalileoLive(
   ctx.backend.pnrs.commit(wa.pnr);
   const committed = wa.pnr;
   const agent = wa.agent;
+
+  // If TKP filed local ticket records during build, run the canonical
+  // post-commit ticket-issuance dance against the just-committed BF:
+  // buildfromlocator → addFOP → applyPayment → commit-again. Failures
+  // are non-fatal — the BF is committed; we just don't get server-side
+  // tickets, which is the same state as not running TKP at all.
+  if (committed.tickets.length > 0 && committed.priceQuotes.length > 0) {
+    try {
+      await issueTicketsPostCommit(backend, locator, committed.priceQuotes[committed.priceQuotes.length - 1]);
+    } catch (err) {
+      console.warn(
+        `Galileo live ticket issuance failed post-commit: ${err instanceof Error ? err.message : String(err)} (BF ${locator} is committed, just untickected)`
+      );
+    }
+  }
+
   wa.machine.transition(SessionEvent.END_TX);
   wa.reset();
   return entry.redisplay ? renderGalileoPnr(committed, { pcc: ctx.pcc, agent }) : locator;
+}
+
+/**
+ * Post-commit ticket issuance per the devkit's "5 - Ticket" canonical
+ * flow. Opens a fresh workbench from the committed locator (which
+ * surfaces the BF's actual offer UUIDs in the response), adds the
+ * FOP, applies a Payment binding the FOP to those offers, then
+ * commits the workbench. Each step is required: the apply-payment
+ * step is what actually triggers ticket creation server-side.
+ *
+ * Errors propagate to the caller so the post-commit log can record
+ * "BF committed, ticket issuance failed" without disturbing the
+ * already-committed BF.
+ */
+async function issueTicketsPostCommit(
+  backend: LiveTravelportBackend,
+  locator: string,
+  fq: FareQuote
+): Promise<void> {
+  const opened = await backend.openWorkbenchFromLocator(locator);
+  const newWorkbenchId = opened.workbenchId;
+  // Extract the committed BF's offer UUIDs from the buildfromlocator
+  // response. The post-commit workbench gives us a fresh set of offer
+  // identifiers we use in applyPayment's OfferIdentifier[] field.
+  const raw = opened.raw as any;
+  const reservation =
+    raw?.ReservationResponse?.Reservation ??
+    raw?.Reservation ??
+    raw;
+  const offersRaw = reservation?.Offer;
+  const offers = Array.isArray(offersRaw) ? offersRaw : offersRaw ? [offersRaw] : [];
+  const offerUuids: string[] = [];
+  for (const offer of offers) {
+    const uuid = (offer as any)?.Identifier?.value;
+    if (typeof uuid === 'string' && uuid.length > 0) offerUuids.push(uuid);
+  }
+  if (offerUuids.length === 0) return; // nothing to pay for — drop quietly
+  const fopResult = await backend.addFormOfPayment(
+    newWorkbenchId,
+    fq.fop ?? { kind: 'cash' }
+  );
+  if (!fopResult.fopUuid) return; // can't reference the FOP — abort
+  const total = fq.passengers.reduce((sum, pf) => sum + pf.total * pf.count, 0);
+  await backend.applyPayment(newWorkbenchId, {
+    fopUuid: fopResult.fopUuid,
+    offerUuids,
+    amount: total,
+    currency: fq.currency || 'USD',
+  });
+  // Commit the post-commit workbench → server issues tickets. We
+  // don't need the returned locator (same as the input one per the
+  // v11 spec — workbench cancel-and-recommit keeps the locator stable).
+  await backend.commitWorkbench(newWorkbenchId);
 }
 
 /**
@@ -2052,7 +2121,21 @@ async function handleGalileoTicket(
   // captured.
   if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
     try {
-      await ctx.backend.addFormOfPayment(wa.liveWorkbenchId, fq.fop ?? { kind: 'cash' });
+      await ctx.backend.addFormOfPayment(
+        wa.liveWorkbenchId,
+        fq.fop ?? { kind: 'cash' }
+      );
+      // Note: the FOP alone doesn't actually issue tickets at commit
+      // — `listReceipts` post-commit returns `DOCUMENT TICKET DOES
+      // NOT EXIST`. The canonical workflow per the GDS devkit's
+      // "5 - Ticket" folder requires a post-commit ticket-issuance
+      // dance (buildfromlocator → addFOP → applyPayment → commit
+      // again), which the TKP handler can't do in-flight because
+      // we're still pre-commit. The post-commit pass needs to fire
+      // from commitGalileoLive after the initial commit returns a
+      // locator — see issueTicketsPostCommit (to be wired). For
+      // now TKP just stamps the local ticket records so *T queries
+      // work locally; live ticket issuance is a follow-up.
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
