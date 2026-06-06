@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   }
 
   console.log('Galileo live-handler REPL verification (pre-prod sandbox)');
-  console.log(`PCC=${backend.id}  workflow: SON → A → N1Y1 → N. → P. → R. → T. → ER`);
+  console.log(`PCC=${backend.id}  workflow: SON → A → N (sell) → N. → P. → FQ → SI. → R. → T. → ER`);
 
   const host = new GdsHost({
     port: 0,
@@ -87,22 +87,50 @@ async function main(): Promise<void> {
   // 1) Availability — triggers live search.
   await run(host, wa, `A${dateToken}DENFRA`);
 
-  // 2) Sell line 1, 1 seat. The trial tenant's search results vary by
-  // route + date — Y (full economy) frequently isn't returned. Inspect
-  // line 1's actual class map and pick the first available class so
-  // the verifier doesn't fail on CLASS NOT AVAILABLE.
-  const line1 = wa.lastAvailability?.lines[0];
-  if (!line1) {
+  // 2) Sell. Prefer a connection (two consecutive lines sharing a
+  // connectionGroup) when available — that lets us exercise per-leg
+  // SSR with `SI.S2/<code>` later. Falls back to a single-leg sell on
+  // line 1 if no connection is in the cache.
+  const lines = wa.lastAvailability?.lines ?? [];
+  if (lines.length === 0) {
     console.error('\n✗ No availability lines after A. — cannot continue.');
     process.exit(1);
   }
-  const availableClass = Object.entries(line1.classes).find(([, n]) => n > 0)?.[0];
-  if (!availableClass) {
-    console.error('\n✗ Line 1 has no class with availability. classes =', line1.classes);
-    process.exit(1);
+
+  // Find a connection: two consecutive entries with the same
+  // connectionGroup. (Each line is one leg of the connection.)
+  const connLeg1Idx = lines.findIndex(
+    (l, i) => i + 1 < lines.length && l.connectionGroup !== undefined && lines[i + 1].connectionGroup === l.connectionGroup
+  );
+  const isConnection = connLeg1Idx >= 0;
+  let sellEntry: string;
+  if (isConnection) {
+    const leg1 = lines[connLeg1Idx];
+    const leg2 = lines[connLeg1Idx + 1];
+    const class1 = Object.entries(leg1.classes).find(([, n]) => n > 0)?.[0];
+    const class2 = Object.entries(leg2.classes).find(([, n]) => n > 0)?.[0];
+    if (!class1 || !class2) {
+      console.error('\n✗ Connection legs have no usable class.', leg1.classes, leg2.classes);
+      process.exit(1);
+    }
+    sellEntry = `N1${class1}${leg1.line}${class2}${leg2.line}`;
+    console.log(
+      `\n(connection sell: line ${leg1.line} class ${class1} + line ${leg2.line} class ${class2} → "${sellEntry}")`
+    );
+  } else {
+    const line1 = lines[0];
+    const availableClass = Object.entries(line1.classes).find(([, n]) => n > 0)?.[0];
+    if (!availableClass) {
+      console.error('\n✗ Line 1 has no class with availability.', line1.classes);
+      process.exit(1);
+    }
+    sellEntry = `N1${availableClass}1`;
+    console.log(`\n(nonstop sell: line 1 class ${availableClass} → "${sellEntry}")`);
   }
-  console.log(`\n(picked class ${availableClass} from line 1's classes: ${JSON.stringify(line1.classes)})`);
-  await run(host, wa, `N1${availableClass}1`);
+  await run(host, wa, sellEntry);
+  console.log(
+    `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}`
+  );
 
   // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
   await run(host, wa, 'N.SMITH/JOHN MR');
@@ -116,7 +144,25 @@ async function main(): Promise<void> {
     `    liveTravelerIds: ${wa.liveTravelerIds === undefined ? '(NOT POSTED — BUG)' : JSON.stringify(wa.liveTravelerIds)}`
   );
 
-  // 5) Received-from and ticketing — local-only fields needed for end-tx.
+  // 5) Fare quote — verifies priceOffer canonical 3-ID body. Soft-fail
+  // (warn but continue) if the trial tenant doesn't price this route:
+  // an end-to-end ER still has value even without a live FQ.
+  const fq = await run(host, wa, 'FQ');
+  if (fq.includes('LIVE BACKEND ERROR')) {
+    console.log('    △ FQ live failed — priceOffer body may have hit a tenant gap. Continuing.');
+  } else if (!fq.includes('FARE QUOTE NOT AVAILABLE')) {
+    console.log('    ✓ FQ live priced (priceOffer body verified).');
+  }
+
+  // 6) SSR with TravelerIdentifier (server requires it). On a
+  // connection sell, target segment 2 to exercise per-leg dispatch.
+  const ssrEntry = isConnection ? 'SI.P1S2/WCHR' : 'SI.P1/WCHR';
+  const ssrResp = await run(host, wa, ssrEntry);
+  if (ssrResp.includes('LIVE BACKEND ERROR')) {
+    console.log('    △ SSR live failed — non-fatal, continuing to ER.');
+  }
+
+  // 7) Received-from and ticketing — local-only fields needed for end-tx.
   await run(host, wa, 'R.AGT');
   await run(host, wa, 'T.TAU/10JUN');
 
