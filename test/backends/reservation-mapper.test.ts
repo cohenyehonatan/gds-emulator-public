@@ -149,4 +149,59 @@ describe('mapReservation', () => {
     expect(pnr.phones).toHaveLength(1);
     expect(pnr.phones[0].number).toBe('+1-800-555-0100');
   });
+
+  it('canonical pre-prod retrieve shape: ReservationResponse + Offer[].Product[].FlightSegment[].Flight', () => {
+    // VERIFIED PRE-PROD 2026-06-06: live retrieve returns
+    //   { ReservationResponse: { Reservation: {
+    //       Identifier, Offer[Product[FlightSegment[Flight]]], Traveler, ... } } }
+    // — segments live nested several layers deep inside each Offer's
+    // Products, NOT on a flat AirReservation.Flights[]. mapReservation
+    // unwraps ReservationResponse, then mapReservationSegments walks
+    // Offer[].Product[].FlightSegment[] in sequence order.
+    const response = {
+      ReservationResponse: {
+        Reservation: {
+          Identifier: { authority: 'Travelport', value: '<wb-uuid>' },
+          Traveler: [{
+            passengerTypeCode: 'ADT',
+            PersonName: { '@type': 'PersonName', Given: 'JOHN', Surname: 'SMITH' },
+          }],
+          Offer: [{
+            Product: [{
+              FlightSegment: [
+                {
+                  sequence: 1,
+                  Flight: {
+                    carrier: 'FI', number: '672', equipment: '75W',
+                    Departure: { location: 'DEN', date: '2026-07-06', time: '20:10:00' },
+                    Arrival: { location: 'KEF', date: '2026-07-07', time: '06:00:00' },
+                  },
+                },
+                {
+                  sequence: 2,
+                  Flight: {
+                    carrier: 'FI', number: '524', equipment: '7M8',
+                    Departure: { location: 'KEF', date: '2026-07-07', time: '07:30:00' },
+                    Arrival: { location: 'FRA', date: '2026-07-07', time: '11:35:00' },
+                  },
+                },
+              ],
+            }],
+          }],
+        },
+      },
+    };
+    const pnr = mapReservation(response, 'GZTZ5L');
+    expect(pnr.locator).toBe('GZTZ5L');
+    expect(pnr.names).toHaveLength(1);
+    expect(pnr.names[0].surname).toBe('SMITH');
+    expect(pnr.names[0].passengers[0].firstName).toBe('JOHN');
+    expect(pnr.segments).toHaveLength(2);
+    expect(pnr.segments[0].carrier).toBe('FI');
+    expect(pnr.segments[0].flightNumber).toBe('672');
+    expect(pnr.segments[0].origin).toBe('DEN');
+    expect(pnr.segments[0].destination).toBe('KEF');
+    expect(pnr.segments[1].carrier).toBe('FI');
+    expect(pnr.segments[1].flightNumber).toBe('524');
+  });
 });

@@ -341,6 +341,35 @@ async function main(): Promise<void> {
     }
   }
 
+  // Post-commit retrieve probes — verify *<locator> hits the live
+  // GET and *-<surname> finds the locally-shadowed copy from
+  // pnrStore. Both should produce a rendered BF carrying the names
+  // and segments we just committed.
+  if (locator) {
+    const retrieved = await run(host, wa, `*${locator}`);
+    if (retrieved.includes('LIVE BACKEND ERROR') || retrieved.includes('NO PNR')) {
+      console.log('    △ *<locator> retrieve failed — live retrieve regression?');
+    } else {
+      const hasSmith = retrieved.includes('SMITH');
+      const hasFi = retrieved.includes('FI');
+      console.log(
+        `    ✓ *${locator}: retrieved BF (SMITH visible: ${hasSmith}, FI segment visible: ${hasFi})`
+      );
+    }
+
+    // Surname retrieve uses the local pnrStore shadow (committed BFs
+    // are mirrored there by the live commit handler). Live REST has
+    // no surname-search endpoint, so this is a local-only probe.
+    const surnameResp = await run(host, wa, '*-SMITH');
+    if (surnameResp.includes('NO PNR')) {
+      console.log('    △ *-SMITH: local pnrStore shadow missing — live commit may not be mirroring.');
+    } else if (surnameResp.includes(locator)) {
+      console.log(`    ✓ *-SMITH: local pnrStore shadow returned locator ${locator}.`);
+    } else {
+      console.log('    △ *-SMITH: surname matched but expected locator not present.');
+    }
+  }
+
   // Cleanup: if we got a locator, cancel the BF so it doesn't leave
   // residue in pre-prod queues. Cancellation via the cryptic cancel
   // (X) doesn't have a live wire today, so go through the backend.

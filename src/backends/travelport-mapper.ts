@@ -363,7 +363,14 @@ export function mapReservation(response: unknown, locator: string): Pnr {
   const pnr = new Pnr();
   pnr.locator = locator;
   const r = response as any;
-  const root = r?.Reservation ?? r?.OrderReservationResponse?.Reservation ?? r;
+  // VERIFIED PRE-PROD 2026-06-06: retrieve responses wrap the
+  // Reservation in `ReservationResponse` (same envelope as commit).
+  // The other paths cover mocked-fixture / OrderReservation variants.
+  const root =
+    r?.ReservationResponse?.Reservation ??
+    r?.Reservation ??
+    r?.OrderReservationResponse?.Reservation ??
+    r;
   if (root == null) return pnr;
 
   pnr.names = mapReservationTravelers(root);
@@ -438,17 +445,47 @@ function mapReservationTravelers(root: any): NameItem[] {
 }
 
 /**
- * Segments. The reservation response groups flights either under
- * `AirReservation.Flights` (older shape) or as flat `BookingSegment`
- * entries (newer shape with explicit booking class / status).
+ * Segments. The retrieve response groups flights several ways
+ * depending on access group / tenant:
+ *   1. `AirReservation.Flights[]` (older shape, mocked tests)
+ *   2. `BookingSegment[]` (newer flat shape)
+ *   3. `Offer[].Product[].FlightSegment[].Flight` — VERIFIED pre-prod
+ *      retrieve shape 2026-06-06 — each Offer is one priced fare
+ *      block; within a Product the FlightSegments carry an embedded
+ *      `Flight` (not a ref), and `Flight` has carrier/number/Departure/
+ *      Arrival/equipment directly on it.
+ * Path 3 also captures per-segment status (the FlightSegment carries
+ * what we used to read off `flight.status`).
  */
 function mapReservationSegments(root: any): AirSegment[] {
-  // Try the documented `AirReservation.Flights[]` shape first; fall back
-  // to the flat `BookingSegment[]` newer access groups return. `??`
-  // would NOT trigger on an empty array, so we explicitly check length.
+  // Path 1: documented AirReservation.Flights[]
   let flights = arrayish(root?.AirReservation?.Flights ?? root?.AirReservation?.Flight);
+  // Path 2: flat BookingSegment[]
   if (flights.length === 0) {
     flights = arrayish(root?.BookingSegment ?? root?.Segments ?? root?.segments);
+  }
+  // Path 3: Offer[].Product[].FlightSegment[].Flight (pre-prod live).
+  // Walk all Offers (multi-offer retrieves like a round-trip BF have
+  // multiple Offer entries) and collect every embedded Flight in
+  // segment-sequence order.
+  if (flights.length === 0) {
+    const offers = arrayish(root?.Offer);
+    const collected: any[] = [];
+    for (const offer of offers) {
+      for (const product of arrayish((offer as any)?.Product)) {
+        const segs = arrayish((product as any)?.FlightSegment);
+        // Sort by `sequence` when present so multi-leg offers stay in
+        // departure order even if the server returned them shuffled.
+        const sorted = [...segs].sort(
+          (a: any, b: any) => Number(a?.sequence ?? 0) - Number(b?.sequence ?? 0)
+        );
+        for (const seg of sorted) {
+          const f = (seg as any)?.Flight;
+          if (f) collected.push(f);
+        }
+      }
+    }
+    flights = collected;
   }
   const out: AirSegment[] = [];
   flights.forEach((flight: any, idx: number) => {

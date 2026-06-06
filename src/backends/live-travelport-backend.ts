@@ -1047,7 +1047,20 @@ export class LiveTravelportBackend implements Backend {
   async retrieveReservation(locator: string): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/book/reservation/reservations/${encodeURIComponent(locator)}`;
-    return this.getJson(url, 'retrieveReservation');
+    const response = await this.getJson(url, 'retrieveReservation');
+    if (process.env.TVP_DEBUG_DUMP === '1') {
+      try {
+        const fs = await import('node:fs/promises');
+        await fs.writeFile(
+          `./tvp-diag-retrieve.json`,
+          JSON.stringify(response, null, 2),
+          'utf8'
+        );
+      } catch {
+        // best-effort
+      }
+    }
+    return response;
   }
 
   /**
