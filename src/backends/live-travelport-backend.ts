@@ -794,12 +794,16 @@ export class LiveTravelportBackend implements Backend {
       // cryptic NP. qualifier and chose. Canonical devkit notepad
       // examples use `YT` (agency notepad) and `HG` (historical).
       const code = opts?.kind === 'historical' ? 'HG' : 'YT';
+      // Notepad / Historical: NO `id` on either the ReservationComment
+      // or the Comment — the canonical "Add Notepad Remarks" body omits
+      // them. Including `id: 'reservationComment_1'` caused pre-prod
+      // to reject with 400 (id fields are only set when there's
+      // something to reference, like Vendor Remarks below).
       entry = {
         '@type': 'ReservationComment',
-        id: 'reservationComment_1',
         commentSource: 'Agency',
         shareWith: 'Agency',
-        Comment: [{ id: 'comment_1', name: code, value: text }],
+        Comment: [{ name: code, value: text }],
       };
     }
     // VERIFIED PRE-PROD 2026-06-06: envelope is FLAT (`@type` at root)

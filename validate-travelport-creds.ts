@@ -178,10 +178,19 @@ async function call(
       ? `  (HTTP 200 but ${semanticErrors.length} Result.Error[])`
       : '';
   console.log(`      ${tag} ${method} ${urlShort(url)}  →  ${res.status} ${res.statusText}${note}  [${label}]`);
-  // Inline the buried error messages so we don't have to grep separate
-  // dump files for every "HTTP 200 but Result.Error" case.
-  if (res.ok && !semanticOk) {
-    for (const m of semanticErrors) console.log(`         • ${m}`);
+  // Inline the error messages on ANY non-OK result — both HTTP 4xx/5xx
+  // and HTTP 200 with buried Result.Error[]. Without this, plain 4xx
+  // failures (e.g. addReservationComment 400) show only the status
+  // code; the actual Travelport error text never surfaces unless the
+  // call site explicitly awaits diagnoseError().
+  if (!semanticOk) {
+    if (semanticErrors.length > 0) {
+      for (const m of semanticErrors) console.log(`         • ${m}`);
+    } else if (!res.ok && typeof text === 'string' && text) {
+      // Plain 4xx/5xx with no structured Result.Error[] — surface the
+      // raw body's first 280 chars so we at least see SOMETHING.
+      console.log(`         • ${text.slice(0, 280)}`);
+    }
   }
   if (DUMP_ALL && text) {
     const fs = await import('node:fs/promises');
@@ -733,17 +742,15 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     },
     'addSpecialService (WHOLE-BF — no TravelerIdentifier)'
   );
-  // Open question (TravelerIdentifier required for whole-BF scope?)
-  // can't be answered until we send the correct workbench-side offer
-  // ID in AppliesTo.OfferIdentifier — the current `refs.offerId`
-  // (search-side `o1`) triggers OFFER ID MISMATCH for both with-trav
-  // and no-trav variants, masking the actual TravelerIdentifier
-  // behavior. The semantic-error printer already surfaces the cause
-  // via the call() log line.
+  // Open question RESOLVED 2026-06-06: server REQUIRES TravelerIdentifier
+  // on every SSR — pre-prod returned 200 + Result.Error[]: "TRAVELER
+  // REFERENCE ID IS NOT VALID" on the no-TravelerIdentifier variant.
+  // Keep the test as a regression check: if pre-prod ever starts
+  // accepting whole-BF SSRs we'll know to re-evaluate the handler.
   if (!ssrWhole.ok) {
-    console.log('      → SSR open question still gated on workbench-offer-ID fix; see SSR error above.');
+    console.log('      → CONFIRMED: server REJECTS SSR without TravelerIdentifier (TRAVELER REFERENCE ID IS NOT VALID).');
   } else {
-    console.log('      → OPEN QUESTION ANSWERED: server accepts whole-BF SSR (200 OK, no Result.Error[]).');
+    console.log('      → SURPRISE: server NOW accepts whole-BF SSR; revisit the handler.');
   }
 
   // Step 6: NP. reservation comment — canonical body per devkit
@@ -761,10 +768,9 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
       ReservationComment: [
         {
           '@type': 'ReservationComment',
-          id: 'reservationComment_1',
           commentSource: 'Agency',
           shareWith: 'Agency',
-          Comment: [{ id: 'comment_1', name: 'YT', value: 'PRE-PROD VALIDATION RUN' }],
+          Comment: [{ name: 'YT', value: 'PRE-PROD VALIDATION RUN' }],
         },
       ],
     },
