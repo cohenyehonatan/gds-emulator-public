@@ -107,28 +107,30 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
     expect(wa.pnr.segments.length).toBe(0);
   });
 
-  it('X1 (partial cancel) sends CancelSelectedOffers body keyed to the segment offer ID', async () => {
+  it('X1 (partial cancel) posts canonical OfferQueryCancelOffer to /offers/canceloffer per UUID', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResponse())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok())  // addOffer
-      .mockResolvedValueOnce(ok()); // cancelitems
+      .mockResolvedValueOnce(ok()); // canceloffer
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('X1', wa);
 
-    const [, cancelInit] = fetchSpy.mock.calls[4];
+    // VERIFIED PRE-PROD 2026-06-06: per-offer cancel uses
+    // /air/book/airoffer/.../offers/canceloffer with the
+    // OfferQueryCancelOffer envelope — NOT cancelitems with
+    // CancelSelectedOffers (which silently returns 200 + {} without
+    // actually removing the offer).
+    const [cancelUrl, cancelInit] = fetchSpy.mock.calls[4];
+    expect(cancelUrl).toContain('/air/book/airoffer/reservationworkbench/WB-X/offers/canceloffer');
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
-    expect(body['@type']).toBe('CancelRequest');
-    expect(body.cancelOffers?.objectType).toBe('CancelSelectedOffers');
-    expect(body.cancelOffers?.offerProductSelection).toEqual([
-      {
-        sendPassiveNotificationInd: false,
-        offerID: { Identifier: { authority: 'Travelport', value: 'OFF-001' } },
-      },
-    ]);
+    expect(body['@type']).toBe('OfferQueryCancelOffer');
+    expect(body.BuildFromOffer?.['@type']).toBe('BuildFromOfferAir');
+    expect(body.BuildFromOffer?.OfferIdentifier?.Identifier?.value).toBe('OFF-001');
+    expect(body.sendPassiveNotificationInd).toBeUndefined(); // not passive
   });
 
   it('X1 on a connection cancels BOTH legs locally (server cancels at offer level)', async () => {
@@ -363,11 +365,11 @@ describe('Galileo live cancel — committed (post-retrieve)', () => {
     expect(bflUrl).toContain('Locator=ABC123');
 
     const [cancelUrl, cancelInit] = fetchSpy.mock.calls[3];
-    expect(cancelUrl).toContain('/book/reservationworkbench/WB-POST-ABC123/reservations/cancelitems');
+    // Per-offer cancel uses /offers/canceloffer with OfferQueryCancelOffer envelope.
+    expect(cancelUrl).toContain('/air/book/airoffer/reservationworkbench/WB-POST-ABC123/offers/canceloffer');
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
-    expect(body.cancelOffers?.offerProductSelection?.[0]?.offerID?.Identifier?.value).toBe(
-      'OFF-COMMIT'
-    );
+    expect(body['@type']).toBe('OfferQueryCancelOffer');
+    expect(body.BuildFromOffer?.OfferIdentifier?.Identifier?.value).toBe('OFF-COMMIT');
 
     const [commitUrl] = fetchSpy.mock.calls[4];
     expect(commitUrl).toContain('/book/reservation/reservations/WB-POST-ABC123');

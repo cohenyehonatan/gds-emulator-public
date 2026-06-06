@@ -93,17 +93,15 @@ describe('Galileo live @<n>XK — passive cancel via /cancelitems', () => {
     expect(resp).toBe('ITINERARY CANCELLED');
     expect(wa.pnr.segments.length).toBe(0);
 
+    // Per-offer cancel uses /offers/canceloffer with OfferQueryCancelOffer.
+    // Passive flag rides on sendPassiveNotificationInd at the body root
+    // (placement speculative — devkit sample doesn't show passive variant).
     const [cancelUrl, cancelInit] = fetchSpy.mock.calls[4];
-    expect(cancelUrl).toContain('/book/reservationworkbench/WB-X/reservations/cancelitems');
+    expect(cancelUrl).toContain('/air/book/airoffer/reservationworkbench/WB-X/offers/canceloffer');
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
-    expect(body['@type']).toBe('CancelRequest');
-    expect(body.cancelOffers?.objectType).toBe('CancelSelectedOffers');
-    expect(body.cancelOffers?.offerProductSelection).toEqual([
-      {
-        sendPassiveNotificationInd: true,
-        offerID: { Identifier: { authority: 'Travelport', value: 'OFF-001' } },
-      },
-    ]);
+    expect(body['@type']).toBe('OfferQueryCancelOffer');
+    expect(body.BuildFromOffer?.OfferIdentifier?.Identifier?.value).toBe('OFF-001');
+    expect(body.sendPassiveNotificationInd).toBe(true);
   });
 
   it('@<out-of-range>XK rejects BEFORE any REST call', async () => {

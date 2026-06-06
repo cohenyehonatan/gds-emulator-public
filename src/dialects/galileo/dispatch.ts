@@ -1091,7 +1091,32 @@ async function cancelGalileoLiveWorkbench(
       if (offerIds.length === 0) {
         return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
       }
-      await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { offerIds });
+      // Per-offer cancel has two shipping paths against pre-prod:
+      //   - cancelitems + CancelSelectedOffers — VERIFIED 2026-06-06 to
+      //     silently return 200 + {} without actually removing the
+      //     offer. Don't use.
+      //   - /offers/canceloffer + OfferQueryCancelOffer — endpoint
+      //     exists but returned "Not Authorized to Access this API"
+      //     on the 7K9S trial tenant 2026-06-06.
+      // Pragmatic fallback: when the offers we'd cancel cover EVERY
+      // offer currently in the workbench (X<n> on a single-offer
+      // workbench is the common case for connections), route through
+      // cancelitems with `cancelAllInd: true` instead — devkit-
+      // canonical, verified working. Otherwise try canceloffer and
+      // surface whatever pre-prod says.
+      const uniqueWbOffers = new Set(
+        (wa.liveWorkbenchOfferIds ?? []).filter((u) => u && u.length > 0)
+      );
+      const cancellingAll =
+        offerIds.length === uniqueWbOffers.size &&
+        offerIds.every((id) => uniqueWbOffers.has(id));
+      if (cancellingAll) {
+        await backend.cancelWorkbenchItems(wa.liveWorkbenchId!, { all: true });
+      } else {
+        for (const uuid of offerIds) {
+          await backend.cancelOfferInWorkbench(wa.liveWorkbenchId!, uuid);
+        }
+      }
       cancelledOfferUuids = new Set(offerIds);
     }
   } catch (err) {
@@ -1183,7 +1208,10 @@ async function cancelGalileoLiveCommitted(
     return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
   }
   try {
-    await backend.cancelWorkbenchItems(workbenchId, { offerIds: [...offerIds] });
+    // Per-offer cancel: one canceloffer POST per unique offer UUID.
+    for (const id of offerIds) {
+      await backend.cancelOfferInWorkbench(workbenchId, id);
+    }
     await backend.commitWorkbench(workbenchId);
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
@@ -1666,10 +1694,11 @@ async function handleGalileoPassiveCancel(
       return 'LIVE OFFER ID MISSING'; // reconstructed — same as live-sell
     }
     try {
-      await ctx.backend.cancelWorkbenchItems(wa.liveWorkbenchId, {
-        offerIds,
-        passive: true,
-      });
+      for (const id of offerIds) {
+        await ctx.backend.cancelOfferInWorkbench(wa.liveWorkbenchId, id, {
+          passive: true,
+        });
+      }
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }

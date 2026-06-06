@@ -1304,30 +1304,25 @@ export class LiveTravelportBackend implements Backend {
       `${this.opts.apiBase}/book/reservationworkbench/` +
       `${encodeURIComponent(workbenchId)}/reservations/cancelitems`;
 
-    let body: Record<string, unknown>;
-    if (opts.all) {
-      body = { '@type': 'CancelRequest', cancelAllInd: true };
-    } else if (opts.offerIds && opts.offerIds.length > 0) {
-      body = {
-        '@type': 'CancelRequest',
-        cancelOffers: {
-          objectType: 'CancelSelectedOffers',
-          offerProductSelection: opts.offerIds.map((id) => ({
-            sendPassiveNotificationInd: !!opts.passive,
-            offerID: {
-              Identifier: { authority: 'Travelport', value: id },
-            },
-          })),
-        },
-      };
-    } else {
-      // Caller asked for offer-targeted cancel without supplying IDs —
-      // surface that as a programming error rather than silently sending
-      // a malformed payload.
+    // Per-offer cancel routes through a DIFFERENT endpoint
+    // (`/air/book/airoffer/.../offers/canceloffer`) with a totally
+    // different body envelope — see cancelOfferInWorkbench. This
+    // endpoint only accepts the all-offers variants per the devkit's
+    // canonical samples.
+    if (opts.offerIds && opts.offerIds.length > 0) {
       throw new Error(
-        'LiveTravelportBackend cancelWorkbenchItems: opts must set `all: true` or supply `offerIds`'
+        'LiveTravelportBackend cancelWorkbenchItems: per-offer cancel uses cancelOfferInWorkbench, not cancelitems'
       );
     }
+    if (!opts.all) {
+      throw new Error(
+        'LiveTravelportBackend cancelWorkbenchItems: opts must set `all: true`'
+      );
+    }
+    const body: Record<string, unknown> = {
+      '@type': 'CancelRequest',
+      cancelAllInd: true,
+    };
     const response = await this.postJson(url, body, 'cancelWorkbenchItems');
     // Diagnostic: when TVP_DEBUG_DUMP=1, write the full request + response
     // to disk. cancelitems on a CancelSelectedOffers body returns 200 OK
@@ -1337,14 +1332,80 @@ export class LiveTravelportBackend implements Backend {
     if (process.env.TVP_DEBUG_DUMP === '1') {
       try {
         const fs = await import('node:fs/promises');
-        const tag = opts.all ? 'all' : 'selected';
         await fs.writeFile(
-          `./tvp-diag-cancelitems-${tag}.json`,
+          `./tvp-diag-cancelitems-all.json`,
           JSON.stringify({ request: body, response }, null, 2),
           'utf8'
         );
       } catch {
         // best-effort — never fail the live op for a dump miss
+      }
+    }
+    return response;
+  }
+
+  /**
+   * Cancel a single OFFER inside a workbench. Used by Galileo `X<n>`
+   * (cancel segment n) — the workbench-side offer that covers that
+   * segment is fully removed. This is NOT `cancelitems` — that
+   * endpoint only does whole-workbench cancels per the GDS devkit's
+   * canonical samples; per-offer cancel uses a different endpoint
+   * with a different body envelope.
+   *
+   * Source: POST /11/air/book/airoffer/reservationworkbench/{wb}/offers
+   * /canceloffer. Canonical body verbatim from the devkit's "Cancel
+   * Seat or Bags" sample (the endpoint is generic — flight offers too):
+   *
+   *   {
+   *     "@type": "OfferQueryCancelOffer",
+   *     "BuildFromOffer": {
+   *       "@type": "BuildFromOfferAir",
+   *       "OfferIdentifier": {
+   *         "Identifier": { "value": "<workbench-offer-uuid>" }
+   *       }
+   *     }
+   *   }
+   *
+   * VERIFIED 2026-06-06: the cancelitems CancelSelectedOffers body
+   * we used to send returned 200 OK with `{}` and silently failed to
+   * remove the offer — workbench retained the segments and downstream
+   * commit failed with MCT errors. This endpoint surfaces the actual
+   * cancel confirmation in the response body.
+   */
+  async cancelOfferInWorkbench(
+    workbenchId: string,
+    offerUuid: string,
+    opts: { passive?: boolean } = {}
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/airoffer/reservationworkbench/` +
+      `${encodeURIComponent(workbenchId)}/offers/canceloffer`;
+    // Passive cancel (@<n>XK) — flag the request so Travelport sends
+    // no message to the carrier. Canonical placement is speculative
+    // since the devkit sample only shows the non-passive form;
+    // pre-prod will surface a field-validation error if the
+    // placement is wrong.
+    const body: Record<string, unknown> = {
+      '@type': 'OfferQueryCancelOffer',
+      BuildFromOffer: {
+        '@type': 'BuildFromOfferAir',
+        OfferIdentifier: {
+          Identifier: { value: offerUuid },
+        },
+      },
+    };
+    if (opts.passive) body.sendPassiveNotificationInd = true;
+    const response = await this.postJson(url, body, 'cancelOfferInWorkbench');
+    if (process.env.TVP_DEBUG_DUMP === '1') {
+      try {
+        const fs = await import('node:fs/promises');
+        await fs.writeFile(
+          `./tvp-diag-canceloffer.json`,
+          JSON.stringify({ request: body, response }, null, 2),
+          'utf8'
+        );
+      } catch {
+        // best-effort
       }
     }
     return response;
