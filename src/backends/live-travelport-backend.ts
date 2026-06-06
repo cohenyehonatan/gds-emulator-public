@@ -1328,7 +1328,26 @@ export class LiveTravelportBackend implements Backend {
         'LiveTravelportBackend cancelWorkbenchItems: opts must set `all: true` or supply `offerIds`'
       );
     }
-    return this.postJson(url, body, 'cancelWorkbenchItems');
+    const response = await this.postJson(url, body, 'cancelWorkbenchItems');
+    // Diagnostic: when TVP_DEBUG_DUMP=1, write the full request + response
+    // to disk. cancelitems on a CancelSelectedOffers body returns 200 OK
+    // but we suspect the server isn't actually removing the offer —
+    // dumping the body confirms whether the server reports what it
+    // cancelled. (Stamped name so concurrent calls don't clobber.)
+    if (process.env.TVP_DEBUG_DUMP === '1') {
+      try {
+        const fs = await import('node:fs/promises');
+        const tag = opts.all ? 'all' : 'selected';
+        await fs.writeFile(
+          `./tvp-diag-cancelitems-${tag}.json`,
+          JSON.stringify({ request: body, response }, null, 2),
+          'utf8'
+        );
+      } catch {
+        // best-effort — never fail the live op for a dump miss
+      }
+    }
+    return response;
   }
 
   /**
