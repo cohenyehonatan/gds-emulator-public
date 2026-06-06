@@ -13,6 +13,10 @@
     "start:terminal:galileo": "tsx src/index.ts terminal galileo",
     "start:terminal:apollo": "tsx src/index.ts terminal apollo",
     "scenario": "tsx src/index.ts scenario",
+    "validate:live-galileo": "tsx validate-galileo-handler-live.ts",
+    "validate:creds": "tsx validate-travelport-creds.ts",
+    "validate:diff-oracle": "tsx validate-galileo-diff-oracle.ts",
+    "validate:diff-oracle:apollo": "tsx validate-galileo-diff-oracle.ts --dialect=apollo",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

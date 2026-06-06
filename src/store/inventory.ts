@@ -37,6 +37,13 @@ const SCHEDULE: ScheduledFlight[] = [
   // ORD-SFO departing 20 min after AA300 arrives ORD — too tight to auto-build a
   // connection, but long-sellable into a PNR so VCT* can flag the short connect.
   { carrier: 'AA', flightNumber: '360', origin: 'ORD', destination: 'SFO', departTime: '1020A', arriveTime: '1245P', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 9 } },
+  // DEN-FRA via KEF — mirrors the FI connection that pre-prod 7K9S serves
+  // (used by validate-galileo-handler-live.ts + diff harness). Two-leg
+  // connection auto-builds via the KEF hub. Adding DEN→KEF and KEF→FRA
+  // legs at compatible times gives the emulated availability handler a
+  // valid set to return when the diff harness runs A27JUNDENFRA.
+  { carrier: 'FI', flightNumber: '670', origin: 'DEN', destination: 'KEF', departTime: '720P', arriveTime: '600A', equipment: '75W', classSeats: { F: 2, J: 4, Y: 9, N: 2 } },
+  { carrier: 'FI', flightNumber: '520', origin: 'KEF', destination: 'FRA', departTime: '730A', arriveTime: '1135A', equipment: '7M9', classSeats: { F: 2, J: 4, Y: 9, N: 2 } },
 ];
 
 export const MIN_CONNECT_MINUTES = 45;
