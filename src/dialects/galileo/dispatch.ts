@@ -1342,6 +1342,19 @@ async function cancelGalileoLiveCommitted(
  * Guide p.3. Status code is validated against the Sabre-shared
  * MANUAL_STATUS_CODES set since manual-entry codes (HK, HL, NN, GK,
  * BK, etc.) are industry-standard rather than dialect-specific.
+ *
+ * LOCAL-ONLY BY DESIGN. Verified 2026-06-06 against the v11 GDS
+ * reference-payload devkit — there is NO canonical REST endpoint
+ * for manual segment-status override in JSON Air v11. The devkit's
+ * book/airoffer/ and book/airreservation/ surfaces don't expose
+ * "set segment to HK" or equivalent. Travelport's model is that
+ * status changes are server-driven: the airline confirms (HK) /
+ * waitlists (HL) / declines (NN) asynchronously via vendor
+ * notifications, not via agent override. `@<n>HK` is a legacy
+ * mainframe agent-side pattern that doesn't map to the modern
+ * REST surface. Update the in-memory PNR so cryptic queries
+ * reflect the agent's intent; the next live retrieve will
+ * re-sync from the actual server-side state.
  */
 function handleGalileoSegmentStatus(entry: SegmentStatusEntry, wa: WorkArea): string {
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
