@@ -71,6 +71,17 @@ export interface LiveTravelportBackendOptions {
    * spec doc's ⛔ posture).
    */
   politeReceivedFromAudit?: boolean;
+  /**
+   * Vendor-pacing discipline per CLAUDE.md project rule: "Never probe
+   * for limits ... single-worker + 2-5s jitter delays default for
+   * hostile targets." Travelport pre-prod is documented at a few
+   * hundred requests/min for trial tenants, but we don't probe — we
+   * pace conservatively regardless. `pacing.minMs` and `pacing.maxMs`
+   * bound the inter-request jitter; default 200-400ms, comfortable
+   * single-user pacing without being needlessly slow for the
+   * verifier scripts. Set both to 0 in tests to disable.
+   */
+  pacing?: { minMs: number; maxMs: number };
 }
 
 interface ResolvedOpts {
@@ -81,7 +92,18 @@ interface ResolvedOpts {
   grantType: string;
   acceptVersion: string;
   politeReceivedFromAudit: boolean;
+  pacing: { minMs: number; maxMs: number };
 }
+
+// Default pacing: 200-400ms inter-request jitter. Detect the vitest
+// test environment (process.env.VITEST is set by the runner) and
+// disable pacing there — 50+ existing mocked tests can't tolerate
+// 300ms × N delays. Tests that want to exercise pacing explicitly
+// can override via opts.pacing.
+const DEFAULT_PACING: { minMs: number; maxMs: number } =
+  process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
+    ? { minMs: 0, maxMs: 0 }
+    : { minMs: 200, maxMs: 400 };
 
 const DEFAULT_OPTS: ResolvedOpts = {
   oauthUrl: 'https://auth.pp.travelport.net/oauth/token',
@@ -91,6 +113,7 @@ const DEFAULT_OPTS: ResolvedOpts = {
   grantType: 'password',
   acceptVersion: '11',
   politeReceivedFromAudit: false,
+  pacing: DEFAULT_PACING,
 };
 
 interface TokenCache {
@@ -138,6 +161,13 @@ export class LiveTravelportBackend implements Backend {
   private serial: number;
   private token: TokenCache | undefined;
   private readonly opts: ResolvedOpts;
+  /** Single-worker pacing — chained promise serializes every outbound
+   *  request through `pacedFetch`. Per CLAUDE.md: never probe limits;
+   *  conservative jitter regardless of what the vendor would tolerate.
+   *  Subsequent requests wait for the chain head + a random delay
+   *  in [pacing.minMs, pacing.maxMs] before issuing. */
+  private requestChain: Promise<void> = Promise.resolve();
+  private lastRequestAt = 0;
   /** Surface the polite-citizen flag so handlers can branch on it. */
   get politeReceivedFromAudit(): boolean {
     return this.opts.politeReceivedFromAudit;
@@ -147,9 +177,46 @@ export class LiveTravelportBackend implements Backend {
     private readonly creds: LiveTravelportCredentials,
     opts: LiveTravelportBackendOptions = {}
   ) {
-    this.opts = { ...DEFAULT_OPTS, ...opts };
+    this.opts = {
+      ...DEFAULT_OPTS,
+      ...opts,
+      pacing: { ...DEFAULT_OPTS.pacing, ...(opts.pacing ?? {}) },
+    };
     this.displayName = `Travelport TripServices (${this.opts.gds}, ${this.opts.pcc} pre-prod)`;
     this.serial = opts.initialTicketSerial ?? 4_692_507_094;
+  }
+
+  /**
+   * Wrap a `fetch()` call in the single-worker pacing chain. Each
+   * call awaits the previous one's slot release, then sleeps a
+   * jittered interval before firing. Releases the slot when the
+   * fetch itself returns (success OR failure — failures DO consume
+   * a slot so we don't burst-retry on a stuck endpoint).
+   *
+   * Skips the pacing wait entirely when `pacing.minMs === 0` and
+   * `pacing.maxMs === 0` — tests pass `{ pacing: { minMs: 0, maxMs: 0 } }`
+   * to keep the unit suite fast.
+   */
+  private async pacedFetch(input: string, init?: RequestInit): Promise<Response> {
+    const { minMs, maxMs } = this.opts.pacing;
+    if (minMs === 0 && maxMs === 0) return fetch(input, init);
+    const previousChain = this.requestChain;
+    let releaseSlot: () => void = () => {};
+    this.requestChain = new Promise((r) => {
+      releaseSlot = r;
+    });
+    try {
+      await previousChain;
+      const elapsed = Date.now() - this.lastRequestAt;
+      const targetDelay = minMs + Math.random() * (maxMs - minMs);
+      if (elapsed < targetDelay) {
+        await new Promise((r) => setTimeout(r, targetDelay - elapsed));
+      }
+      this.lastRequestAt = Date.now();
+      return await fetch(input, init);
+    } finally {
+      releaseSlot();
+    }
   }
 
   nextTicketSerial(): number {
@@ -176,7 +243,7 @@ export class LiveTravelportBackend implements Backend {
       client_id: this.creds.clientId,
       client_secret: this.creds.clientSecret,
     });
-    const res = await fetch(this.opts.oauthUrl, {
+    const res = await this.pacedFetch(this.opts.oauthUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -273,7 +340,7 @@ export class LiveTravelportBackend implements Backend {
 
   private async postJson(url: string, body: unknown, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const res = await this.pacedFetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
@@ -288,7 +355,7 @@ export class LiveTravelportBackend implements Backend {
   /** Shared GET helper with the same header/error treatment as postJson. */
   private async getJson(url: string, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
-    const res = await fetch(url, { method: 'GET', headers });
+    const res = await this.pacedFetch(url, { method: 'GET', headers });
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
@@ -303,7 +370,7 @@ export class LiveTravelportBackend implements Backend {
   /** Shared PUT helper for status-update endpoints (e.g. void). */
   private async putJson(url: string, body: unknown, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
-    const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) });
+    const res = await this.pacedFetch(url, { method: 'PUT', headers, body: JSON.stringify(body) });
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
@@ -321,7 +388,7 @@ export class LiveTravelportBackend implements Backend {
    */
   private async deleteJson(url: string, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
-    const res = await fetch(url, { method: 'DELETE', headers });
+    const res = await this.pacedFetch(url, { method: 'DELETE', headers });
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
