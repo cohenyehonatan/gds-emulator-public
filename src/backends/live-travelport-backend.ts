@@ -1549,23 +1549,35 @@ export class LiveTravelportBackend implements Backend {
 
   async commitWorkbench(
     workbenchId: string,
-    opts?: { autoDeleteDate?: string; ticketing?: string }
+    opts?: { autoDeleteDate?: string; ticketing?: string; forTicketIssuance?: boolean }
   ): Promise<string> {
     const url =
       `${this.opts.apiBase}/air/book/reservation/reservations/${encodeURIComponent(workbenchId)}`;
-    const body = {
-      ReservationQueryCommitReservation: {
-        enableTwoStepCommitInd: false,
-        ...(opts?.autoDeleteDate ? { autoDeleteDate: opts.autoDeleteDate } : {}),
-        // Ticketing-on-commit per the v11 spec: a `Ticketing` field on
-        // ReservationQueryCommitReservation. Raw text passes through —
-        // Galileo's T. accepts forms like `T*` (minimum) and `TAU/10JUN`
-        // (queue + date); the server validates. Field name not pinned
-        // in the spec list we fetched; if pre-prod surfaces a 4xx
-        // about unknown field, we adjust.
-        ...(opts?.ticketing ? { Ticketing: { value: opts.ticketing } } : {}),
-      },
-    };
+    // VERIFIED 2026-06-06 against devkit's "5 - Ticket > Step 5 Commit
+    // Reservation Ticket Issuance" — the canonical ticket-issuance
+    // body is FLAT with `@type` at the root:
+    //   { "@type": "ReservationQueryCommitReservation" }
+    // Our default build-commit body wraps the same name as a key
+    // (`{ ReservationQueryCommitReservation: {...} }`) which pre-prod
+    // accepts for the first commit (verified live many times) but
+    // appears to silently skip ticket issuance on the post-commit
+    // ticket-issue invocation. The `forTicketIssuance` flag flips to
+    // the canonical flat shape for the post-commit dance.
+    const body: Record<string, unknown> = opts?.forTicketIssuance
+      ? { '@type': 'ReservationQueryCommitReservation' }
+      : {
+          ReservationQueryCommitReservation: {
+            enableTwoStepCommitInd: false,
+            ...(opts?.autoDeleteDate ? { autoDeleteDate: opts.autoDeleteDate } : {}),
+            // Ticketing-on-commit per the v11 spec: a `Ticketing` field on
+            // ReservationQueryCommitReservation. Raw text passes through —
+            // Galileo's T. accepts forms like `T*` (minimum) and `TAU/10JUN`
+            // (queue + date); the server validates. Field name not pinned
+            // in the spec list we fetched; if pre-prod surfaces a 4xx
+            // about unknown field, we adjust.
+            ...(opts?.ticketing ? { Ticketing: { value: opts.ticketing } } : {}),
+          },
+        };
     const json = (await this.postJson(url, body, 'commitWorkbench')) as any;
     // VERIFIED PRE-PROD via GDS reference-payload devkit. Response is
     // `{ ReservationResponse: { Reservation: { Receipt: [{Confirmation: {Locator: { value, source }}}, ...] }}}`.

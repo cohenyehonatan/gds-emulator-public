@@ -917,10 +917,14 @@ async function issueTicketsPostCommit(
     amount: total,
     currency: fq.currency || 'USD',
   });
-  // Commit the post-commit workbench → server issues tickets. We
-  // don't need the returned locator (same as the input one per the
-  // v11 spec — workbench cancel-and-recommit keeps the locator stable).
-  await backend.commitWorkbench(newWorkbenchId);
+  // Commit the post-commit workbench with the CANONICAL flat ticket-
+  // issuance body (`forTicketIssuance: true` switches from our wrapped
+  // build-commit shape to `{ "@type": "ReservationQueryCommitReservation" }`
+  // per the devkit's Step 5). The build-commit body shape that pre-prod
+  // accepts for ER might silently skip ticket creation here. We don't
+  // need the returned locator — it's the same as the input one (the
+  // workbench cancel-and-recommit pattern keeps the locator stable).
+  await backend.commitWorkbench(newWorkbenchId, { forTicketIssuance: true });
 }
 
 /**
