@@ -70,10 +70,14 @@ export function mapCatalogProductOfferings(
   // VERIFIED PRE-PROD 2026-06-06: actual responses put each
   // FlightDetail in the response-level ReferenceList[].Flight[]
   // table, with each ProductBrandOption referencing them via
-  // `flightRefs: ['s17', 's18', ...]`. Mocked fixtures embed Flight
-  // directly on the brand option — we still tolerate that shape as
-  // a fallback so existing tests pass.
+  // `flightRefs: ['s17', 's18', ...]`. Same pattern for class
+  // availability — Product details (with PassengerFlight.FlightProduct.
+  // classOfService + Quantity) live in ReferenceList[where
+  // @type=ReferenceListProduct].Product[], keyed by `id`. Mocked
+  // fixtures embed Flight + FareDetail.BookingCode directly on the
+  // brand option — we still tolerate that shape as a fallback.
   const flightTable = buildFlightTable(response);
+  const productTable = buildProductTable(response);
   const lines: AvailabilityLine[] = [];
   let lineIndex = 0;
   let connectionGroup = 0;
@@ -83,7 +87,7 @@ export function mapCatalogProductOfferings(
     for (const brandOpt of brandOptions) {
       const flights = resolveFlights(brandOpt, flightTable);
       if (flights.length === 0) continue;
-      const classes = aggregateClasses(brandOpt);
+      const classes = aggregateClasses(brandOpt, productTable);
       const vendorRef = buildVendorRef(offerId, brandOpt);
       const group = flights.length > 1 ? ++connectionGroup : undefined;
       flights.forEach((flight, legIndex) => {
@@ -119,6 +123,26 @@ function buildFlightTable(response: unknown): Map<string, unknown> {
     for (const f of flights) {
       const id = (f as any)?.id ?? (f as any)?.Id;
       if (typeof id === 'string' && id.length > 0) table.set(id, f);
+    }
+  }
+  return table;
+}
+
+/**
+ * Build a `product-id → ProductAir` map from the response-level
+ * `ReferenceList`. The Product records carry class availability +
+ * Quantity. Mocked fixtures usually skip this entirely.
+ */
+function buildProductTable(response: unknown): Map<string, unknown> {
+  const r = response as any;
+  const env = r?.CatalogProductOfferingsResponse ?? r;
+  const refList = arrayish(env?.ReferenceList);
+  const table = new Map<string, unknown>();
+  for (const ref of refList) {
+    const products = arrayish((ref as any)?.Product);
+    for (const p of products) {
+      const id = (p as any)?.id ?? (p as any)?.Id;
+      if (typeof id === 'string' && id.length > 0) table.set(id, p);
     }
   }
   return table;
@@ -253,20 +277,45 @@ function flightToLine(
  * priced segment per brand; BookingCode carries `{ code, count }`. We
  * sum the counts for each code, capped at 9 (Sabre-style display).
  */
-function aggregateClasses(brandOpt: any): Record<string, number> {
+function aggregateClasses(
+  brandOpt: any,
+  productTable?: Map<string, unknown>
+): Record<string, number> {
   const out: Record<string, number> = {};
   for (const brandOffering of arrayish(brandOpt?.ProductBrandOffering)) {
+    // Path A (mocked fixtures): FareDetail with BookingCode embedded
+    // directly on the brand offering.
     for (const fareDetail of arrayish(brandOffering?.FareDetail)) {
       const bc = fareDetail?.BookingCode;
       const codes = arrayish(bc);
-      // BookingCode can be a single object or an array; arrayish handles
-      // either.
       if (codes.length === 0 && bc?.code) codes.push(bc);
       for (const cell of codes) {
         const code = cell?.code ?? cell?.Code;
         const count = Number(cell?.count ?? cell?.Count ?? 0);
         if (typeof code === 'string' && code.length === 1 && Number.isFinite(count)) {
           out[code] = Math.min(9, Math.max(out[code] ?? 0, count));
+        }
+      }
+    }
+    // Path B (pre-prod): resolve each ProductBrandOffering's Product
+    // refs against the ReferenceListProduct table. classOfService is
+    // a single-char letter on each FlightProduct; the Product-level
+    // `Quantity` is the seat count for that fare.
+    if (productTable) {
+      for (const productRef of arrayish(brandOffering?.Product)) {
+        const id: string | undefined = (productRef as any)?.productRef;
+        if (!id) continue;
+        const product = productTable.get(id) as any;
+        if (!product) continue;
+        const count = Number(product?.Quantity ?? 0);
+        if (!Number.isFinite(count) || count <= 0) continue;
+        for (const pf of arrayish(product?.PassengerFlight)) {
+          for (const fp of arrayish((pf as any)?.FlightProduct)) {
+            const cls: string | undefined = (fp as any)?.classOfService;
+            if (typeof cls === 'string' && cls.length === 1) {
+              out[cls] = Math.min(9, Math.max(out[cls] ?? 0, count));
+            }
+          }
         }
       }
     }

@@ -415,3 +415,111 @@ describe('mapCatalogProductOfferings — flightRefs resolution (pre-prod shape)'
     expect(lines[0].carrier).toBe('UA'); // embedded — NOT 'XX'
   });
 });
+
+describe('mapCatalogProductOfferings — classOfService resolution from ReferenceListProduct', () => {
+  // VERIFIED 2026-06-06: pre-prod responses don't embed FareDetail.
+  // BookingCode on each ProductBrandOffering — they put Product
+  // records (with PassengerFlight.FlightProduct.classOfService +
+  // Quantity) in ReferenceList[where @type=ReferenceListProduct].
+  // Without this resolution, every avail line would show no classes
+  // and `N1Y1` would always fail with CLASS NOT AVAILABLE.
+  it('resolves classOfService + Quantity from the productRef → ReferenceListProduct chain', () => {
+    const live = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              id: 'o1',
+              ProductBrandOptions: [
+                {
+                  flightRefs: ['s21'],
+                  ProductBrandOffering: [
+                    { Product: [{ productRef: 'p0' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        ReferenceList: [
+          {
+            '@type': 'ReferenceListFlight',
+            Flight: [
+              {
+                id: 's21',
+                carrier: 'FI',
+                number: '670',
+                Departure: { location: 'DEN', date: '2026-07-06', time: '16:40:00' },
+                Arrival: { location: 'KEF', date: '2026-07-07', time: '06:00:00' },
+              },
+            ],
+          },
+          {
+            '@type': 'ReferenceListProduct',
+            Product: [
+              {
+                '@type': 'ProductAir',
+                id: 'p0',
+                Quantity: 4,
+                PassengerFlight: [
+                  {
+                    FlightProduct: [{ classOfService: 'Y' }, { classOfService: 'N' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const lines = mapCatalogProductOfferings(live);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].classes).toEqual({ Y: 4, N: 4 });
+  });
+
+  it('aggregates classes across multiple products into the same line', () => {
+    const live = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              id: 'o1',
+              ProductBrandOptions: [
+                {
+                  flightRefs: ['s1'],
+                  ProductBrandOffering: [
+                    { Product: [{ productRef: 'pY' }] },
+                    { Product: [{ productRef: 'pM' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        ReferenceList: [
+          {
+            '@type': 'ReferenceListFlight',
+            Flight: [
+              {
+                id: 's1',
+                carrier: 'UA',
+                number: '100',
+                Departure: { location: 'DEN', time: '2026-07-06T08:00:00Z' },
+                Arrival: { location: 'FRA', time: '2026-07-07T07:30:00Z' },
+              },
+            ],
+          },
+          {
+            '@type': 'ReferenceListProduct',
+            Product: [
+              { id: 'pY', Quantity: 9, PassengerFlight: [{ FlightProduct: [{ classOfService: 'Y' }] }] },
+              { id: 'pM', Quantity: 5, PassengerFlight: [{ FlightProduct: [{ classOfService: 'M' }] }] },
+            ],
+          },
+        ],
+      },
+    };
+    const lines = mapCatalogProductOfferings(live);
+    expect(lines[0].classes).toEqual({ Y: 9, M: 5 });
+  });
+});
