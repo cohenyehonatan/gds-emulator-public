@@ -87,8 +87,22 @@ async function main(): Promise<void> {
   // 1) Availability — triggers live search.
   await run(host, wa, `A${dateToken}DENFRA`);
 
-  // 2) Sell line 1, class Y, 1 seat — triggers createWorkbench + addOffer.
-  await run(host, wa, 'N1Y1');
+  // 2) Sell line 1, 1 seat. The trial tenant's search results vary by
+  // route + date — Y (full economy) frequently isn't returned. Inspect
+  // line 1's actual class map and pick the first available class so
+  // the verifier doesn't fail on CLASS NOT AVAILABLE.
+  const line1 = wa.lastAvailability?.lines[0];
+  if (!line1) {
+    console.error('\n✗ No availability lines after A. — cannot continue.');
+    process.exit(1);
+  }
+  const availableClass = Object.entries(line1.classes).find(([, n]) => n > 0)?.[0];
+  if (!availableClass) {
+    console.error('\n✗ Line 1 has no class with availability. classes =', line1.classes);
+    process.exit(1);
+  }
+  console.log(`\n(picked class ${availableClass} from line 1's classes: ${JSON.stringify(line1.classes)})`);
+  await run(host, wa, `N1${availableClass}1`);
 
   // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
   await run(host, wa, 'N.SMITH/JOHN MR');
