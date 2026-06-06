@@ -1084,10 +1084,19 @@ async function cancelGalileoLiveWorkbench(
   modifyTransition(wa);
   if (entry.mode === 'itinerary' || entry.mode === 'all_air') {
     wa.pnr.segments = [];
+    // Whole-itinerary cancel: drop ALL captured workbench offer UUIDs
+    // alongside the segments so a subsequent addOffer starts clean.
+    wa.liveWorkbenchOfferIds = undefined;
   } else {
     const remove = new Set(entry.segments);
+    // Snapshot which array indices we're about to drop BEFORE the
+    // filter — needed for liveWorkbenchOfferIds alignment.
+    const cancelledIndices = wa.pnr.segments
+      .map((s, i) => (remove.has(s.segmentNumber) ? i : -1))
+      .filter((i) => i >= 0);
     wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
     wa.pnr.renumberSegments();
+    dropLiveWorkbenchOfferIds(wa, cancelledIndices);
   }
   return wa.pnr.segments.length > 0
     ? renderGalileoItinerary(wa.pnr)
@@ -1724,25 +1733,55 @@ function findPriceRefsForFirstSegment(
 }
 
 /**
- * Resolve each cryptic segment number to its Travelport offer ID via
- * cached availability. Used by live partial cancel. Deduped so a
- * multi-leg offer cancel only generates one `offerProductSelection`
- * entry. Returns [] if no offer IDs could be resolved.
+ * Resolve each cryptic segment number to its WORKBENCH-side offer
+ * UUID — what `/cancelitems` actually needs. Returns the per-segment
+ * UUIDs deduped (a multi-leg offer cancel only generates one
+ * `offerProductSelection` entry). Returns [] if any segment can't be
+ * resolved — caller refuses with LIVE OFFER ID MISSING rather than
+ * POSTing a partial cancel that strands legs in the workbench.
+ *
+ * VERIFIED PRE-PROD 2026-06-06: the workbench reassigns offer IDs at
+ * addOffer time (captured per leg on `wa.liveWorkbenchOfferIds`,
+ * index-aligned with `pnr.segments`). Cancel needs THOSE UUIDs, not
+ * the search-side short refs (`o1`) in `vendorRef.offerId` — pre-
+ * prod returns OFFER ID/IDENTIFIER VALUES MUST MATCH WITH THE
+ * RESERVATION WORKBENCH OFFER ID/IDENTIFIER VALUES when sent the
+ * wrong one (same gotcha SSR hit).
  */
 function collectOfferIdsForSegments(wa: WorkArea, segmentNumbers: number[]): string[] {
-  const avail = wa.lastAvailability;
-  if (!avail) return [];
+  const wbOfferIds = wa.liveWorkbenchOfferIds;
+  const segments = wa.pnr.segments;
   const ids = new Set<string>();
   for (const n of segmentNumbers) {
-    const seg = wa.pnr.segments.find((s) => s.segmentNumber === n);
-    if (!seg) continue;
-    const line = avail.lines.find(
+    const idx = segments.findIndex((s) => s.segmentNumber === n);
+    if (idx < 0) continue;
+    // Prefer the workbench-side UUID we captured at addOffer time.
+    const wbId = wbOfferIds?.[idx];
+    if (wbId) {
+      ids.add(wbId);
+      continue;
+    }
+    // Emulated-only fallback for tests whose fixtures don't populate
+    // liveWorkbenchOfferIds — search-side ID from cached availability.
+    const seg = segments[idx];
+    const line = wa.lastAvailability?.lines.find(
       (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
     );
     const offerId = line?.vendorRef?.offerId;
     if (offerId) ids.add(offerId);
   }
   return [...ids];
+}
+
+/**
+ * Drop the workbench-side offer UUIDs for cancelled segments and
+ * keep `liveWorkbenchOfferIds` index-aligned with the renumbered
+ * `pnr.segments` after a successful partial cancel.
+ */
+function dropLiveWorkbenchOfferIds(wa: WorkArea, cancelledIndices: number[]): void {
+  if (!wa.liveWorkbenchOfferIds) return;
+  const drop = new Set(cancelledIndices);
+  wa.liveWorkbenchOfferIds = wa.liveWorkbenchOfferIds.filter((_, i) => !drop.has(i));
 }
 
 /**
