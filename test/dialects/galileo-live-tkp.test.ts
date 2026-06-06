@@ -83,20 +83,22 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok())                // addOffer
-      .mockResolvedValueOnce(ok())                // addTraveler
+      .mockResolvedValueOnce(ok())                // addTraveler (at P.)
+      .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
       .mockResolvedValueOnce(priceResp())         // FQ
       .mockResolvedValueOnce(ok());               // addFormOfPayment
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
     await host.process('FQ', wa);
     const resp = await host.process('TKP1', wa);
 
     expect(resp).toMatch(/^TKT \d{13}/m);
     expect(wa.pnr.tickets).toHaveLength(1);
 
-    const [fopUrl, fopInit] = fetchSpy.mock.calls[6];
+    const [fopUrl, fopInit] = fetchSpy.mock.calls[7];
     expect(fopUrl).toContain('/payment/reservationworkbench/WB-T/formofpayment');
     const body = JSON.parse((fopInit?.body as string) ?? '{}');
     // Canonical body per APIRef_AddFOP.htm (verified 2026-05-29):
@@ -113,14 +115,16 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok())                // addOffer
-      .mockResolvedValueOnce(ok());               // addTraveler
+      .mockResolvedValueOnce(ok())                // addTraveler (at P.)
+      .mockResolvedValueOnce(ok());               // addPrimaryContact (at P.)
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
     expect(await host.process('TKP1', wa)).toBe('FILED FARE NOT FOUND');
     // FQ never called → priceQuotes empty → TKP rejects before FOP POST
-    expect(fetchSpy).toHaveBeenCalledTimes(5);  // no FOP fetch
+    expect(fetchSpy).toHaveBeenCalledTimes(6);  // no FOP fetch
   });
 
   it('form-of-payment failure (5xx) surfaces as LIVE BACKEND ERROR; no tickets issued', async () => {
@@ -128,9 +132,10 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
-      .mockResolvedValueOnce(ok())
-      .mockResolvedValueOnce(ok())
-      .mockResolvedValueOnce(priceResp())
+      .mockResolvedValueOnce(ok())                // addOffer
+      .mockResolvedValueOnce(ok())                // addTraveler (at P.)
+      .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
+      .mockResolvedValueOnce(priceResp())         // FQ
       .mockResolvedValueOnce(new Response('"payment system down"', {
         status: 503, statusText: 'Service Unavailable',
       }));
@@ -138,6 +143,7 @@ describe('Galileo live TKP — form of payment + commit', () => {
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
     await host.process('FQ', wa);
     const resp = await host.process('TKP1', wa);
 

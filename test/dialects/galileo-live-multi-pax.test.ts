@@ -87,21 +87,28 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('N.SMITH/JOHN MR/JANE MRS — 2 pax post in ONE call to /travelers/list (not 2)', async () => {
+  // Refactor 2026-06-06: addTraveler / addTravelers fires at P. time
+  // (when BOTH name and phone are present), not at N. time. Each test
+  // now adds a P. step after the N. cryptic, plus one ok() mock for
+  // the addPrimaryContact call that also fires at P. time.
+  it('N.SMITH/JOHN MR/JANE MRS + P. — 2 pax post in ONE batch call', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
-      .mockResolvedValueOnce(ok())                                // addOffer
-      .mockResolvedValueOnce(travelerListResp(['uuid-1', 'uuid-2'])); // addTravelers (batch)
+      .mockResolvedValueOnce(ok())                                  // addOffer
+      .mockResolvedValueOnce(travelerListResp(['uuid-1', 'uuid-2'])) // addTravelers (batch)
+      .mockResolvedValueOnce(ok());                                  // addPrimaryContact
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N2Y1', wa);
     await host.process('N.SMITH/JOHN MR/JANE MRS', wa);
+    expect(wa.liveTravelerIds).toBeUndefined(); // not posted yet — no phone
+    await host.process('P.LON*02012345678', wa);
 
-    // Exactly 5 calls — token, search, createWb, addOffer, addTravelers.
-    // Critically NOT 6 (which would mean we made two separate addTraveler calls).
-    expect(fetchSpy).toHaveBeenCalledTimes(5);
+    // Exactly 6 calls — token, search, createWb, addOffer, addTravelers, addPrimaryContact.
+    // Critically NOT 7 (which would mean two separate addTraveler calls).
+    expect(fetchSpy).toHaveBeenCalledTimes(6);
 
     // Verify the batch call hit /travelers/list with the canonical body.
     const [url, init] = fetchSpy.mock.calls[4];
@@ -113,12 +120,14 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
     expect(body.TravelerListRequest?.Traveler?.[1]?.PersonName?.Given).toContain('JANE');
     expect(body.TravelerListRequest?.Traveler?.[0]?.PersonName?.Surname).toBe('SMITH');
     expect(body.TravelerListRequest?.Traveler?.[1]?.PersonName?.Surname).toBe('SMITH');
+    // Both Travelers carry the phone Telephone[] (required by commit).
+    expect(body.TravelerListRequest?.Traveler?.[0]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
+    expect(body.TravelerListRequest?.Traveler?.[1]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
 
-    // Both UUIDs captured in order on wa.liveTravelerIds.
     expect(wa.liveTravelerIds).toEqual(['uuid-1', 'uuid-2']);
   });
 
-  it('Single-pax N. uses the simpler /travelers (object body, not array)', async () => {
+  it('Single-pax N. + P. uses the simpler /travelers (object body, not array)', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -134,11 +143,13 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
           }),
           { status: 201, headers: { 'Content-Type': 'application/json' } }
         )
-      );
+      )
+      .mockResolvedValueOnce(ok()); // addPrimaryContact
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
 
     const [url, init] = fetchSpy.mock.calls[4];
     expect(url).toContain('/travelers');
@@ -151,7 +162,7 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
     expect(wa.liveTravelerIds).toEqual(['uuid-single']);
   });
 
-  it('Multi-pax batch failure surfaces LIVE BACKEND ERROR; no liveTravelerIds captured', async () => {
+  it('Multi-pax batch failure at P. surfaces LIVE BACKEND ERROR; no liveTravelerIds captured', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -163,7 +174,11 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N2Y1', wa);
-    const resp = await host.process('N.SMITH/JOHN MR/JANE MRS', wa);
+    // N. accumulates names locally without firing live calls now.
+    const nameResp = await host.process('N.SMITH/JOHN MR/JANE MRS', wa);
+    expect(nameResp).toBe('OK');
+    // P. fires addTravelers (which fails 400) — error surfaces here.
+    const resp = await host.process('P.LON*02012345678', wa);
     expect(resp).toContain('LIVE BACKEND ERROR');
     expect(resp).toContain('400');
     expect(wa.liveTravelerIds).toBeUndefined();
@@ -187,39 +202,36 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
           }),
           { status: 201, headers: { 'Content-Type': 'application/json' } }
         )
-      );
+      )
+      .mockResolvedValueOnce(ok()); // addPrimaryContact
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N2Y1', wa);
     await host.process('N.SMITH/JOHN MR/JANE MRS', wa);
+    await host.process('P.LON*02012345678', wa);
 
     // Empty strings as placeholders to keep alignment with pnr.names.
     expect(wa.liveTravelerIds).toEqual(['', '']);
   });
 
-  it('Two consecutive N. entries accumulate in liveTravelerIds — first batch, then single', async () => {
+  it('Multiple N. entries before P. all post in ONE batch call', async () => {
+    // Under the deferred-post refactor, ALL accumulated names fire as a
+    // single /travelers/list batch when P. arrives (3 travelers in
+    // one round-trip), regardless of how many separate N. cryptics
+    // produced them.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
-      .mockResolvedValueOnce(ok())                                // addOffer
-      .mockResolvedValueOnce(travelerListResp(['uuid-A', 'uuid-B'])) // N.SMITH/JOHN/JANE → batch
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            Traveler: {
-              Identifier: { authority: 'Travelport', value: 'uuid-C' },
-              PersonName: { Given: 'CARL', Surname: 'JONES' },
-            },
-          }),
-          { status: 201, headers: { 'Content-Type': 'application/json' } }
-        ) // N.JONES/CARL → singular
-      );
+      .mockResolvedValueOnce(ok())                                       // addOffer
+      .mockResolvedValueOnce(travelerListResp(['uuid-A', 'uuid-B', 'uuid-C'])) // single batch at P.
+      .mockResolvedValueOnce(ok());                                      // addPrimaryContact
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N3Y1', wa);
     await host.process('N.SMITH/JOHN MR/JANE MRS', wa);
     await host.process('N.JONES/CARL MR', wa);
+    await host.process('P.LON*02012345678', wa);
 
     expect(wa.liveTravelerIds).toEqual(['uuid-A', 'uuid-B', 'uuid-C']);
   });

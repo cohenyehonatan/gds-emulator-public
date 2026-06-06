@@ -139,12 +139,14 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
   afterEach(() => fetchSpy.mockRestore());
 
   it('FQ during build POSTs priceOffer with the cached offer ID', async () => {
+    // After 2026-06-06 refactor: N. doesn't fire addTraveler (no phone
+    // yet), so the chain is one mock shorter. FQ doesn't depend on
+    // traveler-ID state.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok())                // addOffer
-      .mockResolvedValueOnce(ok())                // addTraveler
       .mockResolvedValueOnce(priceResp());        // FQ
 
     await host.process('A27JUNDENFRA', wa);
@@ -159,8 +161,8 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
     expect(wa.pnr.priceQuotes).toHaveLength(1);
     expect(wa.pnr.priceQuotes[0].validatingCarrier).toBe('UA');
 
-    // priceOffer call URL + body:
-    const [priceUrl, priceInit] = fetchSpy.mock.calls[5];
+    // priceOffer is at index 4 now (was 5 when addTraveler fired at N.).
+    const [priceUrl, priceInit] = fetchSpy.mock.calls[4];
     expect(priceUrl).toContain('/air/price/offers/buildfromcatalogproductofferings');
     const body = JSON.parse((priceInit?.body as string) ?? '{}');
     expect(body.OfferQueryRef?.SearchOfferId).toBe('OFF-001');
@@ -174,12 +176,12 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
   });
 
   it('FQ live failure (5xx) surfaces as LIVE BACKEND ERROR; no quote filed', async () => {
+    // Refactor: no addTraveler at N. anymore — one fewer mock.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
-      .mockResolvedValueOnce(ok())
-      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())  // addOffer
       .mockResolvedValueOnce(new Response('"down"', { status: 503, statusText: 'Service Unavailable' }));
 
     await host.process('A27JUNDENFRA', wa);

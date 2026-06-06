@@ -433,6 +433,53 @@ async function handleGalileoSell(
  * present — one round-trip instead of N. Single-passenger names use
  * the singular `/travelers` endpoint to keep the body shape minimal.
  */
+/**
+ * Post addTraveler / addTravelers to the live workbench iff we have
+ * BOTH a name (pnr.names) AND a phone — Travelport's commit rejects
+ * Travelers without an embedded `Telephone[]` ("TELEPHONE IS A
+ * REQUIRED FIELD"), and Galileo cryptic separates `N.` from `P.`.
+ * Idempotent on `wa.liveTravelerIds` being populated: once we've
+ * posted, subsequent N. / P. entries don't re-post (multi-step name
+ * additions after the first post are a known v1 limitation — see
+ * spec doc). Call this from both N. and P. handlers after their
+ * local pnr push so the right state is in place.
+ */
+async function ensureLiveTravelersPosted(
+  wa: WorkArea,
+  backend: LiveTravelportBackend,
+  phoneOverride?: string,
+  extraNames?: ReturnType<typeof parseNameText>[]
+): Promise<void> {
+  if ((wa.liveTravelerIds?.length ?? 0) > 0) return;
+  const phone = phoneOverride ?? wa.pnr.phones[0]?.number;
+  if (!phone) return;
+  // Compose the name list from already-saved pnr.names + any
+  // not-yet-pushed names handed in via extraNames. Callers can include
+  // their in-flight name without having to mutate wa.pnr.names first
+  // (which would leak local state on a live error).
+  const allNames = [...wa.pnr.names, ...(extraNames ?? [])];
+  if (allNames.length === 0) return;
+  if (!wa.liveWorkbenchId) {
+    wa.liveWorkbenchId = await backend.createWorkbench();
+  }
+  // Flatten the name list into a Traveler list — each name entry can
+  // carry multiple passengers (`N.SMITH/JOHN/JANE`).
+  const travelers = allNames.flatMap((nameItem) =>
+    nameItem.passengers.map((pax) => ({
+      givenName: pax.firstName,
+      surname: nameItem.surname,
+      phone,
+    }))
+  );
+  if (travelers.length > 1) {
+    const result = await backend.addTravelers(wa.liveWorkbenchId, travelers);
+    wa.liveTravelerIds = result.travelerIds;
+  } else if (travelers.length === 1) {
+    const result = await backend.addTraveler(wa.liveWorkbenchId, travelers[0]);
+    wa.liveTravelerIds = [result.travelerId ?? ''];
+  }
+}
+
 async function handleGalileoName(
   entry: NameEntry,
   wa: WorkArea,
@@ -443,45 +490,16 @@ async function handleGalileoName(
   if (ctx.backend instanceof LiveTravelportBackend) {
     const liveBackend = ctx.backend;
     try {
+      // Ensure a workbench exists so future entries (sell, SSR, FQ)
+      // can address one. addTraveler itself is deferred until P. is
+      // also present — see ensureLiveTravelersPosted. We pass an
+      // extra name via the override so the helper can include it in
+      // the post without us having to push to wa.pnr.names first
+      // (which would leak local state on a live error).
       if (!wa.liveWorkbenchId) {
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
-      const ids = wa.liveTravelerIds ?? [];
-      // ⚠️ KNOWN LIVE-COMMIT BLOCKER (2026-06-06): Travelport pre-prod
-      // rejects commit with "TELEPHONE IS A REQUIRED FIELD" unless every
-      // Traveler has Telephone[] embedded on the body. Galileo cryptic
-      // separates name (`N.`) from phone (`P.`), so at this point we
-      // don't have a phone yet. Adding a placeholder would put bad
-      // data on the BF; deferring addTraveler until P. arrives is the
-      // right shape but is a non-trivial refactor (it changes when the
-      // server-side TravelerId is captured for SSR). For now the live
-      // sell → commit path will surface the validation error at ER —
-      // documented in the spec doc as the next concrete handler change.
-      if (nameItem.passengers.length > 1) {
-        // Multi-pax: batch via `/travelers/list` — one round-trip.
-        const result = await liveBackend.addTravelers(
-          wa.liveWorkbenchId,
-          nameItem.passengers.map((pax) => ({
-            givenName: pax.firstName,
-            surname: nameItem.surname,
-          }))
-        );
-        for (const id of result.travelerIds) ids.push(id);
-      } else {
-        // Single-pax: simpler `/travelers` shape.
-        const pax = nameItem.passengers[0];
-        if (pax) {
-          const result = await liveBackend.addTraveler(wa.liveWorkbenchId, {
-            givenName: pax.firstName,
-            surname: nameItem.surname,
-          });
-          ids.push(result.travelerId ?? '');
-        }
-      }
-      // Push captured UUIDs into wa.liveTravelerIds — index-aligned
-      // with `pnr.names` flattened by passenger. Empty string entries
-      // preserve alignment when the response didn't surface a UUID.
-      wa.liveTravelerIds = ids;
+      await ensureLiveTravelersPosted(wa, liveBackend, undefined, [nameItem]);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -518,6 +536,11 @@ async function handleGalileoPhone(
       if (!wa.liveWorkbenchId) {
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
+      // Post deferred Traveler(s) first (canonical workflow: Traveler
+      // before PrimaryContact), then the PrimaryContact. Pass the
+      // phone explicitly so we don't have to mutate wa.pnr.phones
+      // before the live call (which would leak local state on failure).
+      await ensureLiveTravelersPosted(wa, liveBackend, entry.text);
       await liveBackend.addPrimaryContact(wa.liveWorkbenchId, entry.text);
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed

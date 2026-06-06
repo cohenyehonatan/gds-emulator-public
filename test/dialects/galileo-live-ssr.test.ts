@@ -137,30 +137,35 @@ describe('Galileo live SI. — POST to /specialservices/list', () => {
     expect(body.SpecialServiceListRequest?.SpecialServiceID?.[0]?.FreeText).toBe('NO EGGS');
   });
 
+  // Refactor 2026-06-06: addTraveler fires at P. (when both name+phone
+  // present); SSR needs liveTravelerIds, so tests now have to add a
+  // P. step before the SI. cryptic to ensure the traveler is posted.
   it('SI.P1/WCHR resolves TravelerIdentifier from wa.liveTravelerIds[0]', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok())                       // addOffer
-      .mockResolvedValueOnce(travelerResp('uuid-john'))  // addTraveler captures uuid
+      .mockResolvedValueOnce(travelerResp('uuid-john'))  // addTraveler (at P.)
+      .mockResolvedValueOnce(ok())                       // addPrimaryContact (at P.)
       .mockResolvedValueOnce(ok());                      // addSpecialServices
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
     expect(wa.liveTravelerIds).toEqual(['uuid-john']);
 
     await host.process('SI.P1/WCHR', wa);
 
-    const [, init] = fetchSpy.mock.calls[5];
+    const [, init] = fetchSpy.mock.calls[6];
     const body = JSON.parse((init?.body as string) ?? '{}');
     const sr = body.SpecialServiceListRequest?.SpecialServiceID?.[0];
     expect(sr.SSRCode).toBe('WCHR');
     expect(sr.TravelerIdentifier?.Identifier?.value).toBe('uuid-john');
   });
 
-  it('SI.P1/<code> with no captured traveler ID omits TravelerIdentifier (pre-prod will say if required)', async () => {
+  it('SI.P1/<code> with no captured traveler ID omits TravelerIdentifier', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -173,18 +178,20 @@ describe('Galileo live SI. — POST to /specialservices/list', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       )
-      .mockResolvedValueOnce(ok());
+      .mockResolvedValueOnce(ok())  // addPrimaryContact
+      .mockResolvedValueOnce(ok()); // SSR
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
     await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
     // liveTravelerIds has '' for the missing UUID — handler treats
     // that as no ref.
     expect(wa.liveTravelerIds).toEqual(['']);
 
     await host.process('SI.P1/WCHR', wa);
 
-    const [, init] = fetchSpy.mock.calls[5];
+    const [, init] = fetchSpy.mock.calls[6];
     const body = JSON.parse((init?.body as string) ?? '{}');
     expect(body.SpecialServiceListRequest?.SpecialServiceID?.[0]?.TravelerIdentifier).toBeUndefined();
   });
