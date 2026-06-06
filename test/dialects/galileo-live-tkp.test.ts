@@ -77,12 +77,15 @@ describe('Galileo live TKP — form of payment + commit', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it('TKP1 during build stamps local ticket records (FOP is post-commit only)', async () => {
+  it('TKP1 during build fires setCommissionPercent + stamps local ticket records (FOP is post-commit only)', async () => {
     // After the 2026-06-06 ticket-issuance refactor, TKP at build time
-    // doesn't POST a FOP — the FOP+Payment+commit-for-tickets dance
-    // runs from commitGalileoLive after the initial commit returns a
-    // locator. Verify TKP just files local TicketRecord(s); no live
-    // fetch fires at TKP time.
+    // POSTs ONE call live — setCommissionPercent. Commission needs to
+    // be on the workbench before the ticket-issuance commit (per the
+    // canonical devkit's "Optional Pre Commit Requests > Document
+    // Override > Commission by Passenger"), and TKP is where the user
+    // implicitly authorizes that. The FOP+Payment+commit-for-tickets
+    // work itself happens post-commit (in issueTicketsPostCommit
+    // inside commitGalileoLive).
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResp())
@@ -90,7 +93,8 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(ok())                // addOffer
       .mockResolvedValueOnce(ok())                // addTraveler (at P.)
       .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
-      .mockResolvedValueOnce(priceResp());        // FQ
+      .mockResolvedValueOnce(priceResp())         // FQ
+      .mockResolvedValueOnce(ok());               // setCommissionPercent
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
@@ -102,8 +106,14 @@ describe('Galileo live TKP — form of payment + commit', () => {
 
     expect(resp).toMatch(/^TKT \d{13}/m);
     expect(wa.pnr.tickets).toHaveLength(1);
-    // No extra fetch at TKP time — the FOP call moved to commit.
-    expect(fetchSpy.mock.calls.length).toBe(fetchesBeforeTkp);
+    // Exactly ONE extra fetch at TKP time — setCommissionPercent.
+    expect(fetchSpy.mock.calls.length).toBe(fetchesBeforeTkp + 1);
+    const [commissionUrl, commissionInit] = fetchSpy.mock.calls[fetchesBeforeTkp];
+    expect(commissionUrl).toContain('/documentoverride/Reservation/');
+    expect(commissionUrl).toContain('/documentoverrides');
+    const body = JSON.parse((commissionInit?.body as string) ?? '{}');
+    expect(body['@type']).toBe('DocumentOverrides');
+    expect(body.Commissions?.[0]?.Commission?.['@type']).toBe('CommissionPercent');
   });
 
   it('TKP without a filed fare returns FILED FARE NOT FOUND (no fetch)', async () => {
@@ -140,6 +150,7 @@ describe('Galileo live TKP — form of payment + commit', () => {
       .mockResolvedValueOnce(ok())                // addTraveler (at P.)
       .mockResolvedValueOnce(ok())                // addPrimaryContact (at P.)
       .mockResolvedValueOnce(priceResp())         // FQ
+      .mockResolvedValueOnce(ok())                // setCommissionPercent at TKP
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({ Receipt: [{ Confirmation: { Locator: { value: 'ABC123' } } }] }),

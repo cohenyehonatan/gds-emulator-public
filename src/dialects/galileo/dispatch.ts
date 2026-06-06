@@ -887,8 +887,23 @@ async function issueTicketsPostCommit(
   locator: string,
   fq: FareQuote
 ): Promise<void> {
+  const dumpEnabled = process.env.TVP_DEBUG_DUMP === '1';
+  const dump = async (label: string, data: unknown) => {
+    if (!dumpEnabled) return;
+    try {
+      const fs = await import('node:fs/promises');
+      await fs.writeFile(
+        `./tvp-diag-ticket-${label}.json`,
+        JSON.stringify(data, null, 2),
+        'utf8'
+      );
+    } catch {
+      // best-effort
+    }
+  };
   const opened = await backend.openWorkbenchFromLocator(locator);
   const newWorkbenchId = opened.workbenchId;
+  await dump('1-buildfromlocator', { workbenchId: newWorkbenchId, raw: opened.raw });
   // Extract the committed BF's offer UUIDs from the buildfromlocator
   // response. The post-commit workbench gives us a fresh set of offer
   // identifiers we use in applyPayment's OfferIdentifier[] field.
@@ -905,18 +920,50 @@ async function issueTicketsPostCommit(
     if (typeof uuid === 'string' && uuid.length > 0) offerUuids.push(uuid);
   }
   if (offerUuids.length === 0) return; // nothing to pay for — drop quietly
+  // Extract traveler ids from the buildfromlocator response — we need
+  // these to set commission per traveler (the next step). They live
+  // at Reservation.Traveler[].id in pre-prod responses (e.g.
+  // "travelerRefId_1"); fall back to Identifier.value if the local id
+  // is missing.
+  const travelerIds: string[] = [];
+  for (const t of Array.isArray(reservation?.Traveler) ? reservation.Traveler : reservation?.Traveler ? [reservation.Traveler] : []) {
+    const tid = (t as any)?.id ?? (t as any)?.Identifier?.value;
+    if (typeof tid === 'string' && tid.length > 0) travelerIds.push(tid);
+  }
+  // Set commission FIRST. Travelport's ticket-issuance commit rejects
+  // with "COMMISSION PERCENTAGE MUST BE ENTERED" if no commission is
+  // recorded on the workbench, even for cash bookings without agency
+  // commission. The TravelerIdentifierRef[].id field is the LOCAL
+  // traveler id (e.g. "travelerRefId_1"), captured from the
+  // buildfromlocator response. Also setting it on the BUILD workbench
+  // at TKP time, but pre-prod may treat post-commit-set commissions
+  // differently — belt-and-suspenders covers both.
+  if (travelerIds.length > 0) {
+    try {
+      const commissionResp = await backend.setCommissionPercent(newWorkbenchId, {
+        travelerIds,
+        percent: 0,
+      });
+      await dump('2a-setcommission', { travelerIds, response: commissionResp });
+    } catch (err) {
+      await dump('2a-setcommission-error', { travelerIds, error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
+  }
   const fopResult = await backend.addFormOfPayment(
     newWorkbenchId,
     fq.fop ?? { kind: 'cash' }
   );
+  await dump('2b-addfop', { fopUuid: fopResult.fopUuid, raw: fopResult.raw });
   if (!fopResult.fopUuid) return; // can't reference the FOP — abort
   const total = fq.passengers.reduce((sum, pf) => sum + pf.total * pf.count, 0);
-  await backend.applyPayment(newWorkbenchId, {
+  const applyResp = await backend.applyPayment(newWorkbenchId, {
     fopUuid: fopResult.fopUuid,
     offerUuids,
     amount: total,
     currency: fq.currency || 'USD',
   });
+  await dump('3-applypayment', { offerUuids, amount: total, currency: fq.currency, response: applyResp });
   // Pre-ticket review — devkit's Step 4. Passive GET of the workbench
   // state. The devkit explicitly lists this between applyPayment and
   // the final commit; Travelport's workflow may use the GET as an
@@ -925,9 +972,10 @@ async function issueTicketsPostCommit(
   // that the next commit reads). Failures here are non-fatal — we
   // proceed to the commit and let it decide.
   try {
-    await backend.getWorkbench(newWorkbenchId);
-  } catch {
-    // ignore — passive review step
+    const reviewResp = await backend.getWorkbench(newWorkbenchId);
+    await dump('4-preticketreview', reviewResp);
+  } catch (err) {
+    await dump('4-preticketreview-error', { error: err instanceof Error ? err.message : String(err) });
   }
   // Commit the post-commit workbench with the CANONICAL flat ticket-
   // issuance body (`forTicketIssuance: true` switches from our wrapped
@@ -936,7 +984,13 @@ async function issueTicketsPostCommit(
   // accepts for ER might silently skip ticket creation here. We don't
   // need the returned locator — it's the same as the input one (the
   // workbench cancel-and-recommit pattern keeps the locator stable).
-  await backend.commitWorkbench(newWorkbenchId, { forTicketIssuance: true });
+  try {
+    const finalLocator = await backend.commitWorkbench(newWorkbenchId, { forTicketIssuance: true });
+    await dump('5-finalcommit', { finalLocator });
+  } catch (err) {
+    await dump('5-finalcommit-error', { error: err instanceof Error ? err.message : String(err) });
+    throw err;
+  }
 }
 
 /**
@@ -2157,6 +2211,35 @@ async function handleGalileoTicket(
   // tracks FOP ids per-locator, not per-workbench). TKP-during-build
   // is now LOCAL-ONLY for ticket-record construction; the live
   // post-commit dance owns all FOP / Payment / ticket-commit work.
+  //
+  // EXCEPTION: commission. Travelport's ticket commit rejects with
+  // "COMMISSION PERCENTAGE MUST BE ENTERED" if no commission has been
+  // recorded on the workbench at ANY stage. Setting it post-commit
+  // returns a successful DocumentOverrides UUID but the commit still
+  // rejects (verified 2026-06-06 — tested setting commission both
+  // before and after addFOP in the post-commit workbench; same
+  // rejection both times). Conclusion: commission must be set on the
+  // BUILD workbench, and inherited through the post-commit
+  // buildfromlocator. So we set it here at TKP time (when the user
+  // implicitly authorizes ticket-issuance) — 0% for cash by default,
+  // overridable when TMU<n>C support lands.
+  if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId && (wa.liveTravelerIds ?? []).length > 0) {
+    try {
+      // Commission body's `TravelerIdentifierRef[].id` is the
+      // LOCAL traveler id (e.g. "travelerRefId_1"), NOT the UUID we
+      // captured in wa.liveTravelerIds. The devkit's commission flow
+      // extracts via `Reservation.Traveler[0].id`. Server-assigned,
+      // sequential — predict by ordinal since we haven't GET'd the
+      // workbench state.
+      const localIds = (wa.liveTravelerIds ?? []).map((_, i) => `travelerRefId_${i + 1}`);
+      await ctx.backend.setCommissionPercent(wa.liveWorkbenchId, {
+        travelerIds: localIds,
+        percent: 0,
+      });
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
 
   // One ticket per passenger, per the Sabre ticketing convention.
   // Each ticket lumps every priced segment's tariff into a single base/tax.

@@ -342,25 +342,35 @@ export class LiveTravelportBackend implements Backend {
   async airSearch(req: AirSearchRequest): Promise<unknown> {
     const url = `${this.opts.apiBase}/air/catalog/search/catalogproductofferings`;
     const adults = req.adults ?? 1;
-    // Payload structure sourced verbatim from validate-travelport-creds.ts
-    // (proven against 7K9S pre-prod 2026-05-27 — returned 10 offers DEN→FRA).
+    // VERIFIED 2026-06-06 against devkit's "1 - Search > One-Way >
+    // Search Request One-Way UA" — canonical body uses `@type` at the
+    // ROOT (not a wrapped CatalogProductOfferingsQueryRequest key) and
+    // includes `contentSourceList: ["GDS"]` to flag the search as
+    // GDS-only. Pre-prod returns offers for both shapes (verified
+    // 2026-05-27 with the wrapped body), but the missing
+    // contentSourceList may cause downstream offers to commit as HELD
+    // reservations instead of ticket-eligible BFs — matching the
+    // 2026-06-06 evening finding that every BF we've committed shows
+    // up as ConfirmationHold in the retrieve response, never as a
+    // ticketed reservation.
     const body = {
-      CatalogProductOfferingsQueryRequest: {
-        CatalogProductOfferingsRequest: {
-          '@type': 'CatalogProductOfferingsRequestAir',
-          offersPerPage: 10,
-          PassengerCriteria: [
-            { '@type': 'PassengerCriteria', passengerTypeCode: 'ADT', number: adults },
-          ],
-          SearchCriteriaFlight: [
-            {
-              '@type': 'SearchCriteriaFlight',
-              departureDate: req.departureDate,
-              From: { value: req.origin },
-              To: { value: req.destination },
-            },
-          ],
-        },
+      '@type': 'CatalogProductOfferingsQueryRequest',
+      CatalogProductOfferingsRequest: {
+        '@type': 'CatalogProductOfferingsRequestAir',
+        offersPerPage: 10,
+        maxNumberOfUpsellsToReturn: 4,
+        contentSourceList: ['GDS'],
+        PassengerCriteria: [
+          { '@type': 'PassengerCriteria', passengerTypeCode: 'ADT', number: adults },
+        ],
+        SearchCriteriaFlight: [
+          {
+            '@type': 'SearchCriteriaFlight',
+            departureDate: req.departureDate,
+            From: { value: req.origin },
+            To: { value: req.destination },
+          },
+        ],
       },
     };
     return this.postJson(url, body, 'airSearch');
@@ -614,29 +624,36 @@ export class LiveTravelportBackend implements Backend {
     // `FormOfPaymentPaymentCard`. Replaces the previous best-guess
     // `{ FormOfPayment: [{ Type: "Cash" }] }` body — same bug class
     // as the cancel/queue-place body fixes earlier.
+    // VERIFIED 2026-06-06 against devkit's "5 - Ticket > Step 2 Add
+    // FOP Post Commit Reservation Cash/Credit Card": canonical body
+    // is FLAT with `@type` at the root (not the wrapped
+    // FormOfPaymentCash-as-key shape we'd been using). Same pattern
+    // as the commit body fix. Client-provides an Identifier.value
+    // UUID so applyPayment can reference it without an extra round-trip.
+    const clientFopUuid = crypto.randomUUID();
     let body: Record<string, unknown>;
     if (fop.kind === 'cash') {
       body = {
-        FormOfPaymentCash: {
-          id: 'formOfPayment_1',
-          FormOfPaymentRef: 'formOfPayment_1',
-          ...(fop.nonRefundable ? { agentNonRefundableInd: true } : {}),
-        },
+        '@type': 'FormOfPaymentCash',
+        id: 'formOfPayment_1',
+        FormOfPaymentRef: 'formOfPayment_1',
+        Identifier: { authority: 'Travelport', value: clientFopUuid },
+        ...(fop.nonRefundable ? { agentNonRefundableInd: true } : {}),
       };
     } else {
       body = {
-        FormOfPaymentPaymentCard: {
-          id: 'formOfPayment_1',
-          FormOfPaymentRef: 'formOfPayment_1',
-          PaymentCard: {
-            '@type': 'PaymentCardDetail',
-            id: 'paymentCard_1',
-            CardType: 'Credit',
-            CardCode: fop.brand,
-            CardNumber: { '@type': 'CardNumber', PlainText: fop.pan },
-            expireDate: fop.expiry,
-            ...(fop.holderName ? { CardHolderName: fop.holderName } : {}),
-          },
+        '@type': 'FormOfPaymentPaymentCard',
+        id: 'formOfPayment_1',
+        FormOfPaymentRef: 'formOfPayment_1',
+        Identifier: { authority: 'Travelport', value: clientFopUuid },
+        PaymentCard: {
+          '@type': 'PaymentCardDetail',
+          id: 'paymentCard_1',
+          CardType: 'Credit',
+          CardCode: fop.brand,
+          CardNumber: { '@type': 'CardNumber', PlainText: fop.pan },
+          expireDate: fop.expiry,
+          ...(fop.holderName ? { CardHolderName: fop.holderName } : {}),
         },
       };
     }
@@ -701,6 +718,41 @@ export class LiveTravelportBackend implements Backend {
       })),
     };
     return this.postJson(url, body, 'applyPayment');
+  }
+
+  /**
+   * Set commission on each Traveler of an open workbench via the
+   * canonical "documentoverrides" endpoint. Travelport's ticket-
+   * issuance commit rejects with "COMMISSION PERCENTAGE MUST BE
+   * ENTERED" if no commission has been recorded on the workbench —
+   * even when the actual commission is 0 (cash sales with no
+   * agency commission). The canonical body is from devkit's
+   * "Optional Pre Commit Requests > Optional Services > Document
+   * Override > Commission by Passenger".
+   *
+   * Each entry references a traveler by `TravelerIdentifierRef[].id`
+   * pointing at the traveler's id in the workbench (e.g. travelerRefId_1
+   * in pre-prod responses).
+   *
+   * Source: POST /11/air/book/documentoverride/Reservation/{wb}/documentoverrides
+   */
+  async setCommissionPercent(
+    workbenchId: string,
+    opts: { travelerIds: string[]; percent: number }
+  ): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/documentoverride/Reservation/${encodeURIComponent(workbenchId)}` +
+      `/documentoverrides`;
+    const body = {
+      '@type': 'DocumentOverrides',
+      id: 'documentOverrides_1',
+      DocumentOverridesRef: 'documentOverrides_1',
+      Commissions: opts.travelerIds.map((id) => ({
+        TravelerIdentifierRef: [{ id }],
+        Commission: { '@type': 'CommissionPercent', Percent: opts.percent },
+      })),
+    };
+    return this.postJson(url, body, 'setCommissionPercent');
   }
 
   async addPrimaryContact(workbenchId: string, phone: string): Promise<unknown> {
