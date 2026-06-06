@@ -24,12 +24,13 @@ describe('Galileo SI. cryptic parsing', () => {
     }
   });
 
-  it('SI.S3/VGML — segment-3 scope (S<n> parsed but not stored on local model)', () => {
+  it('SI.S3/VGML — segment-3 scope surfaces as segmentRef', () => {
     const r = parseGalileoEntry('SI.S3/VGML');
     expect(r.kind).toBe('ssr');
     if (r.kind === 'ssr') {
       expect(r.code).toBe('VGML');
       expect(r.nameRef).toBeUndefined();
+      expect(r.segmentRef).toBe(3);
     }
   });
 
@@ -39,6 +40,7 @@ describe('Galileo SI. cryptic parsing', () => {
     if (r.kind === 'ssr') {
       expect(r.code).toBe('VGMLBK');
       expect(r.nameRef).toEqual({ item: 2 });
+      expect(r.segmentRef).toBe(3);
     }
   });
 

@@ -87,6 +87,13 @@ export interface SsrEntry extends BaseEntry {
   carrier: string;
   text?: string;
   nameRef?: { item: number; passenger?: number };
+  /**
+   * 1-based segment number for `S<n>` scope on Galileo SI. entries
+   * (e.g. `SI.S3/WCHR` → segmentRef: 3). When omitted the SSR applies
+   * whole-BF. The live SSR dispatcher uses this to select the correct
+   * workbench-side offer UUID from `wa.liveWorkbenchOfferIds`.
+   */
+  segmentRef?: number;
 }
 
 export interface OsiEntry extends BaseEntry {

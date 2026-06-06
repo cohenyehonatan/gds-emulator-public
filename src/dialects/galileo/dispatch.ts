@@ -1234,10 +1234,22 @@ async function handleGalileoSsr(
     // short ref (`o1`) cached in vendorRef. The earlier vendorRef-
     // based version returned 200 + Result.Error: OFFER ID/IDENTIFIER
     // VALUES MUST MATCH WITH THE RESERVATION WORKBENCH OFFER ID/
-    // IDENTIFIER VALUES. Fall back to the search-side ID for emulated
-    // mocks that don't populate the workbench offer list.
+    // IDENTIFIER VALUES.
+    //
+    // Per-leg scope: `SI.S<n>/<code>` targets segment <n>. Pick the
+    // workbench offer UUID for THAT segment (index = segmentRef-1).
+    // No segment scope (whole-BF SSR) defaults to the first offer —
+    // for multi-offer BFs this is the simplest pre-prod-tolerated
+    // shape; future variants can pass all UUIDs in the array.
+    //
+    // Falls back to the search-side ID for emulated mocks that don't
+    // populate the workbench offer list.
+    const offerIdx =
+      entry.segmentRef && entry.segmentRef > 0 ? entry.segmentRef - 1 : 0;
     const offerId =
+      wa.liveWorkbenchOfferIds?.[offerIdx] ||
       wa.liveWorkbenchOfferIds?.[0] ||
+      wa.lastAvailability?.lines[offerIdx]?.vendorRef?.offerId ||
       wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
     try {
       await ctx.backend.addSpecialServices(wa.liveWorkbenchId, [

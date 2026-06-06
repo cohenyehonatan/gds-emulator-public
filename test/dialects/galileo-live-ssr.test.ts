@@ -221,4 +221,31 @@ describe('Galileo live SI. — POST to /specialservices/list', () => {
     expect(wa.pnr.ssrs).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('SI.S2/<code> picks the second leg\'s workbench offer UUID', async () => {
+    // Manually populate the workbench offer-id array as if two
+    // addOffer calls had already run — wb1 for leg 1, wb2 for leg 2.
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok())  // addOffer (we'll inject offer IDs)
+      .mockResolvedValueOnce(ok()); // SSR
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    // Inject two workbench offer UUIDs as if addOffer had captured
+    // them per-leg. (The mocked addOffer above returned `ok()` which
+    // doesn't include an OfferListResponse, so the handler captured
+    // ['']; overwrite with the per-leg fixture.)
+    wa.liveWorkbenchOfferIds = ['wb-offer-LEG-1', 'wb-offer-LEG-2'];
+
+    await host.process('SI.S2/WCHR', wa);
+
+    const [, init] = fetchSpy.mock.calls[4];
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    const sr = body.SpecialServiceListRequest?.SpecialServiceID?.[0];
+    expect(sr.SSRCode).toBe('WCHR');
+    expect(sr.AppliesTo?.OfferIdentifier?.[0]?.Identifier?.value).toBe('wb-offer-LEG-2');
+  });
 });

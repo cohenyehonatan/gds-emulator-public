@@ -870,14 +870,14 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
   }
   // Parse scope: `P<n>`, `S<n>`, `P<n>S<n>`. Empty scope = all.
   let nameRef: SsrEntry['nameRef'] = undefined;
+  let segmentRef: number | undefined;
   if (scope.length > 0) {
-    const m = /^(?:P(\d+))?(?:S\d+)?$/.exec(scope);
+    const m = /^(?:P(\d+))?(?:S(\d+))?$/.exec(scope);
     if (!m) {
       throw new ParseError(`Galileo SI: malformed scope "${scope}" in "${raw}"`);
     }
     if (m[1]) nameRef = { item: Number(m[1]) };
-    // S<n> segment scope is parsed but not surfaced — local model
-    // doesn't carry per-segment SSR refs yet.
+    if (m[2]) segmentRef = Number(m[2]);
   }
   return {
     kind: 'ssr',
@@ -887,6 +887,7 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     carrier: 'YY', // default to "all airlines"; per-carrier qualifier deferred
     text,
     nameRef,
+    segmentRef,
   };
 }
 
