@@ -1657,10 +1657,10 @@ async function handleGalileoPricing(
   if (wa.pnr.names.length === 0) return GalileoResponse.NEED_NAME;
 
   if (ctx.backend instanceof LiveTravelportBackend) {
-    const offerId = findOfferIdForFirstSegment(wa);
-    if (offerId) {
+    const refs = findPriceRefsForFirstSegment(wa);
+    if (refs) {
       try {
-        const response = await ctx.backend.priceOffer(offerId, wa.pnr.passengerCount() || 1);
+        const response = await ctx.backend.priceOffer(refs);
         const fq = mapPricedOffer(response, {
           departureDate: wa.pnr.segments[0]?.date ?? '',
         });
@@ -1674,7 +1674,7 @@ async function handleGalileoPricing(
         return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
       }
     }
-    // No offerId reachable → fall through to emulated below.
+    // No usable refs → fall through to emulated below.
   }
 
   const fq = priceItinerary(wa.pnr, {});
@@ -1698,6 +1698,29 @@ function findOfferIdForFirstSegment(wa: WorkArea): string | undefined {
     (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
   );
   return line?.vendorRef?.offerId;
+}
+
+/**
+ * Like `findOfferIdForFirstSegment` but returns the 3-ID triple
+ * `priceOffer` needs (searchIdentifier from the availability cache +
+ * per-line offerId/productId from vendorRef). Falls back to undefined
+ * if any of the three is missing so the caller can defer to
+ * emulated pricing rather than POST an invalid live body.
+ */
+function findPriceRefsForFirstSegment(
+  wa: WorkArea
+): { searchIdentifier: string; offerId: string; productId: string } | undefined {
+  const seg = wa.pnr.segments[0];
+  const avail = wa.lastAvailability;
+  if (!seg || !avail) return undefined;
+  if (!avail.searchIdentifier) return undefined;
+  const line = avail.lines.find(
+    (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
+  );
+  const offerId = line?.vendorRef?.offerId;
+  const productId = line?.vendorRef?.productId;
+  if (!offerId || !productId) return undefined;
+  return { searchIdentifier: avail.searchIdentifier, offerId, productId };
 }
 
 /**

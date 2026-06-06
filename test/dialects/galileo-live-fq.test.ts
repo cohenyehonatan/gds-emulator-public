@@ -165,8 +165,15 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
     const [priceUrl, priceInit] = fetchSpy.mock.calls[4];
     expect(priceUrl).toContain('/air/price/offers/buildfromcatalogproductofferings');
     const body = JSON.parse((priceInit?.body as string) ?? '{}');
-    expect(body.OfferQueryRef?.SearchOfferId).toBe('OFF-001');
-    expect(body.OfferQueryRef?.PassengerCriteria?.[0]?.passengerTypeCode).toBe('ADT');
+    // Canonical body per devkit Price One-Way (same envelope as addOffer):
+    // OfferQueryBuildFromCatalogProductOfferings with the 3-ID triple
+    // (searchIdentifier + offerId + productId).
+    const req = body.OfferQueryBuildFromCatalogProductOfferings?.BuildFromCatalogProductOfferingsRequest;
+    expect(req?.['@type']).toBe('BuildFromCatalogProductOfferingsRequestAir');
+    expect(req?.CatalogProductOfferingsIdentifier?.Identifier?.value).toBe('SRCH-FIXTURE');
+    const selection = req?.CatalogProductOfferingSelection?.[0];
+    expect(selection?.CatalogProductOfferingIdentifier?.Identifier?.value).toBe('OFF-001');
+    expect(selection?.ProductIdentifier?.[0]?.Identifier?.value).toBe('p0');
   });
 
   it('FQ without itinerary / names rejects without any fetch', async () => {

@@ -438,24 +438,44 @@ export class LiveTravelportBackend implements Backend {
    *
    * Source: POST /11/air/price/offers/buildfromcatalogproductofferings —
    * "Price offers using reference payload". Used by Galileo `FQ`'s
-   * live path: pull a `vendorRef.offerId` from cached availability,
-   * post it, get back a priced offer that maps to FareQuote.
+   * live path: pull a `vendorRef.offerId` + productId from cached
+   * availability, post it, get back a priced offer that maps to
+   * FareQuote.
    *
-   * ⚠️ NOT YET VALIDATED LIVE. Body shape inherited from the
-   * pre-2026-06-05 addOffer envelope (`OfferQueryRef`/`SearchOfferId`).
-   * That envelope was proven WRONG for addOffer (pre-prod returns
-   * "INVALID INPUT FORMAT"); priceOffer almost certainly needs the
-   * same three-ID canonical body (`OfferQueryBuildFromCatalogProduct-
-   * Offerings` with searchIdentifier + offerId + productId). Fix when
-   * the FQ-live validation pass runs.
+   * Body shape is the SAME 3-ID envelope that addOffer uses (the
+   * canonical devkit's `getSearchRefPricePayloadDevKit` template is
+   * structurally identical to `addOffer`'s — both use
+   * `OfferQueryBuildFromCatalogProductOfferings` /
+   * `BuildFromCatalogProductOfferingsRequest`). Only the URL
+   * differs: `/air/price/offers/...` vs `/air/book/airoffer/
+   * reservationworkbench/{wb}/offers/...`. Both need the same
+   * (searchIdentifier, offerId, productId) triple.
    */
-  async priceOffer(offerId: string, adults = 1): Promise<unknown> {
+  async priceOffer(opts: {
+    searchIdentifier: string;
+    offerId: string;
+    productId: string;
+  }): Promise<unknown> {
     const url =
       `${this.opts.apiBase}/air/price/offers/buildfromcatalogproductofferings`;
     const body = {
-      OfferQueryRef: {
-        SearchOfferId: offerId,
-        PassengerCriteria: [{ number: adults, passengerTypeCode: 'ADT' }],
+      OfferQueryBuildFromCatalogProductOfferings: {
+        BuildFromCatalogProductOfferingsRequest: {
+          '@type': 'BuildFromCatalogProductOfferingsRequestAir',
+          CatalogProductOfferingsIdentifier: {
+            Identifier: { value: opts.searchIdentifier },
+          },
+          CatalogProductOfferingSelection: [
+            {
+              CatalogProductOfferingIdentifier: {
+                Identifier: { value: opts.offerId },
+              },
+              ProductIdentifier: [
+                { Identifier: { value: opts.productId } },
+              ],
+            },
+          ],
+        },
       },
     };
     return this.postJson(url, body, 'priceOffer');
