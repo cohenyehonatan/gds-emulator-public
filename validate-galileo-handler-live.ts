@@ -134,15 +134,69 @@ async function main(): Promise<void> {
     `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}`
   );
 
-  // 2.5) Pre-commit cancel via cryptic `X1` — exercises
-  // cancelGalileoLiveWorkbench's per-offer CancelSelectedOffers
-  // path. Last live run with XI proved the canonical `cancelAllInd:
-  // true` body actually clears the workbench. X1 sends a different
-  // body that returns 200 but may not actually cancel server-side
-  // — set TVP_DEBUG_DUMP=1 in the env to write the cancelitems
-  // request + response to ./tvp-diag-cancelitems-selected.json so
-  // we can see what the server confirms.
-  await run(host, wa, 'X1');
+  // 2.25) Multi-offer FQ exercise: ALSO sell a second connection (without
+  // cancelling the first) so the workbench holds two distinct offers.
+  // Then run FQ early and inspect lastPricing.fareBasis — a single
+  // connection's quote has 2 fare-basis codes (one per segment); two
+  // connections' merged quote should have 4. We need N. + P. before
+  // FQ since the live handler requires names/phone for the pricing path.
+  let multiOfferRan = false;
+  const altConnIdxForFq = lines.findIndex(
+    (l, i) =>
+      i > (connLeg1Idx >= 0 ? connLeg1Idx : 0) + 1 &&
+      i + 1 < lines.length &&
+      l.connectionGroup !== undefined &&
+      lines[i + 1].connectionGroup === l.connectionGroup
+  );
+  if (isConnection && altConnIdxForFq >= 0) {
+    const a = lines[altConnIdxForFq];
+    const b = lines[altConnIdxForFq + 1];
+    const cA = Object.entries(a.classes).find(([, n]) => n > 0)?.[0];
+    const cB = Object.entries(b.classes).find(([, n]) => n > 0)?.[0];
+    if (cA && cB) {
+      const extraSell = `N1${cA}${a.line}${cB}${b.line}`;
+      console.log(
+        `\n(multi-offer FQ setup: additional sell line ${a.line} + line ${b.line} → "${extraSell}")`
+      );
+      const extraResp = await run(host, wa, extraSell);
+      const wbUniqueOffers = new Set(wa.liveWorkbenchOfferIds ?? []).size;
+      console.log(
+        `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}  (${wbUniqueOffers} unique)`
+      );
+      if (!extraResp.includes('LIVE BACKEND ERROR') && wbUniqueOffers >= 2) {
+        // Need a name + phone for the FQ live path; do them inline,
+        // then run FQ. Skip if pre-prod rejected the second sell.
+        await run(host, wa, 'N.SMITH/JOHN MR');
+        await run(host, wa, 'P.LON*02012345678');
+        const fqMulti = await run(host, wa, 'FQ');
+        if (!fqMulti.includes('LIVE BACKEND ERROR')) {
+          const basisCount = wa.lastPricing?.fareBasis.length ?? 0;
+          if (basisCount > 2) {
+            console.log(`    ✓ MULTI-OFFER FQ: fareBasis has ${basisCount} codes (>2 = multiple offers merged).`);
+          } else {
+            console.log(`    △ FQ surfaced only ${basisCount} fareBasis codes — multi-offer merge didn't engage.`);
+          }
+          multiOfferRan = true;
+        }
+      } else {
+        console.log('    △ Pre-prod rejected the additional sell or no extra offer landed — skipping multi-offer FQ.');
+      }
+    }
+  } else {
+    console.log('\n△ Only one connection in cache; skipping multi-offer FQ exercise.');
+  }
+
+  // 2.5) Pre-commit cancel. Pick the cryptic based on what's in the
+  // workbench: when the multi-offer exercise put TWO distinct offers
+  // there, X1 (per-offer) hits the trial tenant's canceloffer
+  // authorization gap. XI (whole cancel) routes through cancelAllInd
+  // which is verified working regardless of offer count.
+  const cancelCryptic =
+    new Set(wa.liveWorkbenchOfferIds ?? []).size > 1 ? 'XI' : 'X1';
+  console.log(
+    `\n(picked cancel cryptic ${cancelCryptic} based on ${new Set(wa.liveWorkbenchOfferIds ?? []).size} unique workbench offers)`
+  );
+  await run(host, wa, cancelCryptic);
   const segsAfter = wa.pnr.segments.length;
   const wbAfter = wa.liveWorkbenchOfferIds?.length ?? 0;
   if (segsAfter > 0 || wbAfter > 0) {
@@ -181,26 +235,33 @@ async function main(): Promise<void> {
     await run(host, wa, sellEntry);
   }
 
-  // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
-  await run(host, wa, 'N.SMITH/JOHN MR');
-  console.log(
-    `    liveTravelerIds: ${wa.liveTravelerIds === undefined ? '(not posted yet — correct)' : JSON.stringify(wa.liveTravelerIds)}`
-  );
+  if (multiOfferRan) {
+    // Multi-offer exercise already ran N. + P. + FQ. Cancel cleared
+    // segments + workbench offer IDs but kept liveTravelerIds and
+    // pnr.names/phones; no need to re-issue them.
+    console.log('\n(skipping N./P./FQ — already issued during multi-offer exercise)');
+  } else {
+    // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
+    await run(host, wa, 'N.SMITH/JOHN MR');
+    console.log(
+      `    liveTravelerIds: ${wa.liveTravelerIds === undefined ? '(not posted yet — correct)' : JSON.stringify(wa.liveTravelerIds)}`
+    );
 
-  // 4) Phone — triggers addTraveler (with embedded Telephone) + addPrimaryContact.
-  await run(host, wa, 'P.LON*02012345678');
-  console.log(
-    `    liveTravelerIds: ${wa.liveTravelerIds === undefined ? '(NOT POSTED — BUG)' : JSON.stringify(wa.liveTravelerIds)}`
-  );
+    // 4) Phone — triggers addTraveler (with embedded Telephone) + addPrimaryContact.
+    await run(host, wa, 'P.LON*02012345678');
+    console.log(
+      `    liveTravelerIds: ${wa.liveTravelerIds === undefined ? '(NOT POSTED — BUG)' : JSON.stringify(wa.liveTravelerIds)}`
+    );
 
-  // 5) Fare quote — verifies priceOffer canonical 3-ID body. Soft-fail
-  // (warn but continue) if the trial tenant doesn't price this route:
-  // an end-to-end ER still has value even without a live FQ.
-  const fq = await run(host, wa, 'FQ');
-  if (fq.includes('LIVE BACKEND ERROR')) {
-    console.log('    △ FQ live failed — priceOffer body may have hit a tenant gap. Continuing.');
-  } else if (!fq.includes('FARE QUOTE NOT AVAILABLE')) {
-    console.log('    ✓ FQ live priced (priceOffer body verified).');
+    // 5) Fare quote — verifies priceOffer canonical 3-ID body. Soft-fail
+    // (warn but continue) if the trial tenant doesn't price this route:
+    // an end-to-end ER still has value even without a live FQ.
+    const fq = await run(host, wa, 'FQ');
+    if (fq.includes('LIVE BACKEND ERROR')) {
+      console.log('    △ FQ live failed — priceOffer body may have hit a tenant gap. Continuing.');
+    } else if (!fq.includes('FARE QUOTE NOT AVAILABLE')) {
+      console.log('    ✓ FQ live priced (priceOffer body verified).');
+    }
   }
 
   // 6) SSR with TravelerIdentifier (server requires it). On a
