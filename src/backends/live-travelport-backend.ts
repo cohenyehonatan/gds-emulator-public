@@ -793,18 +793,32 @@ export class LiveTravelportBackend implements Backend {
       // CANNOT BE FOLLOWED BY *" — Travelport read our label as a
       // cryptic NP. qualifier and chose. Canonical devkit notepad
       // examples use `YT` (agency notepad) and `HG` (historical).
-      const code = opts?.kind === 'historical' ? 'HG' : 'YT';
-      // Notepad / Historical: NO `id` on either the ReservationComment
-      // or the Comment — the canonical "Add Notepad Remarks" body omits
-      // them. Including `id: 'reservationComment_1'` caused pre-prod
-      // to reject with 400 (id fields are only set when there's
-      // something to reference, like Vendor Remarks below).
-      entry = {
-        '@type': 'ReservationComment',
-        commentSource: 'Agency',
-        shareWith: 'Agency',
-        Comment: [{ name: code, value: text }],
-      };
+      // VERIFIED PRE-PROD 2026-06-06: plain cryptic `NP.<text>` maps
+      // to the "Add General Remarks" envelope, NOT "Add Notepad
+      // Remarks". General Remark uses `name: "RE"`, has `id` fields
+      // on both ReservationComment and Comment, has `language: "EN"`,
+      // and OMITS commentSource/shareWith. The earlier YT/notepad
+      // envelope returned 400 because YT is interpreted as an airline
+      // code (NP.<airline>*<text>) — not what plain NP. semantics need.
+      // Historical (`NP:H*<text>`) still uses HG with the notepad-
+      // style envelope, since the canonical "Add Historical Remarks"
+      // sample shows the commentSource/shareWith form.
+      if (opts?.kind === 'historical') {
+        entry = {
+          '@type': 'ReservationComment',
+          commentSource: 'Agency',
+          shareWith: 'Agency',
+          Comment: [{ name: 'HG', value: text }],
+        };
+      } else {
+        entry = {
+          '@type': 'ReservationComment',
+          id: 'reservationComment_1',
+          Comment: [
+            { id: 'comment_1', name: 'RE', language: 'EN', value: text },
+          ],
+        };
+      }
     }
     // VERIFIED PRE-PROD 2026-06-06: envelope is FLAT (`@type` at root)
     // with `ReservationComment` array — NOT the nested wrapper with

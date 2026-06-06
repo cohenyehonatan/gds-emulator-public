@@ -753,12 +753,13 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     console.log('      → SURPRISE: server NOW accepts whole-BF SSR; revisit the handler.');
   }
 
-  // Step 6: NP. reservation comment — canonical body per devkit
-  // "Add Notepad Remarks": flat root, ReservationComment[] (not
-  // ReservationCommentID), `name` is a 2-char Galileo notepad code
-  // (YT = agency notepad), shareWith: Agency. Previous shape returned
-  // 200 + "NOTEPAD ITEM WITH D QUALIFIER" because our "Notepad" label
-  // was parsed as a cryptic qualifier.
+  // Step 6: NP. reservation comment — canonical body per devkit "Add
+  // General Remarks": flat envelope, `name: "RE"` (Generic Remark),
+  // NO commentSource/shareWith, WITH `id` + `language` fields. The
+  // earlier `name: "YT"` body returned 400 INVALID INPUT FORMAT
+  // because YT is the canonical's "Notepad with airline tag" — the
+  // trial tenant doesn't recognize YT as a carrier. Plain cryptic
+  // `NP.<text>` maps to the General Remark envelope.
   await call(
     'POST',
     `${API_BASE}/air/book/remarks/reservationworkbench/${encodeURIComponent(wbId)}/reservationcomments/list`,
@@ -768,13 +769,19 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
       ReservationComment: [
         {
           '@type': 'ReservationComment',
-          commentSource: 'Agency',
-          shareWith: 'Agency',
-          Comment: [{ name: 'YT', value: 'PRE-PROD VALIDATION RUN' }],
+          id: 'reservationComment_1',
+          Comment: [
+            {
+              id: 'comment_1',
+              name: 'RE',
+              language: 'EN',
+              value: 'PRE-PROD VALIDATION RUN',
+            },
+          ],
         },
       ],
     },
-    'addReservationComment (notepad)'
+    'addReservationComment (general remark)'
   );
 
   // Step 7: cash form-of-payment with canonical FormOfPaymentCash discriminator

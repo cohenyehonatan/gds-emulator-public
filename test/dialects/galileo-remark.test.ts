@@ -171,9 +171,14 @@ describe('Galileo NP. — live wiring via /reservationcomments/list', () => {
     const [url, init] = fetchSpy.mock.calls[4];
     expect(url).toContain('/reservationcomments/list');
     const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.ReservationComment?.[0]?.commentSource).toBe('Agency');
+    // Plain cryptic `NP.<text>` maps to the General Remark envelope
+    // (no commentSource/shareWith; has id + language: 'EN'; name: 'RE').
+    expect(body.ReservationComment?.[0]?.commentSource).toBeUndefined();
+    expect(body.ReservationComment?.[0]?.id).toBe('reservationComment_1');
     expect(body.ReservationComment?.[0]?.Comment?.[0]).toEqual({
-      name: 'YT',
+      id: 'comment_1',
+      name: 'RE',
+      language: 'EN',
       value: 'HOLD CONTACT REQUIRED',
     });
   });
