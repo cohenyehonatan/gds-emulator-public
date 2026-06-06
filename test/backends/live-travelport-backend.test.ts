@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   LiveTravelportBackend,
   liveTravelportFromEnv,
+  parseCrypticPhone,
 } from '../../src/backends/live-travelport-backend.js';
 
 describe('LiveTravelportBackend — class wiring', () => {
@@ -244,5 +245,33 @@ describe('LiveTravelportBackend — createWorkbench response shapes', () => {
       );
     const b = new LiveTravelportBackend(creds);
     await expect(b.createWorkbench()).rejects.toThrow(/missing workbenchID/);
+  });
+});
+
+describe('parseCrypticPhone — strips cryptic syntax for Travelport validator', () => {
+  it('splits LON*02012345678 into cityCode + phoneNumber', () => {
+    expect(parseCrypticPhone('LON*02012345678')).toEqual({
+      cityCode: 'LON',
+      phoneNumber: '02012345678',
+    });
+  });
+
+  it('passes a bare digit string through (no city prefix)', () => {
+    expect(parseCrypticPhone('02012345678')).toEqual({ phoneNumber: '02012345678' });
+  });
+
+  it('strips spaces and dashes from the digits portion', () => {
+    expect(parseCrypticPhone('T*0793 888184-JAN')).toEqual({
+      cityCode: 'T',
+      phoneNumber: '0793888184',
+    });
+  });
+
+  it('preserves a leading + on international numbers', () => {
+    expect(parseCrypticPhone('+44 20 1234 5678')).toEqual({ phoneNumber: '+442012345678' });
+  });
+
+  it('returns empty phoneNumber if nothing usable after the *', () => {
+    expect(parseCrypticPhone('LON*')).toEqual({ cityCode: 'LON', phoneNumber: '' });
   });
 });

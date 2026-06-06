@@ -310,3 +310,108 @@ describe('mapCatalogProductOfferings — defensive parsing', () => {
     expect(lines[0].arriveTime).toBe('1300');
   });
 });
+
+describe('mapCatalogProductOfferings — flightRefs resolution (pre-prod shape)', () => {
+  // VERIFIED 2026-06-06: real Travelport responses don't embed Flight
+  // on each ProductBrandOption. They put the FlightDetail records in
+  // a response-level ReferenceList[] and each brand option carries
+  // flightRefs: ['s17', 's18'] pointing into that table. Mocked
+  // fixtures embed Flight directly (a shape we still tolerate).
+  it('resolves flightRefs against ReferenceList[].Flight[]', () => {
+    const live = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          Identifier: { value: 'SRCH-001' },
+          CatalogProductOffering: [
+            {
+              id: 'o1',
+              ProductBrandOptions: [
+                {
+                  flightRefs: ['s21'],
+                  ProductBrandOffering: [
+                    { Product: [{ productRef: 'p0' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        ReferenceList: [
+          {
+            '@type': 'ReferenceListFlight',
+            Flight: [
+              {
+                '@type': 'FlightDetail',
+                id: 's21',
+                carrier: 'FI',
+                number: '670',
+                equipment: '75W',
+                Departure: { location: 'DEN', date: '2026-07-06', time: '16:40:00' },
+                Arrival: { location: 'KEF', date: '2026-07-07', time: '06:00:00' },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const lines = mapCatalogProductOfferings(live);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].carrier).toBe('FI');
+    expect(lines[0].flightNumber).toBe('670');
+    expect(lines[0].origin).toBe('DEN');
+    expect(lines[0].destination).toBe('KEF');
+    expect(lines[0].equipment).toBe('75W');
+  });
+
+  it('drops flightRefs that don\'t resolve (no row in ReferenceList)', () => {
+    const partial = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              id: 'o1',
+              ProductBrandOptions: [
+                { flightRefs: ['unknown-id'], ProductBrandOffering: [] },
+              ],
+            },
+          ],
+        },
+        ReferenceList: [{ '@type': 'ReferenceListFlight', Flight: [] }],
+      },
+    };
+    expect(mapCatalogProductOfferings(partial)).toHaveLength(0);
+  });
+
+  it('embedded Flight wins over flightRefs (preserves legacy mock fixtures)', () => {
+    const mixed = {
+      CatalogProductOfferingsResponse: {
+        CatalogProductOfferings: {
+          CatalogProductOffering: [
+            {
+              id: 'o1',
+              ProductBrandOptions: [
+                {
+                  flightRefs: ['s99'],
+                  Flight: [
+                    {
+                      carrier: 'UA',
+                      number: '1234',
+                      Departure: { location: 'DEN', time: '2026-07-06T08:00:00Z' },
+                      Arrival: { location: 'FRA', time: '2026-07-07T07:30:00Z' },
+                    },
+                  ],
+                  ProductBrandOffering: [],
+                },
+              ],
+            },
+          ],
+        },
+        ReferenceList: [
+          { '@type': 'ReferenceListFlight', Flight: [{ id: 's99', carrier: 'XX' }] },
+        ],
+      },
+    };
+    const lines = mapCatalogProductOfferings(mixed);
+    expect(lines[0].carrier).toBe('UA'); // embedded — NOT 'XX'
+  });
+});

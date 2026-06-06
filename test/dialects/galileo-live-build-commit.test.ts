@@ -141,7 +141,8 @@ describe('Galileo live build → commit (mocked fetch chain)', () => {
     const [pcUrl, pcInit] = fetchSpy.mock.calls[5];
     expect(pcUrl).toContain('/primarycontact/reservationworkbench/WB-X/primarycontacts');
     const pcBody = JSON.parse((pcInit?.body as string) ?? '{}');
-    expect(pcBody.Telephone?.phoneNumber).toBe('LON*02012345678');
+    expect(pcBody.Telephone?.phoneNumber).toBe('02012345678');
+    expect(pcBody.Telephone?.cityCode).toBe('LON');
 
     // Verify the commit call's URL + body:
     const [commitUrl, commitInit] = fetchSpy.mock.calls[6];

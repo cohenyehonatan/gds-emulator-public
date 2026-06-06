@@ -50,7 +50,11 @@ describe('Galileo live P.<phone> — primary contact', () => {
     const [pcUrl, pcInit] = fetchSpy.mock.calls[2];
     expect(pcUrl).toContain('/primarycontact/reservationworkbench/WB-P/primarycontacts');
     const body = JSON.parse((pcInit?.body as string) ?? '{}');
-    expect(body.Telephone?.phoneNumber).toBe('LON*02012345678');
+    // parseCrypticPhone splits the cryptic `<city>*<digits>` form so
+    // Travelport's validator (PHONE FIELD CONTAINS INVALID CHARACTER)
+    // sees a clean phoneNumber; the city goes on cityCode.
+    expect(body.Telephone?.phoneNumber).toBe('02012345678');
+    expect(body.Telephone?.cityCode).toBe('LON');
     expect(body.Telephone?.role).toBe('Mobile');
   });
 
@@ -67,17 +71,23 @@ describe('Galileo live P.<phone> — primary contact', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4);  // not 5
   });
 
-  it('passes the raw text through — does not pre-parse role / city / type', async () => {
+  it('cryptic-strips the raw text before posting (Travelport rejects non-digits)', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(createWb())
       .mockResolvedValueOnce(ok());
 
-    // Agency-T* form per Mini Guide v2 p.16
+    // Agency-T* form per Mini Guide v2 p.16. The `*` separator is the
+    // cryptic city/digits split; "-JAN" and the embedded space have
+    // no place in Travelport's `phoneNumber` field — strip them.
     await host.process('P.T*0793 888184-JAN', wa);
     const [, init] = fetchSpy.mock.calls[2];
     const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.Telephone.phoneNumber).toBe('T*0793 888184-JAN');
+    expect(body.Telephone.phoneNumber).toBe('0793888184');
+    expect(body.Telephone.cityCode).toBe('T');
+    // Local pnr.phones still keeps the raw text — Galileo's *R
+    // renderer prints whatever the agent typed.
+    expect(wa.pnr.phones[0]?.number).toBe('T*0793 888184-JAN');
   });
 
   it('REST failure surfaces as LIVE BACKEND ERROR; local pnr.phones NOT updated', async () => {

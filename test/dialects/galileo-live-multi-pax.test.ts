@@ -121,8 +121,11 @@ describe('Galileo live N. — multi-pax routes to /travelers/list batch endpoint
     expect(body.TravelerListRequest?.Traveler?.[0]?.PersonName?.Surname).toBe('SMITH');
     expect(body.TravelerListRequest?.Traveler?.[1]?.PersonName?.Surname).toBe('SMITH');
     // Both Travelers carry the phone Telephone[] (required by commit).
-    expect(body.TravelerListRequest?.Traveler?.[0]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
-    expect(body.TravelerListRequest?.Traveler?.[1]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
+    // parseCrypticPhone splits `<city>*<digits>` before posting (the
+    // raw `*` would trip Travelport's PHONE FIELD validator).
+    expect(body.TravelerListRequest?.Traveler?.[0]?.Telephone?.[0]?.phoneNumber).toBe('02012345678');
+    expect(body.TravelerListRequest?.Traveler?.[0]?.Telephone?.[0]?.cityCode).toBe('LON');
+    expect(body.TravelerListRequest?.Traveler?.[1]?.Telephone?.[0]?.phoneNumber).toBe('02012345678');
 
     expect(wa.liveTravelerIds).toEqual(['uuid-1', 'uuid-2']);
   });

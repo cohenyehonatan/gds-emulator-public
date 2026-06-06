@@ -616,10 +616,20 @@ export class LiveTravelportBackend implements Backend {
     // Body is FLAT at the root (`@type` directly), Telephone is a
     // singular object (not array) with its own `@type`. Previous shape
     // `{ PrimaryContact: [{ Telephone: [...] }] }` was rejected with
-    // PRIMARY CONTACT TELEPHONE IS MISSING OR INVALID.
+    // PRIMARY CONTACT TELEPHONE IS MISSING OR INVALID. Phone gets
+    // cryptic-stripped (LON*02012345678 → city LON + 02012345678)
+    // because the validator rejects PHONE FIELD CONTAINS INVALID
+    // CHARACTER on the `*` separator.
+    const { cityCode, phoneNumber } = parseCrypticPhone(phone);
+    const telephone: Record<string, unknown> = {
+      '@type': 'Telephone',
+      role: 'Mobile',
+      phoneNumber,
+    };
+    if (cityCode) telephone.cityCode = cityCode;
     const body = {
       '@type': 'PrimaryContact',
-      Telephone: { '@type': 'Telephone', role: 'Mobile', phoneNumber: phone },
+      Telephone: telephone,
     };
     return this.postJson(url, body, 'addPrimaryContact');
   }
@@ -864,7 +874,19 @@ export class LiveTravelportBackend implements Backend {
       },
     };
     if (traveler.phone) {
-      t.Telephone = [{ phoneNumber: traveler.phone, role: 'Mobile' }];
+      // VERIFIED PRE-PROD 2026-06-06: Travelport's PHONE FIELD validator
+      // rejects any non-digit-/non-letter character in `phoneNumber`.
+      // Galileo cryptic `P.LON*02012345678` rides through as raw text
+      // with the `*` separator between city code and digits; split
+      // here so the canonical Telephone body has a clean phoneNumber.
+      const { cityCode, phoneNumber } = parseCrypticPhone(traveler.phone);
+      const tel: Record<string, unknown> = {
+        '@type': 'Telephone',
+        role: 'Mobile',
+        phoneNumber,
+      };
+      if (cityCode) tel.cityCode = cityCode;
+      t.Telephone = [tel];
     }
     if (traveler.email) {
       t.Email = [{ value: traveler.email }];
@@ -1395,6 +1417,35 @@ export class LiveTravelportBackend implements Backend {
     }
     return locator;
   }
+}
+
+/**
+ * Split a raw Galileo cryptic phone string (e.g. `LON*02012345678`)
+ * into a `cityCode` and a clean `phoneNumber` (digits + optional
+ * leading `+`). Used by both addTraveler's embedded Telephone and
+ * addPrimaryContact — Travelport pre-prod rejects any other character
+ * in `phoneNumber` with PHONE FIELD CONTAINS INVALID CHARACTER.
+ *
+ * Acceptance:
+ *  - `LON*02012345678` → { cityCode: "LON", phoneNumber: "02012345678" }
+ *  - `02012345678`     → { phoneNumber: "02012345678" }
+ *  - `+44 20 1234 5678` → { phoneNumber: "+442012345678" } (spaces stripped)
+ *
+ * Exported so tests can verify the split behavior directly.
+ */
+export function parseCrypticPhone(raw: string): { cityCode?: string; phoneNumber: string } {
+  const star = raw.indexOf('*');
+  let cityCode: string | undefined;
+  let rest: string;
+  if (star > 0) {
+    cityCode = raw.slice(0, star);
+    rest = raw.slice(star + 1);
+  } else {
+    rest = raw;
+  }
+  // Allow digits + leading +; everything else gets stripped.
+  const cleaned = rest.replace(/[^\d+]/g, '');
+  return cityCode ? { cityCode, phoneNumber: cleaned } : { phoneNumber: cleaned };
 }
 
 /**

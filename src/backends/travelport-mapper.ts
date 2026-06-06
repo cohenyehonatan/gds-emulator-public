@@ -67,6 +67,13 @@ export function mapCatalogProductOfferings(
   opts: MapOptions = {}
 ): AvailabilityLine[] {
   const offerings = extractOfferings(response);
+  // VERIFIED PRE-PROD 2026-06-06: actual responses put each
+  // FlightDetail in the response-level ReferenceList[].Flight[]
+  // table, with each ProductBrandOption referencing them via
+  // `flightRefs: ['s17', 's18', ...]`. Mocked fixtures embed Flight
+  // directly on the brand option — we still tolerate that shape as
+  // a fallback so existing tests pass.
+  const flightTable = buildFlightTable(response);
   const lines: AvailabilityLine[] = [];
   let lineIndex = 0;
   let connectionGroup = 0;
@@ -74,12 +81,9 @@ export function mapCatalogProductOfferings(
     const offerId = extractIdentifier(offering);
     const brandOptions = arrayish(offering?.ProductBrandOptions);
     for (const brandOpt of brandOptions) {
-      const flights = arrayish(brandOpt?.Flight);
+      const flights = resolveFlights(brandOpt, flightTable);
       if (flights.length === 0) continue;
       const classes = aggregateClasses(brandOpt);
-      // Capture vendor IDs from the offering itself + this brand-option's
-      // first ProductBrandOffering (which carries the brandable, priceable
-      // identity a future FQ live entry will need).
       const vendorRef = buildVendorRef(offerId, brandOpt);
       const group = flights.length > 1 ? ++connectionGroup : undefined;
       flights.forEach((flight, legIndex) => {
@@ -96,6 +100,47 @@ export function mapCatalogProductOfferings(
     }
   }
   return lines;
+}
+
+/**
+ * Build a `flight-id → FlightDetail` map from the response-level
+ * `ReferenceList`. ReferenceList is an array of typed entries; the
+ * one we want has `@type: ReferenceListFlight` (or just any entry
+ * with `Flight[]`) carrying the actual FlightDetail records, each
+ * with an `id` field like `s21`.
+ */
+function buildFlightTable(response: unknown): Map<string, unknown> {
+  const r = response as any;
+  const env = r?.CatalogProductOfferingsResponse ?? r;
+  const refList = arrayish(env?.ReferenceList);
+  const table = new Map<string, unknown>();
+  for (const ref of refList) {
+    const flights = arrayish((ref as any)?.Flight);
+    for (const f of flights) {
+      const id = (f as any)?.id ?? (f as any)?.Id;
+      if (typeof id === 'string' && id.length > 0) table.set(id, f);
+    }
+  }
+  return table;
+}
+
+/**
+ * Resolve a ProductBrandOption's flights. Pre-prod gives us
+ * `flightRefs: string[]` that index into the table; mocked fixtures
+ * embed `Flight: [...]` directly. Prefer the embedded shape (so test
+ * fixtures stay self-contained), fall back to ref resolution.
+ */
+function resolveFlights(brandOpt: any, table: Map<string, unknown>): unknown[] {
+  const embedded = arrayish(brandOpt?.Flight);
+  if (embedded.length > 0) return embedded;
+  const refs = arrayish(brandOpt?.flightRefs);
+  const resolved: unknown[] = [];
+  for (const ref of refs) {
+    if (typeof ref !== 'string') continue;
+    const f = table.get(ref);
+    if (f) resolved.push(f);
+  }
+  return resolved;
 }
 
 /**
