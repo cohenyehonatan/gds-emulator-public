@@ -122,9 +122,14 @@ async function main(): Promise<void> {
 
   // 6) End transaction — the moment of truth.
   const er = await run(host, wa, 'ER');
-  console.log(
-    `\nLocator stamped on PNR: ${wa.pnr.locator ?? '(none — handler bug)'}`
-  );
+  // commitGalileoLive resets the slot after end-tx (correct Galileo
+  // semantics — the work area empties for the next BF build), so
+  // `wa.pnr.locator` is gone by design. Parse the locator out of the
+  // rendered BF response — it's the 6-char alphanumeric in the
+  // signature line (e.g. `GZTY6M  7K9S/HA`).
+  const locatorMatch = /\b([A-Z0-9]{6})\b\s+\S+\/\S+/.exec(er);
+  const locator = locatorMatch?.[1];
+  console.log(`\nLocator (parsed from ER response): ${locator ?? '(none — handler regression)'}`);
   console.log(
     `workbench cleared on commit: ${wa.liveWorkbenchId === undefined ? 'yes ✓' : 'NO — still ' + wa.liveWorkbenchId}`
   );
@@ -132,11 +137,11 @@ async function main(): Promise<void> {
   // Cleanup: if we got a locator, cancel the BF so it doesn't leave
   // residue in pre-prod queues. Cancellation via the cryptic cancel
   // (X) doesn't have a live wire today, so go through the backend.
-  if (wa.pnr.locator) {
-    console.log(`\nCleanup: cancelling ${wa.pnr.locator}…`);
+  if (locator) {
+    console.log(`\nCleanup: cancelling ${locator}…`);
     if (backend instanceof LiveTravelportBackend) {
       try {
-        await backend.cancelReservation(wa.pnr.locator);
+        await backend.cancelReservation(locator);
         console.log('  ✓ cancelled');
       } catch (e) {
         console.log(`  △ cancel failed: ${e instanceof Error ? e.message : String(e)}`);
