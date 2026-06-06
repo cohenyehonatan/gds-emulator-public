@@ -238,6 +238,39 @@ export class LiveTravelportBackend implements Backend {
    * surfaced in the error message so call sites get clear failure
    * attribution without each having to redo the boilerplate.
    */
+  /**
+   * Walk a response body looking for Travelport's standard error
+   * envelope: `<Endpoint>Response.Result.Error[].Message`. Pre-prod
+   * returns HTTP 200 with these errors buried inside the body on
+   * server-side validation failures (commit returned 200 with
+   * "TELEPHONE IS A REQUIRED FIELD" inside ReservationResponse.Result.
+   * Error[0].Message), so a bare `res.ok` check silently misses them.
+   * Throws if any Error[] node carries a Message string.
+   */
+  private assertNoSemanticErrors(parsed: unknown, label: string): void {
+    const messages: string[] = [];
+    const walk = (node: unknown, depth = 0): void => {
+      if (depth > 8 || node == null || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (const child of node) walk(child, depth + 1);
+        return;
+      }
+      const record = node as Record<string, unknown>;
+      if (typeof record.Message === 'string' && record.Message.length > 0) {
+        const category = typeof record.category === 'string' ? record.category : '?';
+        const status = typeof record.StatusCode === 'number' ? record.StatusCode : '?';
+        messages.push(`[${category}/${status}] ${record.Message}`);
+      }
+      for (const v of Object.values(record)) walk(v, depth + 1);
+    };
+    walk(parsed);
+    if (messages.length > 0) {
+      throw new Error(
+        `LiveTravelportBackend ${label} server-side validation failure: ${messages.join('; ')}`
+      );
+    }
+  }
+
   private async postJson(url: string, body: unknown, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -247,7 +280,9 @@ export class LiveTravelportBackend implements Backend {
         `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
       );
     }
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    this.assertNoSemanticErrors(parsed, label);
+    return parsed;
   }
 
   /** Shared GET helper with the same header/error treatment as postJson. */
@@ -260,7 +295,9 @@ export class LiveTravelportBackend implements Backend {
         `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
       );
     }
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    this.assertNoSemanticErrors(parsed, label);
+    return parsed;
   }
 
   /** Shared PUT helper for status-update endpoints (e.g. void). */
@@ -273,7 +310,9 @@ export class LiveTravelportBackend implements Backend {
         `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
       );
     }
-    return text ? JSON.parse(text) : {};
+    const parsed = text ? JSON.parse(text) : {};
+    this.assertNoSemanticErrors(parsed, label);
+    return parsed;
   }
 
   /**
@@ -289,7 +328,9 @@ export class LiveTravelportBackend implements Backend {
         `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
       );
     }
-    return text ? JSON.parse(text) : {};
+    const parsed = text ? JSON.parse(text) : {};
+    this.assertNoSemanticErrors(parsed, label);
+    return parsed;
   }
 
   /**
@@ -862,15 +903,27 @@ export class LiveTravelportBackend implements Backend {
       },
     };
     const raw = (await this.postJson(url, body, 'addTravelers')) as any;
-    // Defensive across the documented batch shape, the singular envelope
-    // (some tenants return TravelerResponse for the list endpoint too),
-    // and legacy fallbacks.
-    const list =
-      raw?.TravelerListResponse?.Traveler ??
-      raw?.TravelerResponse?.Traveler ??
-      raw?.Traveler ??
-      [];
-    const nodes: any[] = Array.isArray(list) ? list : [list];
+    // VERIFIED PRE-PROD 2026-06-06 from a response dump:
+    //   { TravelerListResponse: { ReferenceList: [{ Traveler: [...] }] } }
+    // There's a ReferenceList[] wrapper level holding ReferenceListTraveler
+    // entries; flatten before pulling each Identifier.value.
+    const batchRefs = raw?.TravelerListResponse?.ReferenceList;
+    let nodes: any[] = [];
+    if (Array.isArray(batchRefs)) {
+      for (const ref of batchRefs) {
+        const list = Array.isArray(ref?.Traveler) ? ref.Traveler : [];
+        nodes.push(...list);
+      }
+    }
+    if (nodes.length === 0) {
+      // Legacy fallbacks: flat envelope variants observed on some mocks.
+      const list =
+        raw?.TravelerListResponse?.Traveler ??
+        raw?.TravelerResponse?.Traveler ??
+        raw?.Traveler ??
+        [];
+      nodes = Array.isArray(list) ? list : [list];
+    }
     const travelerIds = travelers.map(
       (_, i) => this.extractTravelerId(nodes[i]) ?? ''
     );

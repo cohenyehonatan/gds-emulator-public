@@ -156,15 +156,28 @@ async function call(
       parsed = text;
     }
   }
+  // VERIFIED PRE-PROD 2026-06-06: Travelport returns HTTP 200 on
+  // endpoints that fail server-side validation, with the actual error
+  // buried inside `<Endpoint>Response.Result.Error[]`. The commit
+  // endpoint specifically returned 200 with
+  // `ReservationResponse.Result.Error[0].Message = "TELEPHONE IS A
+  // REQUIRED FIELD"` even though the booking didn't commit. Treat
+  // presence of any Result.Error[] as failure.
+  const semanticErrors = extractTravelportErrors(parsed);
+  const semanticOk = res.ok && semanticErrors.length === 0;
   const result: CallResult = {
     status: res.status,
     statusText: res.statusText,
-    ok: res.ok,
+    ok: semanticOk,
     body: parsed,
     rawText: text,
   };
-  const tag = res.ok ? '✓' : res.status >= 500 ? '✗' : '△';
-  console.log(`      ${tag} ${method} ${urlShort(url)}  →  ${res.status} ${res.statusText}  [${label}]`);
+  const tag = semanticOk ? '✓' : res.status >= 500 ? '✗' : '△';
+  const note =
+    res.ok && !semanticOk
+      ? `  (HTTP 200 but ${semanticErrors.length} Result.Error[])`
+      : '';
+  console.log(`      ${tag} ${method} ${urlShort(url)}  →  ${res.status} ${res.statusText}${note}  [${label}]`);
   if (DUMP_ALL && text) {
     const fs = await import('node:fs/promises');
     const safeLabel = label.replace(/[^a-z0-9-]/gi, '_');
@@ -511,10 +524,27 @@ async function diagnoseWorkbenchShape(label: string, wbBody: unknown): Promise<v
 }
 
 function extractTravelerIds(travResp: any): string[] {
-  // VERIFIED PRE-PROD via the devkit. Singular endpoint: response is
-  // `{ TravelerResponse: { Traveler: { Identifier: { value } } } }` —
-  // singular Traveler object, NOT array. Batch endpoint
-  // (`/travelers/list`) returns `TravelerListResponse.Traveler[]`.
+  // VERIFIED PRE-PROD 2026-06-06 from actual response dumps.
+  // Singular addTraveler:
+  //   { TravelerResponse: { Traveler: { Identifier: { value } } } }
+  // Batch /travelers/list:
+  //   { TravelerListResponse: { ReferenceList: [{ Traveler: [...] }] } }
+  //   — there's a ReferenceList[] wrapper level we missed before, with
+  //   each entry holding its own Traveler[] (typed
+  //   ReferenceListTraveler).
+  const batchRefs = travResp?.TravelerListResponse?.ReferenceList;
+  if (Array.isArray(batchRefs)) {
+    const ids: string[] = [];
+    for (const ref of batchRefs) {
+      const list = Array.isArray(ref?.Traveler) ? ref.Traveler : [];
+      for (const t of list) {
+        const id = t?.Identifier?.value ?? t?.id ?? '';
+        if (typeof id === 'string' && id.length > 0) ids.push(id);
+      }
+    }
+    if (ids.length > 0) return ids;
+  }
+  // Fallbacks: singular response + legacy flat shapes.
   const arr =
     travResp?.TravelerResponse?.Traveler ??
     travResp?.TravelerListResponse?.Traveler ??
@@ -589,7 +619,12 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     return;
   }
 
-  // Step 3: add singular traveler with canonical object body
+  // Step 3: add singular traveler. The canonical devkit body embeds
+  // Telephone[] (and optionally Email[]) directly on the Traveler.
+  // Without Telephone, commitWorkbench returns 200 OK with
+  // ReservationResponse.Result.Error[].Message = "TELEPHONE IS A
+  // REQUIRED FIELD" — a separate addPrimaryContact call doesn't
+  // satisfy the requirement.
   const trav = await call(
     'POST',
     `${API_BASE}/air/book/traveler/reservationworkbench/${encodeURIComponent(wbId)}/travelers`,
@@ -599,6 +634,9 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
         '@type': 'Traveler',
         passengerTypeCode: 'ADT',
         PersonName: { '@type': 'PersonNameDetail', Given: 'JOHN', Surname: 'SMITH' },
+        Telephone: [
+          { '@type': 'Telephone', phoneNumber: '02012345678', role: 'Mobile' },
+        ],
       },
     },
     'addTraveler (singular, object body)'
@@ -855,11 +893,13 @@ async function phaseMultiPax(token: string, refs: SearchRefs): Promise<void> {
             '@type': 'Traveler',
             passengerTypeCode: 'ADT',
             PersonName: { '@type': 'PersonNameDetail', Given: 'JOHN', Surname: 'SMITH' },
+            Telephone: [{ '@type': 'Telephone', phoneNumber: '02012345678', role: 'Mobile' }],
           },
           {
             '@type': 'Traveler',
             passengerTypeCode: 'ADT',
             PersonName: { '@type': 'PersonNameDetail', Given: 'JANE', Surname: 'SMITH' },
+            Telephone: [{ '@type': 'Telephone', phoneNumber: '02012345679', role: 'Mobile' }],
           },
         ],
       },

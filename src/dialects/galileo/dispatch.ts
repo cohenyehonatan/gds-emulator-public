@@ -447,6 +447,16 @@ async function handleGalileoName(
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
       const ids = wa.liveTravelerIds ?? [];
+      // ⚠️ KNOWN LIVE-COMMIT BLOCKER (2026-06-06): Travelport pre-prod
+      // rejects commit with "TELEPHONE IS A REQUIRED FIELD" unless every
+      // Traveler has Telephone[] embedded on the body. Galileo cryptic
+      // separates name (`N.`) from phone (`P.`), so at this point we
+      // don't have a phone yet. Adding a placeholder would put bad
+      // data on the BF; deferring addTraveler until P. arrives is the
+      // right shape but is a non-trivial refactor (it changes when the
+      // server-side TravelerId is captured for SSR). For now the live
+      // sell → commit path will surface the validation error at ER —
+      // documented in the spec doc as the next concrete handler change.
       if (nameItem.passengers.length > 1) {
         // Multi-pax: batch via `/travelers/list` — one round-trip.
         const result = await liveBackend.addTravelers(
