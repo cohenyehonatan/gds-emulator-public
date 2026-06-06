@@ -67,7 +67,7 @@ async function main(): Promise<void> {
 
   console.log('Galileo live-handler REPL verification (pre-prod sandbox)');
   console.log(
-    `PCC=${backend.id}  workflow: SON → A → N (sell) → X1 (cancel) → N (re-sell) → N. → P. → FQ → SI. → R. → T. → ER`
+    `PCC=${backend.id}  workflow: SON → A → N (sell) → XI (cancel) → N (re-sell) → N. → P. → FQ → SI. → R. → T. → ER`
   );
 
   const host = new GdsHost({
@@ -134,14 +134,15 @@ async function main(): Promise<void> {
     `    liveWorkbenchOfferIds: ${wa.liveWorkbenchOfferIds ? JSON.stringify(wa.liveWorkbenchOfferIds.map((u) => u.slice(0, 8) + '…')) : '(none)'}`
   );
 
-  // 2.5) Pre-commit cancel via cryptic `X1` — exercises
-  // cancelGalileoLiveWorkbench against pre-prod with a real workbench
-  // offer UUID. For a connection sell, both legs share one offer in
-  // the workbench, so `X1` removes the entire offer (both segments
-  // drop). After cancel, sell the NEXT connection in the cache to
-  // continue the build — verifies the workbench survives and a
-  // fresh addOffer captures a new UUID.
-  await run(host, wa, 'X1');
+  // 2.5) Pre-commit cancel via cryptic `XI` — exercises the
+  // "Cancel All" path (cancelAllInd: true, devkit-verified body).
+  // Avoids the CancelSelectedOffers body which the devkit doesn't
+  // ship a canonical for — that's tested via mocks in
+  // galileo-live-cancel.test.ts but not yet pre-prod-verified.
+  // After cancel, sell the NEXT connection in the cache to continue
+  // the build — verifies the workbench survives and a fresh
+  // addOffer captures a new UUID.
+  await run(host, wa, 'XI');
   const segsAfter = wa.pnr.segments.length;
   const wbAfter = wa.liveWorkbenchOfferIds?.length ?? 0;
   if (segsAfter > 0 || wbAfter > 0) {
