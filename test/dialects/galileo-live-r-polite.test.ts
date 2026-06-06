@@ -136,7 +136,7 @@ describe('Galileo R. polite-citizen audit — opt-in', () => {
     const [url, init] = fetchSpy.mock.calls[4];
     expect(url).toContain('/reservationcomments/list');
     const body = JSON.parse((init?.body as string) ?? '{}');
-    const c = body.ReservationCommentListRequest?.ReservationCommentID?.[0];
+    const c = body.ReservationComment?.[0];
     expect(c?.commentSource).toBe('Agency');
     expect(c?.Comment?.[0]?.value).toBe('R. AGT');
   });

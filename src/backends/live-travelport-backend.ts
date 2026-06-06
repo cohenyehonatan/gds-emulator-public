@@ -602,8 +602,15 @@ export class LiveTravelportBackend implements Backend {
     const url =
       `${this.opts.apiBase}/air/book/primarycontact/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/primarycontacts`;
+    // VERIFIED PRE-PROD 2026-06-06 against the GDS reference-payload
+    // devkit's "Add Primary Contact Remarks CTCE & CTCM" sample.
+    // Body is FLAT at the root (`@type` directly), Telephone is a
+    // singular object (not array) with its own `@type`. Previous shape
+    // `{ PrimaryContact: [{ Telephone: [...] }] }` was rejected with
+    // PRIMARY CONTACT TELEPHONE IS MISSING OR INVALID.
     const body = {
-      PrimaryContact: [{ Telephone: [{ phoneNumber: phone, role: 'Mobile' }] }],
+      '@type': 'PrimaryContact',
+      Telephone: { '@type': 'Telephone', role: 'Mobile', phoneNumber: phone },
     };
     return this.postJson(url, body, 'addPrimaryContact');
   }
@@ -773,24 +780,35 @@ export class LiveTravelportBackend implements Backend {
     if (opts && opts.kind === 'osi') {
       entry = {
         '@type': 'ReservationComment',
-        id: 'ReservationComment_1',
+        id: 'reservationComment_1',
         commentSource: 'Supplier',
+        shareWith: 'Supplier',
         shareWithSupplier: [opts.carrier],
-        Comment: [{ name: 'OSI Remarks', value: text }],
+        Comment: [{ id: 'comment_1', name: 'Vendor Remarks', value: text }],
       };
     } else {
-      const label = opts?.kind === 'historical' ? 'Historical Notepad' : 'Notepad';
+      // VERIFIED PRE-PROD 2026-06-06: the `name` field is parsed as a
+      // 2-char Galileo notepad category code, NOT a human label. Sending
+      // `name: "Notepad"` triggered "NOTEPAD ITEM WITH D QUALIFIER
+      // CANNOT BE FOLLOWED BY *" — Travelport read our label as a
+      // cryptic NP. qualifier and chose. Canonical devkit notepad
+      // examples use `YT` (agency notepad) and `HG` (historical).
+      const code = opts?.kind === 'historical' ? 'HG' : 'YT';
       entry = {
         '@type': 'ReservationComment',
-        id: 'ReservationComment_1',
+        id: 'reservationComment_1',
         commentSource: 'Agency',
-        Comment: [{ name: label, value: text }],
+        shareWith: 'Agency',
+        Comment: [{ id: 'comment_1', name: code, value: text }],
       };
     }
+    // VERIFIED PRE-PROD 2026-06-06: envelope is FLAT (`@type` at root)
+    // with `ReservationComment` array — NOT the nested wrapper with
+    // `ReservationCommentID` we previously sent. Old shape returned 200
+    // with a buried Result.Error[] (HTTP 200 ≠ success on Travelport).
     const body = {
-      ReservationCommentListRequest: {
-        ReservationCommentID: [entry],
-      },
+      '@type': 'ReservationCommentListRequest',
+      ReservationComment: [entry],
     };
     return this.postJson(url, body, 'addReservationComment');
   }

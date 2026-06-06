@@ -623,18 +623,16 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     await diagnoseError('addoffer-phase3', addOffer, addOfferBody);
     return;
   }
-  // Always dump the addOffer response — the workbench reassigns offer
-  // IDs after addOffer, and SSR's AppliesTo.OfferIdentifier needs the
-  // workbench-side ID, not the search-side `o1` we sent in. The dump
-  // lets us see what offer Identifier landed inside the workbench.
-  {
-    const f = await dumpForDiagnostics('addoffer-response-phase3', addOffer.body);
-    if (f) console.log(`      ↳ addOffer response dumped to ${f}`);
-    // Heuristic: surface any `Identifier.value` and `OfferID`-shaped
-    // fields so the workbench-side offer ID is one log line away.
-    const hit = findFirstByKey(addOffer.body, /^(OfferID|offerID|offerId|OfferIdentifier)$/);
-    if (hit) console.log(`      ↳ workbench offer hit: ${hit.path} = ${hit.value}`);
-  }
+  // Extract the workbench-side offer ID. VERIFIED PRE-PROD 2026-06-06:
+  // addOffer returns `OfferListResponse.OfferID[0].Identifier.value`
+  // (a UUID, not the short ref `o1` we sent in). Downstream SSR
+  // requests need this in AppliesTo.OfferIdentifier; sending the
+  // search-side `o1` returns OFFER ID/IDENTIFIER VALUES MUST MATCH
+  // WITH THE RESERVATION WORKBENCH OFFER ID/IDENTIFIER VALUES.
+  const workbenchOfferId =
+    (addOffer.body as any)?.OfferListResponse?.OfferID?.[0]?.Identifier?.value ??
+    refs.offerId;
+  console.log(`      ↳ workbench offer ID = ${workbenchOfferId}`);
 
   // Step 3: add singular traveler. The canonical devkit body embeds
   // Telephone[] (and optionally Email[]) directly on the Traveler.
@@ -695,7 +693,7 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
                 {
                   id: 'o0',
                   offerRef: 'o0',
-                  Identifier: { authority: 'Travelport', value: refs.offerId },
+                  Identifier: { authority: 'Travelport', value: workbenchOfferId },
                 },
               ],
             },
@@ -725,7 +723,7 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
                 {
                   id: 'o0',
                   offerRef: 'o0',
-                  Identifier: { authority: 'Travelport', value: refs.offerId },
+                  Identifier: { authority: 'Travelport', value: workbenchOfferId },
                 },
               ],
             },
@@ -748,22 +746,27 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     console.log('      → OPEN QUESTION ANSWERED: server accepts whole-BF SSR (200 OK, no Result.Error[]).');
   }
 
-  // Step 6: NP. reservation comment
+  // Step 6: NP. reservation comment — canonical body per devkit
+  // "Add Notepad Remarks": flat root, ReservationComment[] (not
+  // ReservationCommentID), `name` is a 2-char Galileo notepad code
+  // (YT = agency notepad), shareWith: Agency. Previous shape returned
+  // 200 + "NOTEPAD ITEM WITH D QUALIFIER" because our "Notepad" label
+  // was parsed as a cryptic qualifier.
   await call(
     'POST',
     `${API_BASE}/air/book/remarks/reservationworkbench/${encodeURIComponent(wbId)}/reservationcomments/list`,
     token,
     {
-      ReservationCommentListRequest: {
-        ReservationCommentID: [
-          {
-            '@type': 'ReservationComment',
-            id: 'ReservationComment_1',
-            commentSource: 'Agency',
-            Comment: [{ name: 'Notepad', value: 'PRE-PROD VALIDATION RUN' }],
-          },
-        ],
-      },
+      '@type': 'ReservationCommentListRequest',
+      ReservationComment: [
+        {
+          '@type': 'ReservationComment',
+          id: 'reservationComment_1',
+          commentSource: 'Agency',
+          shareWith: 'Agency',
+          Comment: [{ id: 'comment_1', name: 'YT', value: 'PRE-PROD VALIDATION RUN' }],
+        },
+      ],
     },
     'addReservationComment (notepad)'
   );
@@ -782,12 +785,18 @@ async function phaseWorkbench(token: string, refs: SearchRefs): Promise<void> {
     'addFormOfPayment (FormOfPaymentCash)'
   );
 
-  // Step 8: add primary contact (phone) — required for commit
+  // Step 8: add primary contact — canonical devkit body is flat
+  // (`@type` at root), singular Telephone object with its own @type.
+  // Previous nested shape returned "PRIMARY CONTACT TELEPHONE IS
+  // MISSING OR INVALID".
   await call(
     'POST',
     `${API_BASE}/air/book/primarycontact/reservationworkbench/${encodeURIComponent(wbId)}/primarycontacts`,
     token,
-    { PrimaryContact: { Telephone: [{ phoneNumber: '02012345678', role: 'Mobile' }] } },
+    {
+      '@type': 'PrimaryContact',
+      Telephone: { '@type': 'Telephone', role: 'Mobile', phoneNumber: '02012345678' },
+    },
     'addPrimaryContact'
   );
 

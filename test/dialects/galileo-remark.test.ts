@@ -171,9 +171,10 @@ describe('Galileo NP. — live wiring via /reservationcomments/list', () => {
     const [url, init] = fetchSpy.mock.calls[4];
     expect(url).toContain('/reservationcomments/list');
     const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.ReservationCommentListRequest?.ReservationCommentID?.[0]?.commentSource).toBe('Agency');
-    expect(body.ReservationCommentListRequest?.ReservationCommentID?.[0]?.Comment?.[0]).toEqual({
-      name: 'Notepad',
+    expect(body.ReservationComment?.[0]?.commentSource).toBe('Agency');
+    expect(body.ReservationComment?.[0]?.Comment?.[0]).toEqual({
+      id: 'comment_1',
+      name: 'YT',
       value: 'HOLD CONTACT REQUIRED',
     });
   });
@@ -192,8 +193,9 @@ describe('Galileo NP. — live wiring via /reservationcomments/list', () => {
 
     const [, init] = fetchSpy.mock.calls[4];
     const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.ReservationCommentListRequest?.ReservationCommentID?.[0]?.Comment?.[0]).toEqual({
-      name: 'Historical Notepad',
+    expect(body.ReservationComment?.[0]?.Comment?.[0]).toEqual({
+      id: 'comment_1',
+      name: 'HG',
       value: 'KEEP THIS',
     });
   });

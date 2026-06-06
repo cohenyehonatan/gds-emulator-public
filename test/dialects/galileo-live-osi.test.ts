@@ -94,12 +94,12 @@ describe('Galileo live OSI — POST to /reservationcomments/list', () => {
     const [url, init] = fetchSpy.mock.calls[4];
     expect(url).toContain('/reservationcomments/list');
     const body = JSON.parse((init?.body as string) ?? '{}');
-    const c = body.ReservationCommentListRequest?.ReservationCommentID?.[0];
+    const c = body.ReservationComment?.[0];
     expect(c).toBeDefined();
     expect(c['@type']).toBe('ReservationComment');
     expect(c.commentSource).toBe('Supplier');
     expect(c.shareWithSupplier).toEqual(['KL']);
-    expect(c.Comment).toEqual([{ name: 'OSI Remarks', value: 'VIP STONE' }]);
+    expect(c.Comment).toEqual([{ id: 'comment_1', name: 'Vendor Remarks', value: 'VIP STONE' }]);
   });
 
   it('SI.YY*1 CHD AGED 5 — YY (all airlines) goes through the same path', async () => {
@@ -116,9 +116,9 @@ describe('Galileo live OSI — POST to /reservationcomments/list', () => {
 
     const [, init] = fetchSpy.mock.calls[4];
     const body = JSON.parse((init?.body as string) ?? '{}');
-    const c = body.ReservationCommentListRequest?.ReservationCommentID?.[0];
+    const c = body.ReservationComment?.[0];
     expect(c.shareWithSupplier).toEqual(['YY']);
-    expect(c.Comment[0]).toEqual({ name: 'OSI Remarks', value: '1 CHD AGED 5' });
+    expect(c.Comment[0]).toEqual({ id: 'comment_1', name: 'Vendor Remarks', value: '1 CHD AGED 5' });
   });
 
   it('live failure surfaces LIVE BACKEND ERROR; local pnr.osis NOT pushed', async () => {

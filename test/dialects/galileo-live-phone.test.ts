@@ -50,8 +50,8 @@ describe('Galileo live P.<phone> — primary contact', () => {
     const [pcUrl, pcInit] = fetchSpy.mock.calls[2];
     expect(pcUrl).toContain('/primarycontact/reservationworkbench/WB-P/primarycontacts');
     const body = JSON.parse((pcInit?.body as string) ?? '{}');
-    expect(body.PrimaryContact?.[0]?.Telephone?.[0]?.phoneNumber).toBe('LON*02012345678');
-    expect(body.PrimaryContact?.[0]?.Telephone?.[0]?.role).toBe('Mobile');
+    expect(body.Telephone?.phoneNumber).toBe('LON*02012345678');
+    expect(body.Telephone?.role).toBe('Mobile');
   });
 
   it('second P.<phone> reuses the existing workbench', async () => {
@@ -77,7 +77,7 @@ describe('Galileo live P.<phone> — primary contact', () => {
     await host.process('P.T*0793 888184-JAN', wa);
     const [, init] = fetchSpy.mock.calls[2];
     const body = JSON.parse((init?.body as string) ?? '{}');
-    expect(body.PrimaryContact[0].Telephone[0].phoneNumber).toBe('T*0793 888184-JAN');
+    expect(body.Telephone.phoneNumber).toBe('T*0793 888184-JAN');
   });
 
   it('REST failure surfaces as LIVE BACKEND ERROR; local pnr.phones NOT updated', async () => {
