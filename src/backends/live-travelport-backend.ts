@@ -481,7 +481,7 @@ export class LiveTravelportBackend implements Backend {
   async addOffer(
     workbenchId: string,
     opts: { searchIdentifier: string; offerId: string; productId: string }
-  ): Promise<unknown> {
+  ): Promise<{ workbenchOfferId?: string; raw: unknown }> {
     const url =
       `${this.opts.apiBase}/air/book/airoffer/reservationworkbench/${encodeURIComponent(workbenchId)}` +
       `/offers/buildfromcatalogproductofferings`;
@@ -505,7 +505,16 @@ export class LiveTravelportBackend implements Backend {
         },
       },
     };
-    return this.postJson(url, body, 'addOffer');
+    const raw = (await this.postJson(url, body, 'addOffer')) as any;
+    // VERIFIED PRE-PROD 2026-06-06: addOffer returns the workbench-
+    // assigned offer UUID at OfferListResponse.OfferID[0].Identifier.value.
+    // SSR + similar downstream calls need this UUID in their
+    // AppliesTo.OfferIdentifier — the search-side short ref (`o1`)
+    // returns OFFER ID/IDENTIFIER VALUES MUST MATCH WITH THE
+    // RESERVATION WORKBENCH OFFER ID/IDENTIFIER VALUES.
+    const workbenchOfferId: string | undefined =
+      raw?.OfferListResponse?.OfferID?.[0]?.Identifier?.value;
+    return { workbenchOfferId, raw };
   }
 
   /**

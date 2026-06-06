@@ -366,14 +366,21 @@ async function handleGalileoSell(
       if (!wa.liveWorkbenchId) {
         wa.liveWorkbenchId = await liveBackend.createWorkbench();
       }
+      const wbOfferIds = wa.liveWorkbenchOfferIds ?? [];
       for (const leg of legs) {
         const line = avail.lines.find((l) => l.line === leg.line)!;
-        await liveBackend.addOffer(wa.liveWorkbenchId, {
+        const result = await liveBackend.addOffer(wa.liveWorkbenchId, {
           searchIdentifier: avail.searchIdentifier,
           offerId: line.vendorRef!.offerId!,
           productId: line.vendorRef!.productId!,
         });
+        // Capture the workbench-side offer UUID for downstream SSR /
+        // remarks that need AppliesTo.OfferIdentifier. Empty string
+        // placeholder if the response didn't surface one (preserves
+        // index alignment with pnr.segments).
+        wbOfferIds.push(result.workbenchOfferId ?? '');
       }
+      wa.liveWorkbenchOfferIds = wbOfferIds;
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -1212,10 +1219,17 @@ async function handleGalileoSsr(
       const tid = wa.liveTravelerIds[entry.nameRef.item - 1];
       if (tid) travelerId = tid;
     }
-    // Resolve offer ref from cached availability (first line). The
-    // workbench-side offer ref may differ from the search-side
-    // offer ID — pre-prod will surface that drift via 4xx.
-    const offerId = wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
+    // VERIFIED PRE-PROD 2026-06-06: SSR's AppliesTo.OfferIdentifier
+    // needs the WORKBENCH-side offer UUID assigned at addOffer time
+    // (captured on wa.liveWorkbenchOfferIds), NOT the search-side
+    // short ref (`o1`) cached in vendorRef. The earlier vendorRef-
+    // based version returned 200 + Result.Error: OFFER ID/IDENTIFIER
+    // VALUES MUST MATCH WITH THE RESERVATION WORKBENCH OFFER ID/
+    // IDENTIFIER VALUES. Fall back to the search-side ID for emulated
+    // mocks that don't populate the workbench offer list.
+    const offerId =
+      wa.liveWorkbenchOfferIds?.[0] ||
+      wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
     try {
       await ctx.backend.addSpecialServices(wa.liveWorkbenchId, [
         {

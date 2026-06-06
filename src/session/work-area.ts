@@ -90,6 +90,18 @@ export class WorkAreaSlot {
   liveTravelerIds?: string[];
 
   /**
+   * Workbench-side offer UUIDs assigned by `addOffer` (one per leg).
+   * Downstream live operations whose body needs `AppliesTo.OfferIdentifier`
+   * (SSR, segment-scoped remarks) must reference these UUIDs, NOT the
+   * search-side short refs in `AvailabilityLine.vendorRef.offerId` —
+   * pre-prod returns `OFFER ID/IDENTIFIER VALUES MUST MATCH WITH THE
+   * RESERVATION WORKBENCH OFFER ID/IDENTIFIER VALUES` when the wrong
+   * one is sent. Index-aligned with `pnr.segments` (each leg's sell
+   * adds one entry). EmulatedBackend leaves this undefined.
+   */
+  liveWorkbenchOfferIds?: string[];
+
+  /**
    * Clear the per-PNR scratch state — invoked by IG / E / a sign-out
    * that targets this slot. Crucially does NOT replace `machine`: the
    * session FSM is intentionally durable across IG/E (a signed-in agent
@@ -113,6 +125,7 @@ export class WorkAreaSlot {
     this.pendingVoid = undefined;
     this.liveWorkbenchId = undefined;
     this.liveTravelerIds = undefined;
+    this.liveWorkbenchOfferIds = undefined;
     this.lastFareDisplay = undefined;
   }
 }
@@ -275,6 +288,12 @@ export class WorkArea {
   }
   set liveTravelerIds(v: string[] | undefined) {
     this.s.liveTravelerIds = v;
+  }
+  get liveWorkbenchOfferIds(): string[] | undefined {
+    return this.s.liveWorkbenchOfferIds;
+  }
+  set liveWorkbenchOfferIds(v: string[] | undefined) {
+    this.s.liveWorkbenchOfferIds = v;
   }
   get lastFareDisplay(): FareDisplayResult | undefined {
     return this.s.lastFareDisplay;
