@@ -370,6 +370,34 @@ async function main(): Promise<void> {
     }
   }
 
+  // Queue verbs — only after retrieve succeeds, so we have a BF on
+  // screen to operate on. QEB/<n> places the current BF on a queue;
+  // Q/<n> retrieves the first BF off that queue. Cleanup-cancel
+  // below removes the BF (and incidentally clears the queue), so
+  // this can't leave residue.
+  if (locator) {
+    // QEB embeds end-tx but we're already committed, so it's a pure
+    // queue-place. Pick queue 35 arbitrarily (any 1-99 queue works).
+    const queuePlace = await run(host, wa, 'QEB/35');
+    if (queuePlace.includes('LIVE BACKEND ERROR')) {
+      console.log('    △ QEB/35 live failed — queue placement regression?');
+    } else {
+      console.log('    ✓ QEB/35: BF placed on queue 35.');
+    }
+
+    // Q/35 accesses the queue — should return our just-placed BF.
+    const queueAccess = await run(host, wa, 'Q/35');
+    if (queueAccess.includes('LIVE BACKEND ERROR')) {
+      console.log('    △ Q/35 live failed — queue access regression?');
+    } else if (queueAccess.includes('NO ITEMS') || queueAccess.includes('EMPTY')) {
+      console.log('    △ Q/35: queue empty — placement may not have persisted.');
+    } else if (queueAccess.includes(locator)) {
+      console.log(`    ✓ Q/35: queue contains locator ${locator}.`);
+    } else {
+      console.log('    △ Q/35: returned something but expected locator missing.');
+    }
+  }
+
   // Cleanup: if we got a locator, cancel the BF so it doesn't leave
   // residue in pre-prod queues. Cancellation via the cryptic cancel
   // (X) doesn't have a live wire today, so go through the backend.
