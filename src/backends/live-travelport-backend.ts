@@ -396,6 +396,22 @@ export class LiveTravelportBackend implements Backend {
     await this.deleteJson(url, 'deleteWorkbench');
   }
 
+  /**
+   * GET the current state of a reservation workbench. Used as the
+   * devkit's "5 - Ticket > Step 4 Pre-Ticket Review" call between
+   * applyPayment and the final ticket-issuance commit. Passive — no
+   * state change server-side — but the devkit explicitly lists it as
+   * a workflow step before the final commit, and Travelport's
+   * workflow may use the GET as an internal state-readying checkpoint.
+   *
+   * Source: GET /11/air/book/session/reservationworkbench/{workbenchID}.
+   */
+  async getWorkbench(workbenchId: string): Promise<unknown> {
+    const url =
+      `${this.opts.apiBase}/air/book/session/reservationworkbench/${encodeURIComponent(workbenchId)}`;
+    return this.getJson(url, 'getWorkbench');
+  }
+
   async createWorkbench(): Promise<string> {
     const url = `${this.opts.apiBase}/air/book/session/reservationworkbench`;
     // Minimal payload per the spec; the workbench is created empty and

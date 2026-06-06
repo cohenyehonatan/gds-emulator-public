@@ -917,6 +917,18 @@ async function issueTicketsPostCommit(
     amount: total,
     currency: fq.currency || 'USD',
   });
+  // Pre-ticket review — devkit's Step 4. Passive GET of the workbench
+  // state. The devkit explicitly lists this between applyPayment and
+  // the final commit; Travelport's workflow may use the GET as an
+  // internal checkpoint that readies the workbench for ticket
+  // issuance (some workflows do this — the GET puts a session marker
+  // that the next commit reads). Failures here are non-fatal — we
+  // proceed to the commit and let it decide.
+  try {
+    await backend.getWorkbench(newWorkbenchId);
+  } catch {
+    // ignore — passive review step
+  }
   // Commit the post-commit workbench with the CANONICAL flat ticket-
   // issuance body (`forTicketIssuance: true` switches from our wrapped
   // build-commit shape to `{ "@type": "ReservationQueryCommitReservation" }`
