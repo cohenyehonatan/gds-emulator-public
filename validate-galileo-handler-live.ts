@@ -238,8 +238,15 @@ async function main(): Promise<void> {
   if (multiOfferRan) {
     // Multi-offer exercise already ran N. + P. + FQ. Cancel cleared
     // segments + workbench offer IDs but kept liveTravelerIds and
-    // pnr.names/phones; no need to re-issue them.
-    console.log('\n(skipping N./P./FQ — already issued during multi-offer exercise)');
+    // pnr.names/phones; need a fresh FQ for the re-sold itinerary
+    // before TKP can find a quote to issue from.
+    console.log('\n(skipping N./P. — already issued during multi-offer exercise; running fresh FQ)');
+    const fq = await run(host, wa, 'FQ');
+    if (fq.includes('LIVE BACKEND ERROR')) {
+      console.log('    △ FQ live failed — continuing to ER without a quote (TKP will skip).');
+    } else if (!fq.includes('FARE QUOTE NOT AVAILABLE')) {
+      console.log('    ✓ FQ live priced for re-sold itinerary.');
+    }
   } else {
     // 3) Name — accumulates locally; addTraveler deferred until P. arrives.
     await run(host, wa, 'N.SMITH/JOHN MR');
@@ -262,6 +269,25 @@ async function main(): Promise<void> {
     } else if (!fq.includes('FARE QUOTE NOT AVAILABLE')) {
       console.log('    ✓ FQ live priced (priceOffer body verified).');
     }
+  }
+
+  // 5.5) TKP — issue ticket from the LATEST filed fare. Cancel
+  // doesn't clear priceQuotes, so the multi-offer exercise's
+  // earlier quote stays around as FARE 1 — point TKP at the
+  // current top-of-stack quote (FARE N where N = priceQuotes.length)
+  // so it issues from the right itinerary's quote.
+  let preTkpTicketCount = 0;
+  if (wa.pnr.priceQuotes.length > 0) {
+    const tkpEntry = `TKP${wa.pnr.priceQuotes.length}`;
+    const tkp = await run(host, wa, tkpEntry);
+    preTkpTicketCount = wa.pnr.tickets.length;
+    if (tkp.includes('LIVE BACKEND ERROR')) {
+      console.log(`    △ ${tkpEntry} live failed — continuing to ER without ticket issuance.`);
+    } else if (!tkp.includes('FILED FARE NOT FOUND')) {
+      console.log(`    ✓ ${tkpEntry} issued ${preTkpTicketCount} local ticket record(s).`);
+    }
+  } else {
+    console.log('\n(skipping TKP — no filed fare available)');
   }
 
   // 6) SSR with TravelerIdentifier (server requires it). On a
@@ -289,6 +315,31 @@ async function main(): Promise<void> {
   console.log(
     `workbench cleared on commit: ${wa.liveWorkbenchId === undefined ? 'yes ✓' : 'NO — still ' + wa.liveWorkbenchId}`
   );
+
+  // List receipts to verify TKP actually produced server-side tickets.
+  // listReceipts returns whatever Travelport recorded against the
+  // locator. wa.pnr.tickets is 0 here because commitGalileoLive
+  // resets the slot after end-tx — use the pre-ER count we captured.
+  if (locator && preTkpTicketCount > 0) {
+    try {
+      const receiptsResp = (await backend.listReceipts(locator)) as any;
+      const receiptArr =
+        receiptsResp?.ReservationResponse?.Reservation?.Receipt ??
+        receiptsResp?.Receipt ??
+        [];
+      const receipts = Array.isArray(receiptArr) ? receiptArr : [receiptArr];
+      const ticketReceipts = receipts.filter(
+        (r: any) =>
+          r?.Confirmation?.['@type'] === 'ConfirmationTicket' ||
+          r?.['@type'] === 'ReceiptPayment'
+      );
+      console.log(
+        `\nListReceipts: ${receipts.length} total receipt(s), ${ticketReceipts.length} ticket/payment receipt(s).`
+      );
+    } catch (e) {
+      console.log(`\n△ listReceipts failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   // Cleanup: if we got a locator, cancel the BF so it doesn't leave
   // residue in pre-prod queues. Cancellation via the cryptic cancel
