@@ -1262,9 +1262,10 @@ export class LiveTravelportBackend implements Backend {
    * flight workbenches (created via `createWorkbench()`) and post-
    * commit workbenches (created via `buildWorkbenchFromLocator()`).
    *
-   * Source: POST /book/reservationworkbench/{workbenchID}/reservations
-   * /cancelitems. The path is intentionally NOT under `/11/air` — the
-   * v11 endpoints list documents it at the root.
+   * Source: POST /11/book/reservationworkbench/{workbenchID}/reservations
+   * /cancelitems. The path is `/11/book/...` (with the version) — NOT
+   * `/11/air/book/...`. Verified 2026-06-06 against the devkit's
+   * "Cancel All" + "Cancel All Offers" canonical URLs.
    *
    * Canonical body schema verbatim from `APIRef_CancelWorkbenchItems.htm`:
    *
@@ -1297,8 +1298,10 @@ export class LiveTravelportBackend implements Backend {
     workbenchId: string,
     opts: CancelWorkbenchOpts = { all: true }
   ): Promise<unknown> {
+    // apiBase = `https://api.pp.travelport.net/11`. Cancel lives at
+    // `/11/book/...` (no `/air` like the other endpoints).
     const url =
-      `${this.opts.apiBase.replace(/\/11$/, '')}/book/reservationworkbench/` +
+      `${this.opts.apiBase}/book/reservationworkbench/` +
       `${encodeURIComponent(workbenchId)}/reservations/cancelitems`;
 
     let body: Record<string, unknown>;

@@ -85,7 +85,9 @@ describe('Galileo live cancel — workbench (in-flight build)', () => {
     expect(wa.pnr.segments.length).toBe(0);
 
     const [cancelUrl, cancelInit] = fetchSpy.mock.calls[4];
-    expect(cancelUrl).toContain('/book/reservationworkbench/WB-X/reservations/cancelitems');
+    // Pin the full path including the version. Pre-prod returns 404 if
+    // /11 is missing — easy to miss at the substring level.
+    expect(cancelUrl).toContain('/11/book/reservationworkbench/WB-X/reservations/cancelitems');
     const body = JSON.parse((cancelInit?.body as string) ?? '{}');
     expect(body).toEqual({ '@type': 'CancelRequest', cancelAllInd: true });
   });
