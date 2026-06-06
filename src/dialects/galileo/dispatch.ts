@@ -62,6 +62,7 @@ import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/context.js';
 import type { AirSegment } from '../../models/segment.js';
+import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { MandatoryFieldKey } from '../../protocol/constants.js';
 import { MandatoryField, StatusCode } from '../../protocol/constants.js';
 import { parseNameText } from '../../models/name-element.js';
@@ -1762,19 +1763,30 @@ async function handleGalileoPricing(
   if (wa.pnr.names.length === 0) return GalileoResponse.NEED_NAME;
 
   if (ctx.backend instanceof LiveTravelportBackend) {
-    const refs = findPriceRefsForFirstSegment(wa);
-    if (refs) {
+    const refSets = collectPriceRefsForAllSegments(wa);
+    if (refSets.length > 0) {
       try {
-        const response = await ctx.backend.priceOffer(refs);
-        const fq = mapPricedOffer(response, {
-          departureDate: wa.pnr.segments[0]?.date ?? '',
-        });
-        if (fq) {
-          wa.pnr.priceQuotes.push(fq);
-          wa.lastPricing = fq;
-          return renderGalileoFareQuote(fq, wa.pnr.priceQuotes.length);
+        // Multi-offer FQ: one priceOffer call per unique
+        // (offerId, productId) pair across all segments. Merge the
+        // resulting FareQuotes into a single quote so the rendered
+        // FILED FARE shows one combined block (matching the cryptic
+        // FQ semantics: one quote covers the whole booking, even
+        // when its segments come from different offers).
+        const quotes: FareQuote[] = [];
+        for (const refs of refSets) {
+          const response = await ctx.backend.priceOffer(refs);
+          const fq = mapPricedOffer(response, {
+            departureDate: wa.pnr.segments[0]?.date ?? '',
+          });
+          if (fq) quotes.push(fq);
         }
-        // Mapper returned null — fall through to emulated.
+        const merged = mergeFareQuotes(quotes);
+        if (merged) {
+          wa.pnr.priceQuotes.push(merged);
+          wa.lastPricing = merged;
+          return renderGalileoFareQuote(merged, wa.pnr.priceQuotes.length);
+        }
+        // Mapper returned null on every quote — fall through to emulated.
       } catch (err) {
         return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
       }
@@ -1826,6 +1838,117 @@ function findPriceRefsForFirstSegment(
   const productId = line?.vendorRef?.productId;
   if (!offerId || !productId) return undefined;
   return { searchIdentifier: avail.searchIdentifier, offerId, productId };
+}
+
+/**
+ * Collect the unique (offerId, productId) ref triples across every
+ * segment in the workarea PNR. Multi-offer FQ posts one priceOffer
+ * call per unique pair (a connection — multiple segments under one
+ * offer — collapses to a single call). Returns empty when the
+ * availability cache lacks any segment's refs, so the caller can
+ * fall through to emulated pricing rather than POST a partial body.
+ */
+function collectPriceRefsForAllSegments(
+  wa: WorkArea
+): Array<{ searchIdentifier: string; offerId: string; productId: string }> {
+  const avail = wa.lastAvailability;
+  if (!avail?.searchIdentifier) return [];
+  const seen = new Set<string>();
+  const out: Array<{ searchIdentifier: string; offerId: string; productId: string }> = [];
+  for (const seg of wa.pnr.segments) {
+    const line = avail.lines.find(
+      (l) => l.carrier === seg.carrier && l.flightNumber === seg.flightNumber
+    );
+    const offerId = line?.vendorRef?.offerId;
+    const productId = line?.vendorRef?.productId;
+    if (!offerId || !productId) continue;
+    const key = `${offerId}|${productId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ searchIdentifier: avail.searchIdentifier, offerId, productId });
+  }
+  return out;
+}
+
+/**
+ * Merge per-offer FareQuotes into a single quote covering the whole
+ * booking. Each priceOffer call returns one FareQuote for one offer;
+ * the cryptic FILED FARE for FQ expects a single combined block, so
+ * we sum per-passenger amounts across all offers and concatenate
+ * fare-basis codes in segment order. Returns the first quote when
+ * given one (no-op), null when the input is empty.
+ *
+ * Assumptions:
+ *  - Same currency across all quotes (Travelport normalizes to a
+ *    single currency per search; mismatch is a server-side error).
+ *  - Same passenger-type set across all quotes (matching the search
+ *    PassengerCriteria — diverging mid-booking would mean the
+ *    addOffer for one segment used a different pax count, which is
+ *    a sell-side bug, not a pricing-side one).
+ *  - Validating carrier from the first quote — multi-carrier
+ *    itineraries typically have one common validator (the
+ *    plating carrier); v1 doesn't model split validators.
+ */
+function mergeFareQuotes(quotes: FareQuote[]): FareQuote | null {
+  if (quotes.length === 0) return null;
+  if (quotes.length === 1) return quotes[0];
+  const base = quotes[0];
+  // Build a per-passenger-type accumulator from the first quote, then
+  // add each subsequent quote's matching block to it.
+  const byType = new Map<string, PassengerFare>();
+  for (const pf of base.passengers) {
+    byType.set(pf.passengerType, {
+      passengerType: pf.passengerType,
+      count: pf.count,
+      base: pf.base,
+      taxes: pf.taxes.map((t) => ({ ...t })),
+      taxTotal: pf.taxTotal,
+      total: pf.total,
+      fareCalc: pf.fareCalc,
+    });
+  }
+  for (let i = 1; i < quotes.length; i++) {
+    for (const pf of quotes[i].passengers) {
+      const acc = byType.get(pf.passengerType);
+      if (!acc) {
+        // Passenger type appeared only in a later quote — push it as-is
+        // (rare; usually all quotes share the search PassengerCriteria).
+        byType.set(pf.passengerType, {
+          passengerType: pf.passengerType,
+          count: pf.count,
+          base: pf.base,
+          taxes: pf.taxes.map((t) => ({ ...t })),
+          taxTotal: pf.taxTotal,
+          total: pf.total,
+          fareCalc: pf.fareCalc,
+        });
+        continue;
+      }
+      acc.base += pf.base;
+      acc.taxTotal += pf.taxTotal;
+      acc.total += pf.total;
+      // Merge tax breakdowns by code so the rendered breakdown shows
+      // each tax once with its total amount.
+      const byCode = new Map<string, number>();
+      for (const t of acc.taxes) byCode.set(t.code, (byCode.get(t.code) ?? 0) + t.amount);
+      for (const t of pf.taxes) byCode.set(t.code, (byCode.get(t.code) ?? 0) + t.amount);
+      acc.taxes = [...byCode.entries()].map(([code, amount]) => ({ code, amount }));
+      // Fare-calc lines append in segment order (Sabre/Galileo Pricing QR
+      // shows a multi-line fare-construction string for multi-offer trips).
+      if (pf.fareCalc) {
+        acc.fareCalc = acc.fareCalc ? `${acc.fareCalc} ${pf.fareCalc}` : pf.fareCalc;
+      }
+    }
+  }
+  const fareBasis: string[] = [];
+  for (const q of quotes) fareBasis.push(...q.fareBasis);
+  return {
+    departureDate: base.departureDate,
+    validatingCarrier: base.validatingCarrier,
+    currency: base.currency,
+    fareBasis,
+    passengers: [...byType.values()],
+  };
 }
 
 /**

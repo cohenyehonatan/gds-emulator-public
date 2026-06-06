@@ -200,6 +200,91 @@ describe('Galileo live FQ — pricing via /price/offers/buildfromcatalogproducto
     expect(wa.pnr.priceQuotes).toHaveLength(0);
   });
 
+  it('FQ multi-offer: two priceOffer calls (one per offer), merged into one quote', async () => {
+    // Search response with TWO distinct offerings — one per segment.
+    const twoOfferSearch = () =>
+      new Response(JSON.stringify({
+        CatalogProductOfferingsResponse: {
+          CatalogProductOfferings: {
+            Identifier: { value: 'SRCH-FIXTURE' },
+            CatalogProductOffering: [
+              {
+                Identifier: { value: 'OFF-A' },
+                ProductBrandOptions: [{
+                  Flight: [{ carrier: 'UA', number: 1234, Departure: { location: 'DEN', time: '2026-06-27T08:00:00Z' }, Arrival: { location: 'FRA', time: '2026-06-28T07:30:00Z' } }],
+                  ProductBrandOffering: [{ Product: [{ productRef: 'pA' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+                }],
+              },
+              {
+                Identifier: { value: 'OFF-B' },
+                ProductBrandOptions: [{
+                  Flight: [{ carrier: 'LH', number: 5678, Departure: { location: 'FRA', time: '2026-06-30T10:00:00Z' }, Arrival: { location: 'DEN', time: '2026-06-30T18:00:00Z' } }],
+                  ProductBrandOffering: [{ Product: [{ productRef: 'pB' }], FareDetail: [{ BookingCode: { code: 'Y', count: 9 } }] }],
+                }],
+              },
+            ],
+          },
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const priceForOffer = (basis: string, base: number, tax: number) =>
+      new Response(JSON.stringify({
+        CatalogProductOfferingsResponse: {
+          CatalogProductOfferings: {
+            CatalogProductOffering: [{
+              ProductBrandOptions: [{
+                Flight: [{ carrier: 'UA', number: 1234 }],
+                ProductBrandOffering: [{
+                  Product: [{ productRef: 'pA' }],
+                  FareDetail: [{ FareBasis: basis }],
+                  Price: {
+                    currencyCode: 'USD',
+                    passengerType: 'ADT',
+                    Base: { value: base },
+                    TotalPrice: { value: base + tax },
+                    Tax: [{ code: 'US', value: tax }],
+                  },
+                }],
+              }],
+            }],
+          },
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(twoOfferSearch())
+      .mockResolvedValueOnce(createWb())
+      .mockResolvedValueOnce(ok())                            // addOffer for OFF-A
+      .mockResolvedValueOnce(ok())                            // addOffer for OFF-B
+      .mockResolvedValueOnce(priceForOffer('YPRO', 500, 80))  // FQ priceOffer #1
+      .mockResolvedValueOnce(priceForOffer('YDEUR', 300, 40)); // FQ priceOffer #2
+
+    await host.process('A27JUNDENFRA', wa);
+    // Sell line 1 (offer A) + line 2 (offer B) in one multi-leg cryptic.
+    await host.process('N1Y1Y2', wa);
+    expect(wa.pnr.segments).toHaveLength(2);
+    await host.process('N.SMITH/JOHN MR', wa);
+    const resp = await host.process('FQ', wa);
+
+    // Two priceOffer fetches, NOT one — because each segment lives in
+    // a different offering.
+    const priceCallCount = fetchSpy.mock.calls.filter(([url]) =>
+      typeof url === 'string' && url.includes('/air/price/offers/buildfromcatalogproductofferings')
+    ).length;
+    expect(priceCallCount).toBe(2);
+
+    // Merged quote: base 500+300=800, tax 80+40=120, total 920.
+    expect(wa.pnr.priceQuotes).toHaveLength(1);
+    const fq = wa.pnr.priceQuotes[0];
+    expect(fq.passengers).toHaveLength(1);
+    expect(fq.passengers[0].base).toBe(800);
+    expect(fq.passengers[0].taxTotal).toBe(120);
+    expect(fq.passengers[0].total).toBe(920);
+    // Fare-basis codes from both offers in segment order.
+    expect(fq.fareBasis).toEqual(['YPRO', 'YDEUR']);
+    expect(resp).toContain('800');
+    expect(resp).toContain('920');
+  });
+
   it('FQ falls back to emulated when the segment has no reachable offerId', async () => {
     // Build emulated, then switch backend? Easier: spin up emulated host.
     const emulatedHost = new GdsHost({
