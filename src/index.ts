@@ -21,6 +21,7 @@ import { startRepl, startReplTcp } from './terminal/repl.js';
 import type { Dialect } from './dialects/dialect.js';
 import { GalileoDialect } from './dialects/galileo/index.js';
 import { ApolloDialect } from './dialects/apollo/index.js';
+import { AmadeusDialect } from './dialects/amadeus/index.js';
 import { DEFAULT_PORT } from './protocol/constants.js';
 import { Logger } from './logging/logger.js';
 
@@ -38,8 +39,10 @@ function pickDialect(name: string | undefined): Dialect | undefined {
       return new GalileoDialect();
     case 'apollo':
       return new ApolloDialect();
+    case 'amadeus':
+      return new AmadeusDialect();
     default:
-      throw new Error(`Unknown dialect: '${name}'. Known: sabre, galileo, apollo.`);
+      throw new Error(`Unknown dialect: '${name}'. Known: sabre, galileo, apollo, amadeus.`);
   }
 }
 

@@ -23,7 +23,7 @@ import type { WorkArea } from '../session/work-area.js';
 import type { HandlerContext } from '../session/handlers/index.js';
 
 /** Discriminator for `Dialect.id`. Widens as new dialects land. */
-export type DialectId = 'sabre' | 'galileo' | 'apollo';
+export type DialectId = 'sabre' | 'galileo' | 'apollo' | 'amadeus';
 
 export interface Dialect {
   /** Stable machine id — see `DialectId`. */

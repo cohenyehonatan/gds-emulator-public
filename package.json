@@ -12,6 +12,7 @@
     "start:terminal:sabre": "tsx src/index.ts terminal sabre",
     "start:terminal:galileo": "tsx src/index.ts terminal galileo",
     "start:terminal:apollo": "tsx src/index.ts terminal apollo",
+    "start:terminal:amadeus": "tsx src/index.ts terminal amadeus",
     "start:terminal:tcp": "tsx src/index.ts terminal:tcp",
     "scenario": "tsx src/index.ts scenario",
     "validate:live-galileo": "tsx validate-galileo-handler-live.ts",
