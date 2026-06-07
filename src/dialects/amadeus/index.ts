@@ -720,8 +720,26 @@ export class AmadeusDialect implements Dialect {
         .join('\n');
     }
     if (entry === 'RTJ') {
-      if (wa.pnr.phones.length === 0) return 'NO PHONE';
-      return wa.pnr.phones.map((p, i) => `  AP-${i + 1} ${p.number}`).join('\n');
+      // RTJ covers phone + address + credit card check elements per QRG
+      // p.44. We render phones (existing) and addresses (chunk 9). CC
+      // checks aren't modelled.
+      const phoneLines = wa.pnr.phones.map((p, i) => `  AP-${i + 1} ${p.number}`);
+      let mailingNum = 0;
+      let billingNum = 0;
+      const addressLines = wa.pnr.addresses.map((a) => {
+        const sub = a.subtype !== 'standard'
+          ? `/${a.subtype === 'home' ? 'H' : a.subtype === 'delivery' ? 'D' : 'M'}`
+          : '';
+        if (a.kind === 'mailing') {
+          mailingNum++;
+          return `  AM${sub}-${mailingNum} ${a.text}`;
+        }
+        billingNum++;
+        return `  AB${sub}-${billingNum} ${a.text}`;
+      });
+      const all = [...phoneLines, ...addressLines];
+      if (all.length === 0) return 'NO PHONE';
+      return all.join('\n');
     }
     if (entry === 'RTK') {
       if (!wa.pnr.ticketing) return 'NO TICKETING';
@@ -861,6 +879,38 @@ export class AmadeusDialect implements Dialect {
       const osi = parseOsi(entry.slice(3));
       if (!osi) return FORMAT_ERROR;
       wa.pnr.osis.push({ carrier: osi.carrier, text: osi.text });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // AM / AB — Mailing / billing address elements. QRG p.38.
+    //   AM <text>[/P<n>]                 mailing, standard
+    //   AM/H <text>[/P<n>]               mailing, home
+    //   AM/D <text>[/P<n>]               mailing, delivery
+    //   AM/M <text>[/P<n>]               mailing, miscellaneous
+    //   AB <text>[/P<n>]                 billing, standard
+    // Text body is stored verbatim — Amadeus structured form
+    // (`/CY-CO/NA-NAME/A1-LINE...`) parses the same way for v1.
+    const addrMatch = /^(AM|AB)(?:\/([HDM]))?\s+(.+)$/.exec(entry);
+    if (addrMatch) {
+      const kind = addrMatch[1] === 'AM' ? 'mailing' : 'billing';
+      const subtype =
+        addrMatch[2] === 'H' ? 'home' :
+        addrMatch[2] === 'D' ? 'delivery' :
+        addrMatch[2] === 'M' ? 'misc' :
+        'standard';
+      let body = addrMatch[3].trim();
+      let nameRef: { item: number; passenger?: number } | undefined;
+      const tail = /\/P(\d+)(?:\.(\d+))?$/.exec(body);
+      if (tail) {
+        nameRef = {
+          item: parseInt(tail[1], 10),
+          passenger: tail[2] ? parseInt(tail[2], 10) : undefined,
+        };
+        body = body.slice(0, tail.index).trim();
+      }
+      if (!body) return FORMAT_ERROR;
+      wa.pnr.addresses.push({ kind, subtype, text: body, nameRef });
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
     }

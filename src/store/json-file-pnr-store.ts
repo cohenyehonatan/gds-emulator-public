@@ -115,6 +115,7 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
     osis: pnr.osis,
     remarks: pnr.remarks,
     frequentFlyers: pnr.frequentFlyers,
+    addresses: pnr.addresses,
     priceQuotes: pnr.priceQuotes,
     tickets: pnr.tickets,
     manualAccountingLines: pnr.manualAccountingLines,
@@ -143,6 +144,7 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.osis = (plain.osis as Pnr['osis']) ?? [];
   p.remarks = (plain.remarks as Pnr['remarks']) ?? [];
   p.frequentFlyers = (plain.frequentFlyers as Pnr['frequentFlyers']) ?? [];
+  p.addresses = (plain.addresses as Pnr['addresses']) ?? [];
   p.priceQuotes = (plain.priceQuotes as Pnr['priceQuotes']) ?? [];
   p.tickets = (plain.tickets as Pnr['tickets']) ?? [];
   p.manualAccountingLines = (plain.manualAccountingLines as Pnr['manualAccountingLines']) ?? [];

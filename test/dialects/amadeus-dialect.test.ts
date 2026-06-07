@@ -906,6 +906,83 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(wa.pnr.segments).toHaveLength(0);
   });
 
+  it('AM <text> adds a mailing address (standard)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('AM SMITH/123 MAIN ST,LOS ANGELES', wa)).toBe('OK');
+    expect(wa.pnr.addresses).toHaveLength(1);
+    expect(wa.pnr.addresses[0].kind).toBe('mailing');
+    expect(wa.pnr.addresses[0].subtype).toBe('standard');
+    expect(wa.pnr.addresses[0].text).toBe('SMITH/123 MAIN ST,LOS ANGELES');
+  });
+
+  it('AM/H adds a home mailing address', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('AM/H JONES/456 OAK AVE,DENVER', wa)).toBe('OK');
+    expect(wa.pnr.addresses[0].subtype).toBe('home');
+  });
+
+  it('AM/D adds a delivery mailing address', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AM/D ANYTOWN', wa);
+    expect(wa.pnr.addresses[0].subtype).toBe('delivery');
+  });
+
+  it('AB <text> adds a billing address', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('AB CORP HQ,NEW YORK', wa)).toBe('OK');
+    expect(wa.pnr.addresses[0].kind).toBe('billing');
+  });
+
+  it('AM <text>/P<n> binds the address to a passenger', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AM SMITH/123 MAIN ST,LOS ANGELES/P2', wa);
+    expect(wa.pnr.addresses[0].nameRef?.item).toBe(2);
+  });
+
+  it('AM with empty body returns FORMAT', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('AM /P1', wa)).toBe('FORMAT');
+  });
+
+  it('RTJ shows phones AND addresses', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('AM HOME,LA', wa);
+    await host.process('AB OFFICE,NY', wa);
+    const resp = await host.process('RTJ', wa);
+    expect(resp).toContain('02012345678');
+    expect(resp).toContain('AM-1 HOME');
+    expect(resp).toContain('AB-1 OFFICE');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

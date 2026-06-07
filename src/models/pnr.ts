@@ -17,6 +17,7 @@ import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
+import type { AddressElement } from './address.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 /**
@@ -39,6 +40,12 @@ export class Pnr {
   osis: OtherServiceInfo[] = [];
   remarks: RemarkElement[] = [];
   frequentFlyers: FrequentFlyer[] = [];
+  /**
+   * Mailing / billing address elements (Amadeus AM / AB). Empty for
+   * Sabre and Galileo today — added for v4 Amadeus parity (QRG p.38)
+   * but the model is dialect-agnostic and any dialect can populate it.
+   */
+  addresses: AddressElement[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   /**
@@ -96,6 +103,7 @@ export class Pnr {
     p.osis = this.osis.map((x) => ({ ...x }));
     p.remarks = this.remarks.map((x) => ({ ...x }));
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
+    p.addresses = this.addresses.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
