@@ -78,14 +78,14 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     expect(resp).toContain('HA');
   });
 
-  it('verbs not yet implemented (e.g. LOT negotiated space, FFD frequent flyer) return the explicit honest-boundary stub', async () => {
+  it('verbs not yet implemented (e.g. LOT negotiated space, AT negotiated avail) return the explicit honest-boundary stub', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // LOT = negotiated space, FFD = frequent-flyer database, AT =
-    // negotiated availability — all deferred past v4.
+    // LOT = negotiated space, AT = negotiated availability,
+    // VFFD = frequent-flyer agreements display — deferred past v4.
     expect(await host.process('LOTAIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
-    expect(await host.process('FFDIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    expect(await host.process('ATAIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
   });
 
   it('malformed sign-in returns FORMAT', async () => {
@@ -637,5 +637,51 @@ describe('Amadeus dialect — v4 chunk 4: minimum connect time (DM)', () => {
     const resp = await host.process('DMI', wa);
     expect(resp).toContain('DMI');
     expect(resp).toMatch(/1-2:/);
+  });
+});
+
+describe('Amadeus dialect — v4 chunk 5: frequent-flyer element (FFN)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('FFN <carrier>-<number> adds a frequent-flyer element', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('FFN BW-123456789', wa)).toBe('OK');
+    expect(wa.pnr.frequentFlyers).toHaveLength(1);
+    expect(wa.pnr.frequentFlyers[0].carrier).toBe('BW');
+    expect(wa.pnr.frequentFlyers[0].number).toBe('123456789');
+    expect(wa.pnr.frequentFlyers[0].nameRef).toBeUndefined();
+  });
+
+  it('FFN <carrier>-<number>/P<n> binds the FF to a specific passenger', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('FFN BW-123456789/P1', wa);
+    expect(wa.pnr.frequentFlyers[0].nameRef?.item).toBe(1);
+  });
+
+  it('FFN with malformed argument returns FORMAT', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('FFN BW123', wa)).toBe('FORMAT'); // missing dash
+    expect(await host.process('FFN BAD-', wa)).toBe('FORMAT');
+  });
+
+  it('Multiple FFN entries accumulate', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('FFN AF-12345', wa);
+    await host.process('FFN BA-67890/P1', wa);
+    expect(wa.pnr.frequentFlyers).toHaveLength(2);
+    expect(wa.pnr.frequentFlyers[0].carrier).toBe('AF');
+    expect(wa.pnr.frequentFlyers[1].carrier).toBe('BA');
   });
 });

@@ -269,6 +269,33 @@ function parseOsi(arg: string): { carrier: string; text: string } | undefined {
 }
 
 /**
+ * Parse `FFN <carrier>-<number>[/P<n>]` — frequent-flyer element.
+ * QRG p.39 example: `FFN BW-123456789/P1`.
+ * Carrier is 2 letters/digits, number is alphanumeric (1-15 chars),
+ * optional /P<n> binds the FF to a passenger.
+ */
+function parseFfn(arg: string): {
+  carrier: string;
+  number: string;
+  nameRef?: { item: number; passenger?: number };
+} | undefined {
+  // Trailing `/P<n>[.<m>]` passenger binding.
+  let body = arg.trim();
+  let nameRef: { item: number; passenger?: number } | undefined;
+  const tailMatch = /\/P(\d+)(?:\.(\d+))?$/.exec(body);
+  if (tailMatch) {
+    nameRef = {
+      item: parseInt(tailMatch[1], 10),
+      passenger: tailMatch[2] ? parseInt(tailMatch[2], 10) : undefined,
+    };
+    body = body.slice(0, tailMatch.index);
+  }
+  const m = /^([A-Z0-9]{2})-([A-Z0-9]{1,15})$/.exec(body);
+  if (!m) return undefined;
+  return { carrier: m[1], number: m[2], nameRef };
+}
+
+/**
  * Parse `FQD<orig><dest>[/<date>][/A<carrier>]` — fare display.
  * QRG p.23 examples (under Direct Access `1XXFQD`); the standalone FQD
  * form is reconstructed since the QRG only documents the airline-
@@ -752,6 +779,23 @@ export class AmadeusDialect implements Dialect {
       const osi = parseOsi(entry.slice(3));
       if (!osi) return FORMAT_ERROR;
       wa.pnr.osis.push({ carrier: osi.carrier, text: osi.text });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // FFN <carrier>-<number>[/P<n>] — create a frequent-flyer SSR
+    // element. QRG p.39 example: `FFN BW-123456789/P1`. Stores on
+    // pnr.frequentFlyers (shared model with Sabre's `FF<carrier><num>`).
+    // The `/P<n>` tail binds the FF to a specific passenger; without
+    // it the FF applies to all pax.
+    if (entry.startsWith('FFN ')) {
+      const ff = parseFfn(entry.slice(4));
+      if (!ff) return FORMAT_ERROR;
+      wa.pnr.frequentFlyers.push({
+        carrier: ff.carrier,
+        number: ff.number,
+        nameRef: ff.nameRef,
+      });
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
     }
