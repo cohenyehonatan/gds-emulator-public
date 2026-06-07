@@ -6,7 +6,21 @@
 import { Pnr } from '../models/pnr.js';
 import { generateRecordLocator } from '../models/record-locator.js';
 
-export class PnrStore {
+/**
+ * Read/write surface shared by the in-memory `PnrStore` and any
+ * persistent variant (`JsonFilePnrStore`). Backends type
+ * `pnrs: PnrStoreLike` so either can drop in via the constructor.
+ */
+export interface PnrStoreLike {
+  commit(pnr: Pnr): string;
+  get(locator: string): Pnr | undefined;
+  findBySurname(surname: string): Pnr[];
+  has(locator: string): boolean;
+  values(): Pnr[];
+  readonly size: number;
+}
+
+export class PnrStore implements PnrStoreLike {
   private byLocator = new Map<string, Pnr>();
 
   /** Commit a PNR: assign a unique locator (if absent), stamp, store. */

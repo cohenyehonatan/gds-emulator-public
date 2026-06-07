@@ -13,13 +13,21 @@ import { WorkArea } from '../session/work-area.js';
 import type { Dialect } from '../dialects/dialect.js';
 import { CrtScreen } from './crt-screen.js';
 import { LiveTravelportBackend, liveTravelportFromEnv } from '../backends/live-travelport-backend.js';
-import type { Backend } from '../backends/backend.js';
+import { EmulatedBackend, type Backend } from '../backends/backend.js';
+import { JsonFilePnrStore } from '../store/json-file-pnr-store.js';
 
 export async function startRepl(dialect?: Dialect, backend?: Backend): Promise<void> {
   // Auto-pick a live backend if env vars are present and the caller
   // didn't explicitly pass one — keeps `npm run start:terminal:galileo`
-  // ergonomic when creds are set.
-  const effectiveBackend = backend ?? liveTravelportFromEnv();
+  // ergonomic when creds are set. Falls back to EmulatedBackend (with
+  // optional JSON-file PNR persistence) otherwise.
+  let effectiveBackend = backend ?? liveTravelportFromEnv();
+  if (!effectiveBackend) {
+    const pnrFile = process.env.PNR_STORE_FILE;
+    effectiveBackend = pnrFile
+      ? new EmulatedBackend({ pnrStore: new JsonFilePnrStore(pnrFile) })
+      : new EmulatedBackend();
+  }
   const host = new GdsHost({ port: 0, logLevel: 'warn', dialect, backend: effectiveBackend });
   const wa = host.newWorkArea();
   return process.stdout.isTTY ? startCrtMode(host, wa) : startLineMode(host, wa);

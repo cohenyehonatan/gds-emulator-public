@@ -22,7 +22,7 @@
  */
 
 import { Inventory } from '../store/inventory.js';
-import { PnrStore } from '../store/pnr-store.js';
+import { PnrStore, type PnrStoreLike } from '../store/pnr-store.js';
 
 export interface Backend {
   /** Stable identifier, e.g. "emulated" or "travelport-1g". */
@@ -31,8 +31,10 @@ export interface Backend {
   readonly displayName: string;
   /** Flight schedule + per-class seat-count store. */
   readonly inventory: Inventory;
-  /** PNR persistence keyed by locator. */
-  readonly pnrs: PnrStore;
+  /** PNR persistence keyed by locator. v1 = in-memory PnrStore; can be
+   *  swapped for JsonFilePnrStore (persistent across sessions) via the
+   *  backend constructor's `pnrStore` option. */
+  readonly pnrs: PnrStoreLike;
   /**
    * Queue routing: queue id → ordered list of PNR locators. Shared
    * across work areas, survives end-transaction. Owned by the backend
@@ -52,6 +54,9 @@ export interface Backend {
 export interface EmulatedBackendOptions {
   /** Override the starting ticket serial. Default matches the Sabre QR seed. */
   initialTicketSerial?: number;
+  /** Swap in a different PNR store (e.g. JsonFilePnrStore for cross-
+   *  session persistence). Default = a fresh in-memory PnrStore. */
+  pnrStore?: PnrStoreLike;
 }
 
 /**
@@ -64,12 +69,13 @@ export class EmulatedBackend implements Backend {
   readonly id = 'emulated';
   readonly displayName = 'Emulated (local inventory + PNR store)';
   readonly inventory = new Inventory();
-  readonly pnrs = new PnrStore();
+  readonly pnrs: PnrStoreLike;
   readonly queues = new Map<string, string[]>();
   private serial: number;
 
   constructor(opts: EmulatedBackendOptions = {}) {
     this.serial = opts.initialTicketSerial ?? 4_692_507_094;
+    this.pnrs = opts.pnrStore ?? new PnrStore();
   }
 
   nextTicketSerial(): number {
