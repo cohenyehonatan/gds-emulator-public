@@ -651,14 +651,26 @@ different upside.
       * Chunk 15 — time-limit modify (`63f89c9`): `8/<DDMON>` rewrites
         the TK element to TKTL<date>. Disambiguates from segment-
         status `<n>/<status>` by the value shape (date vs 2-letter).
+      * Chunk 16 — SP split PNR + EF file associate (`64ee0ed`):
+        `SP <n>[,<m>[,<a>-<b>]...]` peels named passengers into an
+        associate PNR (stashed on wa.dividedOriginal). `EF` commits
+        the associate + re-commits the trimmed parent. Both PNRs
+        persist with distinct locators.
+      * Chunk 17 — VFFD frequent-flyer agreements (`75b7b98`):
+        `VFFD` lists 23 major loyalty programs; `VFFD <carrier>`
+        narrows to one. Informational/read-side companion to FFN.
+      * Chunk 18 — RRN variants (`d6af857`): `RRN/DP<n>` push dates
+        forward, `RRN/DM<n>` push back, `RRN/C<class>` class change,
+        `RRN/S<segs>` segment filter. `pushDdmonByDays` helper handles
+        month/year rollover via JS Date setUTCDate.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
-      exceptions, alliance ranking, VFFD agreements display, FFA/FFR
-      mileage accrual/redemption, seat maps (SM display), RRN
-      variants (date push, class change), SP split PNR. The
-      behavior-layer caveat (below) still applies — no public source
-      for these algorithms.
+      exceptions, alliance ranking, FFA/FFR mileage accrual/
+      redemption (needs name-element interleaving), seat maps (SM
+      display — needs new seat-map data structure), RRN/P<n>
+      passenger-specific copy variants. The behavior-layer caveat
+      (below) still applies — no public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
