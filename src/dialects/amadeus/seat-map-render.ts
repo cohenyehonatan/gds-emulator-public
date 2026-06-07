@@ -102,10 +102,15 @@ function renderCabin(
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
   const headerCols = formatRow(columns, columns, aisleAfter);
-  lines.push(` ${cabinLabel.padEnd(14)} ${headerCols}`);
+  // Column-position math: header letter lands at col `cabin_pad + 2`;
+  // row data lands at col `row_pad + 6` (1 sigil + row_pad + 1 sep + 3
+  // row label + 1 sep). For both to align: cabin_pad = row_pad + 4.
+  // Bumping row labels right by 1 (row_pad 11 → 12) bumps cabin_pad
+  // 14 → 16 to track. Exit-row indent matches the new data position.
+  lines.push(` ${cabinLabel.padEnd(16)} ${headerCols}`);
   for (const row of cabin.Row) {
     const isExitRow = row.Space.some((s) => s.Characteristic?.includes('E'));
-    if (isExitRow) lines.push(' '.repeat(16) + ' --- EXIT ROW ---');
+    if (isExitRow) lines.push(' '.repeat(17) + ' --- EXIT ROW ---');
     const seatChars = columns.map((col) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return ' ';
@@ -113,7 +118,7 @@ function renderCabin(
     });
     const seats = formatRow(columns, seatChars, aisleAfter);
     const rowLabel = row.label.padStart(3, ' ');
-    lines.push(` ${' '.repeat(11)} ${rowLabel} ${seats}`);
+    lines.push(` ${' '.repeat(12)} ${rowLabel} ${seats}`);
   }
   return lines;
 }
