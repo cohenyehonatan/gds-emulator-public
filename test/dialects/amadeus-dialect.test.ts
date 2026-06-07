@@ -1101,6 +1101,81 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     );
   });
 
+  it('RT/<surname> retrieves a single matching PNR by name', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa1 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa1);
+    await host.process('AN15JULJFKLAX', wa1);
+    await host.process('SS1Y1', wa1);
+    await host.process('NM1HANUSSEN/JOHN MR', wa1);
+    await host.process('AP02012345678-A', wa1);
+    await host.process('RFAGT', wa1);
+    await host.process('TKOK', wa1);
+    const er = await host.process('ET', wa1);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('RT/HANUSSEN', wa);
+    expect(resp).toContain(locator);
+    expect(resp).toContain('HANUSSEN');
+  });
+
+  it('RT/<surname> with multiple matches returns a numbered list', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    for (const given of ['JOHN', 'JANE']) {
+      const w = host.newWorkArea();
+      await host.process('JI2345HA/GS', w);
+      await host.process('AN15JULJFKLAX', w);
+      await host.process('SS1Y1', w);
+      await host.process(`NM1MURPHY/${given} MR`, w);
+      await host.process('AP02012345678-A', w);
+      await host.process('RFAGT', w);
+      await host.process('TKOK', w);
+      await host.process('ET', w);
+    }
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('RT/MURPHY', wa);
+    expect(resp).toContain('2 PNRS FOUND');
+    expect(resp).toContain('MURPHY/JOHN');
+    expect(resp).toContain('MURPHY/JANE');
+  });
+
+  it('RT/<surname>/<initial> filters multi-match by given-initial', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    for (const given of ['JOHN', 'JANE']) {
+      const w = host.newWorkArea();
+      await host.process('JI2345HA/GS', w);
+      await host.process('AN15JULJFKLAX', w);
+      await host.process('SS1Y1', w);
+      await host.process(`NM1ANDERSON/${given} MR`, w);
+      await host.process('AP02012345678-A', w);
+      await host.process('RFAGT', w);
+      await host.process('TKOK', w);
+      await host.process('ET', w);
+    }
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('RT/ANDERSON/J', wa);
+    // Both start with J — still multi-match.
+    expect(resp).toContain('2 PNRS FOUND');
+  });
+
+  it('RT/<surname> with no match returns PNR NOT FOUND', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RT/NOSUCHNAME', wa)).toBe('PNR NOT FOUND');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

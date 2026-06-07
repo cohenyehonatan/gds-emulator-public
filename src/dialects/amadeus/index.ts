@@ -778,9 +778,45 @@ export class AmadeusDialect implements Dialect {
     }
 
     if (entry.startsWith('RT')) {
-      const locator = entry.slice(2).trim();
-      if (!locator) return FORMAT_ERROR;
-      const found = ctx.backend.pnrs.get(locator);
+      const arg = entry.slice(2).trim();
+      if (!arg) return FORMAT_ERROR;
+      // RT/<surname>[/<given-initial>] — retrieve by name. QRG p.43:
+      //   RT/HANUSSEN          retrieve by surname
+      //   RT/HANUSSEN/J        surname + given initial (single match)
+      // The given-initial qualifier disambiguates multi-match returns
+      // when several PNRs share a surname.
+      if (arg.startsWith('/')) {
+        const parts = arg.slice(1).split('/');
+        const surname = parts[0];
+        const givenInitial = parts[1];
+        if (!surname) return FORMAT_ERROR;
+        const matches = ctx.backend.pnrs.findBySurname(surname);
+        if (matches.length === 0) return PNR_NOT_FOUND;
+        const filtered = givenInitial
+          ? matches.filter((p) =>
+              p.names.some((n) =>
+                n.passengers.some((pax) => pax.firstName.startsWith(givenInitial.toUpperCase()))
+              )
+            )
+          : matches;
+        if (filtered.length === 0) return PNR_NOT_FOUND;
+        if (filtered.length > 1) {
+          // QRG p.50 doesn't show the exact multi-match wording for
+          // RT/<name>; reconstructed as a numbered locator list.
+          const header = `${filtered.length} PNRS FOUND`;
+          const rows = filtered.map((p, i) => {
+            const first = p.names[0]?.passengers[0];
+            const name = first ? `${p.names[0].surname}/${first.firstName}` : '(no name)';
+            return `  ${String(i + 1).padStart(2)}. ${p.locator} ${name}`;
+          });
+          return [header, ...rows].join('\n');
+        }
+        wa.pnr = filtered[0];
+        try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
+        return renderAmadeusPnr(filtered[0], ctx.pcc, wa.agent);
+      }
+      // Plain `RT<locator>` retrieve.
+      const found = ctx.backend.pnrs.get(arg);
       if (!found) return PNR_NOT_FOUND;
       wa.pnr = found;
       try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
