@@ -7,3 +7,7 @@ references/*.txt
 travelport-response.json
 tvp-diag-*.json
 tvp-*.json
+
+# machine-readable test reports (agent ingestion / CI)
+.vitest-report.json
+junit.xml

@@ -23,6 +23,8 @@
     "validate:live-galileo:replay": "TVP_REPLAY=./tvp-recording.jsonl tsx validate-galileo-handler-live.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:json": "vitest run --reporter=json --outputFile=.vitest-report.json",
+    "test:junit": "vitest run --reporter=junit --outputFile=junit.xml",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
