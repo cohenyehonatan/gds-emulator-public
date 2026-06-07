@@ -1485,6 +1485,38 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('EF', wa)).toBe('NOTHING TO FILE');
   });
 
+  it('VFFD lists all agreement carriers + programs', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('VFFD', wa);
+    expect(resp).toContain('AGREEMENTS ACTIVE');
+    expect(resp).toContain('UA  MILEAGEPLUS');
+    expect(resp).toContain('AA  AADVANTAGE');
+    expect(resp).toContain('LH  MILES AND MORE');
+  });
+
+  it('VFFD <carrier> returns the program for a single carrier', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('VFFD UA', wa)).toContain('MILEAGEPLUS');
+    expect(await host.process('VFFD QF', wa)).toContain('QANTAS FREQUENT FLYER');
+  });
+
+  it('VFFD <unknown-carrier> returns NO FF AGREEMENT', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('VFFD ZZ', wa)).toBe('ZZ NO FF AGREEMENT');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

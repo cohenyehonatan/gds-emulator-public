@@ -86,6 +86,39 @@ const ERROR_RESPONSES = new Set<string>([
   NEED_MANDATORY,
 ]);
 
+/**
+ * Frequent-flyer programs by carrier code. Drives the `VFFD` agreements
+ * display. Reconstructed — the QRG only documents the entry forms
+ * (`VFFD` / `VFFD <carrier>`), not the response wording or which
+ * carriers are "agreed" on a given Amadeus office. Curated list of
+ * major carriers an operator would actually query against.
+ */
+const VFFD_PROGRAMS: Record<string, string> = {
+  AA: 'AADVANTAGE',
+  AC: 'AEROPLAN',
+  AF: 'FLYING BLUE',
+  AS: 'MILEAGE PLAN',
+  BA: 'EXECUTIVE CLUB',
+  CX: 'CATHAY',
+  DL: 'SKYMILES',
+  EI: 'AERCLUB',
+  EK: 'SKYWARDS',
+  FI: 'SAGA CLUB',
+  IB: 'IBERIA PLUS',
+  JL: 'JAL MILEAGE BANK',
+  KL: 'FLYING BLUE',
+  LH: 'MILES AND MORE',
+  LX: 'MILES AND MORE',
+  NH: 'ANA MILEAGE CLUB',
+  OS: 'MILES AND MORE',
+  QF: 'QANTAS FREQUENT FLYER',
+  QR: 'PRIVILEGE CLUB',
+  SQ: 'KRISFLYER',
+  TK: 'MILES AND SMILES',
+  UA: 'MILEAGEPLUS',
+  VS: 'FLYING CLUB',
+};
+
 /** Amadeus uses 3-letter month abbreviations in cryptic dates (DDMON). */
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const DOW_LETTERS = ['S', 'M', 'T', 'W', 'Q', 'F', 'J']; // Sun-Sat (Sabre convention)
@@ -1167,6 +1200,27 @@ export class AmadeusDialect implements Dialect {
       wa.pnr.addresses.push({ kind, subtype, text: body, nameRef });
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
+    }
+
+    // VFFD — Display frequent flyer agreements. QRG p.39:
+    //   VFFD            Display all carrier FF agreements
+    //   VFFD <carrier>  Display agreements for a specific carrier
+    //
+    // Static carrier→program map — reconstructed since the QRG only
+    // shows the entry forms, not the response wording. Covers the
+    // major loyalty programs an operator would actually query.
+    if (entry === 'VFFD') {
+      const rows = Object.entries(VFFD_PROGRAMS).map(
+        ([c, p]) => `  ${c}  ${p}`
+      );
+      return ['VFFD - AGREEMENTS ACTIVE', ...rows].join('\n');
+    }
+    const vffdMatch = /^VFFD (.+)$/.exec(entry);
+    if (vffdMatch) {
+      const carrier = vffdMatch[1].trim().toUpperCase();
+      const program = VFFD_PROGRAMS[carrier];
+      if (!program) return `${carrier} NO FF AGREEMENT`;
+      return `  ${carrier}  ${program}  AGREEMENT ACTIVE`;
     }
 
     // FFN <carrier>-<number>[/P<n>] — create a frequent-flyer SSR
