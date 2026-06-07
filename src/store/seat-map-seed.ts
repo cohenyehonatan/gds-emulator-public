@@ -45,6 +45,7 @@ function makeCabin(
     Y333: { columns: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'], aisleAfter: [2, 5] }, // ABC|DEF|GHJ
   };
   const spec = layouts[pattern];
+  const aisleAfterColumn = spec.aisleAfter.map((idx) => spec.columns[idx]);
   const Layout: CabinLayoutEntry[] = [{ startRow: fromRow, endRow: toRow }];
   // Column position: first column is W, last is W, columns adjacent
   // to an aisle gap are A (Aisle), everything else is M (Middle/Center).
@@ -69,7 +70,7 @@ function makeCabin(
     });
     Row.push({ label: String(r), Space });
   }
-  return { name, Layout, Row };
+  return { name, Layout, Row, aisleAfterColumn };
 }
 
 /** A320 standard / sharklets / alt — all-Y narrow body, 30 rows. */

@@ -137,6 +137,20 @@ export interface Cabin {
   name: string;
   Layout: CabinLayoutEntry[];
   Row: SeatRow[];
+  /**
+   * Column letters after which the renderer should draw an aisle gap.
+   * Example: 3-3 narrow-body Y → ['C'] (aisle between C and D); 2-2-2
+   * twin-aisle J → ['B', 'E']; 3-3-3 wide-body Y → ['C', 'F'].
+   *
+   * Not in Travelport's response shape directly — the live mapper
+   * computes this from the response's `Layout[]` position labels and
+   * column-letter gaps. Letting cabins carry it explicitly lets the
+   * renderer skip the brittle "infer aisle from consecutive A
+   * positions" heuristic that breaks for 2-2-2 layouts (where every
+   * inner column is positioned 'A' but adjacent inner pairs straddle
+   * DIFFERENT aisles).
+   */
+  aisleAfterColumn?: string[];
 }
 
 /** Top-level seat map. */

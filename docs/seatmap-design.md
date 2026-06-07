@@ -457,11 +457,29 @@ Landed in commit (this commit).
 - [x] Render vertical (default) and `/V` / `/H` layout variants in
       `src/dialects/amadeus/seat-map-render.ts`. Position SCC override
       tweaked from the design-doc anchor: K (bulkhead) dropped from
-      per-cell rendering because the cabin-code prefix on the left
-      margin already marks the boundary — per-cell K was visual noise
-      without information. Final priority: E (exit) > W (window) > A
-      (aisle) > M (middle) > H (handicapped) > status glyph. Renderer
-      output matches the doc anchor for 32A / 738 / 777 layouts.
+      per-cell rendering because the cabin-code prefix already marks
+      the boundary — per-cell K was visual noise without information.
+      Final priority: E (exit) > W (window) > A (aisle) > M (middle)
+      > H (handicapped) > status glyph.
+
+      **Per-cabin rendering (structural revision discovered during
+      chunk 2 review)**: each cabin renders with its own column header
+      + aisle positions, NOT a merged-superset across cabins. The
+      original anchor implied one shared header, but cabins on the
+      same aircraft can have very different layouts (777 F is 2-2-2,
+      Y is 3-3-3) and a shared header forces an aisle-position
+      compromise that misaligns one of them. Each cabin label includes
+      the single-letter code in parens — `FIRST (F)`, `ECONOMY (Y)`.
+
+      Aisle positions come from a new `Cabin.aisleAfterColumn?:
+      string[]` field populated by the seed's `makeCabin` helper. The
+      live mapper (chunk 6) will compute this from the response's
+      Layout block — Travelport uses position-label conventions +
+      column-letter gaps, the field is our normalized form. Letting
+      cabins carry it explicitly avoids the brittle "infer aisle from
+      consecutive A positions" heuristic that breaks for 2-2-2
+      layouts (where every inner column is positioned 'A' but adjacent
+      inner pairs straddle DIFFERENT aisles).
 
       **Render anchor (concrete target so chunk 7 has something to
       scroll against):**
