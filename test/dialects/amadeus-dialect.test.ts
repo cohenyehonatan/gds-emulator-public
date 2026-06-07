@@ -880,3 +880,49 @@ describe('Amadeus dialect — v4 chunk 7: queue work (QSTART/QN/QF/QFR/QXI)', ()
     }
   });
 });
+
+describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('IR on an empty work area returns IGNORED (same as IG)', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('IR', wa)).toBe('IGNORED');
+  });
+
+  it('IR during a build (no committed locator) returns IGNORED + resets', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(await host.process('IR', wa)).toBe('IGNORED');
+    expect(wa.pnr.segments).toHaveLength(0);
+  });
+
+  it('IR after RT<locator> re-renders the BF from the store', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const er = await host.process('ET', wa);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    await host.process(`RT${locator}`, wa2);
+    const ir = await host.process('IR', wa2);
+    expect(ir).toContain(locator);
+    expect(ir).toContain('SMITH/JOHN MR');
+  });
+});

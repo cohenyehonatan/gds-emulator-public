@@ -607,6 +607,26 @@ export class AmadeusDialect implements Dialect {
       return 'IGNORED';
     }
 
+    if (entry === 'IR') {
+      // Ignore and redisplay (QRG p.42). When a retrieve precedes the
+      // build (RT<locator> → modify), IR rolls work-area state back
+      // and re-renders the BF as fetched from the store. With a pure
+      // build (no committed locator), IR is functionally IG plus an
+      // empty "redisplay" — there's nothing to re-render.
+      const priorLocator = wa.pnr.locator;
+      wa.reset();
+      try { wa.machine.transition(SessionEvent.IGNORE); } catch { /* */ }
+      if (priorLocator) {
+        const pnr = ctx.backend.pnrs.get(priorLocator);
+        if (pnr) {
+          wa.pnr = pnr;
+          try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
+          return renderAmadeusPnr(pnr, ctx.pcc, wa.agent);
+        }
+      }
+      return 'IGNORED';
+    }
+
     // DM<airport>[-<airport2>][/<date>] — Minimum Connect Time lookup.
     // QRG p.25 examples: `DMFRA` (basic), `DMFRA/15DEC` (date-specific),
     // `DMLGW-LHR` (inter-airport pair). Returns the emulated inventory's
