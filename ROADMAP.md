@@ -628,12 +628,23 @@ different upside.
       live error wording diverges on N1Y1 (FORMAT vs CLASS NOT AVAILABLE).
       The exit-1 signal makes the harness CI-ready against regression.
 
-- [ ] **Calibrate emulated to match live wording** (surfaced by diff
-      harness, 2026-06-06) — emulated FORMAT vs live CLASS NOT AVAILABLE,
-      emulated NO FLIGHTS vs live (synthetic-but-shaped) flight set.
-      Both are honest divergences with concrete fixes; ROADMAP open as
-      the "speculation vs ground truth" calibration the harness was
-      designed to surface.
+- [/] **Calibrate emulated to match live wording** — narrow-target
+      calibration in progress. First closed target (`1987e07`,
+      2026-06-07): pre-prod returns HTTP 200 with a Result.Error[]
+      payload for unknown locators (not 404); `retrieveGalileoLive`
+      now matches "RECORD LOCATOR DOES NOT EXIST" + "BOOKING FILE NOT
+      FOUND" and translates to `GalileoResponse.NO_PNR`, producing
+      IDENTICAL wording on both backends for `*<missing-locator>`.
+      Diff oracle gained stateless wording canaries under a fresh
+      WorkArea pair so future drift surfaces in CI.
+
+      Remaining targets are intrinsic-divergence cases the harness
+      classifies as STRUCTURAL (expected): emulated FORMAT vs live
+      CLASS NOT AVAILABLE on N1Y1, emulated synth flight set vs
+      live's actual offers on availability. These aren't truly
+      wording mismatches — the underlying inventories differ — so
+      "calibration" there means broadening the harness's tolerance
+      categorization, not changing emulated code.
 
 - [x] **Capture-then-replay cache** (`1fa1d5c`) — second half of
       vendor-pacing discipline. `TVP_CAPTURE=<file>` writes a JSONL log
