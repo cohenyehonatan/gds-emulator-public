@@ -621,13 +621,20 @@ different upside.
         next, `QF`/`QFR` remove + advance, `QES` skip, `QXI` exit.
         Uses WorkArea's existing currentQueue/queueCursor/queueWorking
         Set fields for cross-dialect consistency.
+      * Chunk 8 — IR (`b95edb4`): ignore + redisplay. Pure-build path
+        is == IG; after RT<locator> the BF is re-rendered from store.
+      * Chunk 9 — AM / AB address elements (`13e3f43`): mailing
+        (standard / home / delivery / misc) and billing addresses.
+        Adds cross-dialect `AddressElement` model + Pnr.addresses
+        field; JsonFilePnrStore round-trip support; RTJ extended to
+        render addresses with per-kind indices.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
       exceptions, alliance ranking, VFFD agreements display, FFA/FFR
       mileage accrual/redemption, seat maps (SM), LP listing PNRs by
-      flight, AM/AB address elements. The behavior-layer caveat
-      (below) still applies — no public source for these algorithms.
+      flight. The behavior-layer caveat (below) still applies — no
+      public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
