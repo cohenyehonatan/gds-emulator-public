@@ -59,7 +59,8 @@ import type { HandlerContext } from '../../session/handlers/index.js';
 import { SessionEvent } from '../../session/session-state.js';
 import { generateRecordLocator } from '../../models/record-locator.js';
 import type { AirSegment } from '../../models/segment.js';
-import { StatusCode } from '../../protocol/constants.js';
+import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
+import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
@@ -129,23 +130,51 @@ function parseAvailability(arg: string): { date: string; dow: { letter: string; 
   return { date: date.raw, dow: date.dow, origin: m[2], destination: m[3], afterMinutes };
 }
 
-/** Parse `NM1<surname>/<given> <title>` — single-pax for v2. */
-function parseName(arg: string): { surname: string; given: string; title?: string } | undefined {
-  // Accept `NM1SMITH/JOHN MR` → SMITH/JOHN MR. The leading `1` is the
-  // passenger sequence; v2 supports only single-pax so we just verify it.
-  const m = /^1([A-Z]+)\/([A-Z]+(?:\s+[A-Z]+)*)$/.exec(arg);
-  if (!m) return undefined;
-  // Last word of the given-name section is the title if it matches common
-  // honorifics; otherwise it's part of the first name.
-  const givenParts = m[2].split(/\s+/);
-  const TITLES = new Set(['MR', 'MRS', 'MS', 'MISS', 'DR', 'PROF']);
-  let title: string | undefined;
-  let given = m[2];
-  if (givenParts.length > 1 && TITLES.has(givenParts[givenParts.length - 1])) {
-    title = givenParts[givenParts.length - 1];
-    given = givenParts.slice(0, -1).join(' ');
+const TITLES = new Set(['MR', 'MRS', 'MS', 'MISS', 'DR', 'PROF']);
+
+function splitTitle(rawGiven: string): { given: string; title?: string } {
+  const parts = rawGiven.split(/\s+/);
+  if (parts.length > 1 && TITLES.has(parts[parts.length - 1])) {
+    return { title: parts[parts.length - 1], given: parts.slice(0, -1).join(' ') };
   }
-  return { surname: m[1], given, title };
+  return { given: rawGiven };
+}
+
+/**
+ * Parse Amadeus name entry. v3 supports:
+ *   NM1<sur>/<given> <title>                single-pax            (v2)
+ *   NM<n><sur>/<given1> <title>/<given2>... multi-pax same surname (v3)
+ *
+ * QRG p.29 examples:
+ *   NM1SMITH/JOHN MR
+ *   NM3LEE/SAM MR/JOAN MRS/TOM MR
+ *
+ * The leading digit n is the count of passengers — they MUST share the
+ * surname. For passengers with different surnames, the QRG shows TWO
+ * separate NM entries; the dispatch handles that by accumulating
+ * pnr.names across calls.
+ *
+ * Returns a single NameItem the dispatcher pushes onto pnr.names.
+ */
+function parseName(arg: string): {
+  surname: string;
+  passengers: Array<{ given: string; title?: string }>;
+  count: number;
+} | undefined {
+  const m = /^([1-9])([A-Z]+)\/(.+)$/.exec(arg);
+  if (!m) return undefined;
+  const count = parseInt(m[1], 10);
+  const surname = m[2];
+  // Split given-names section on `/`. Each chunk is `<given> [title]`.
+  const chunks = m[3].split('/').map((c) => c.trim()).filter((c) => c.length > 0);
+  if (chunks.length === 0) return undefined;
+  const passengers = chunks.map((c) => splitTitle(c));
+  // Per Amadeus QRG: `NM<n><sur>/<given1>/<given2>...` — the count is
+  // the number of pax. When the user supplies only ONE given-name chunk
+  // for NM2+ (e.g. `NM2SCHWARZ/MANFRED MR/SABINE`), v3 accepts both
+  // chunks too. We trust the supplied count even if chunks.length
+  // differs — the response will reflect what was parsed.
+  return { surname, passengers, count };
 }
 
 /** Parse `SS<seats><class><line>` — sell from cached availability. */
@@ -157,6 +186,134 @@ function parseSell(arg: string): { seats: number; bookingClass: string; line: nu
     bookingClass: m[2],
     line: parseInt(m[3], 10),
   };
+}
+
+/**
+ * Parse Amadeus segment-number list. Supports comma-separated singles
+ * and ranges: `2,4-6,8` → `[2, 4, 5, 6, 8]`. Returns undefined on any
+ * malformed token; returns [] for an empty input.
+ */
+function parseSegmentList(arg: string): number[] | undefined {
+  if (arg.trim() === '') return undefined;
+  const out: number[] = [];
+  for (const part of arg.split(',')) {
+    const range = /^([1-9]\d?)-([1-9]\d?)$/.exec(part);
+    const single = /^([1-9]\d?)$/.exec(part);
+    if (range) {
+      const a = parseInt(range[1], 10);
+      const b = parseInt(range[2], 10);
+      if (a > b) return undefined;
+      for (let i = a; i <= b; i++) out.push(i);
+    } else if (single) {
+      out.push(parseInt(single[1], 10));
+    } else {
+      return undefined;
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse SSR text after `SR `. QRG p.34 patterns:
+ *   `LSML`                       (4-char code, all pax, default carrier YY)
+ *   `VGMLLH`                     (code + 2-char carrier)
+ *   `VGML/P1-3`                  (passenger association)
+ *   `BIKENN2/P1`                 (code + free text + association)
+ *   `INFT-JONES/TOM 02FEB06/P2`  (carrier-tagged data + association)
+ *
+ * Returns { code, carrier?, text?, nameRef? } or undefined for malformed.
+ */
+function parseSsr(arg: string): {
+  code: string;
+  carrier?: string;
+  text?: string;
+  nameRef?: { item: number; passenger?: number };
+} | undefined {
+  // Split off passenger association tail `/P<n>[.<m>]` or `/P<a>-<b>`.
+  let body = arg;
+  let nameRef: { item: number; passenger?: number } | undefined;
+  const tailMatch = /\/P(\d+)(?:\.(\d+))?$/.exec(body);
+  if (tailMatch) {
+    nameRef = {
+      item: parseInt(tailMatch[1], 10),
+      passenger: tailMatch[2] ? parseInt(tailMatch[2], 10) : undefined,
+    };
+    body = body.slice(0, tailMatch.index);
+  }
+  // Code is the first 4 uppercase letters.
+  const codeMatch = /^([A-Z]{4})/.exec(body);
+  if (!codeMatch) return undefined;
+  const code = codeMatch[1];
+  let rest = body.slice(4);
+  let carrier: string | undefined;
+  // Optional 2-letter carrier directly after the code (no separator).
+  const carrierMatch = /^([A-Z0-9]{2})(?=[\s/-]|$)/.exec(rest);
+  if (carrierMatch) {
+    carrier = carrierMatch[1];
+    rest = rest.slice(2);
+  }
+  const text = rest.replace(/^[\s/-]+/, '').trim() || undefined;
+  return { code, carrier, text, nameRef };
+}
+
+/**
+ * Parse OSI text after `OS `. Pattern: `<carrier> <text>[/P<n>]`.
+ * QRG p.34: `OS QF VIP COMPANY CEO/P2`.
+ */
+function parseOsi(arg: string): { carrier: string; text: string } | undefined {
+  const m = /^([A-Z]{2})\s+(.+?)(\/P\d+(?:\.\d+)?)?$/.exec(arg.trim());
+  if (!m) return undefined;
+  return { carrier: m[1], text: m[2].trim() };
+}
+
+import type { Pnr } from '../../models/pnr.js';
+import type { FareQuote } from '../../models/fare.js';
+
+/** Render a retrieved PNR (response to RT<locator>). */
+function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
+  const lines: string[] = [`RP/${pcc}/${agent ?? '----'}  ${pnr.locator ?? ''}`];
+  pnr.names.forEach((n, i) => {
+    n.passengers.forEach((pax, j) => {
+      const title = pax.title ? ` ${pax.title}` : '';
+      const seq = n.passengers.length > 1 ? `${i + 1}.${j + 1}` : `${i + 1}`;
+      lines.push(`  ${seq}. ${n.surname}/${pax.firstName}${title}`);
+    });
+  });
+  pnr.segments.forEach((s) => {
+    lines.push(`  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`);
+  });
+  return lines.join('\n');
+}
+
+/** Render the itinerary block (segments only). */
+function renderAmadeusItinerary(pnr: Pnr): string {
+  return pnr.segments
+    .map((s) => `  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`)
+    .join('\n');
+}
+
+/**
+ * Render an Amadeus-style fare quote.
+ *
+ * Reconstructed format — the QRG p.37 doesn't show the actual response
+ * layout for FXP. We use a compact passenger-block style derived from
+ * the shared FareQuote model: passenger-type / count / base / tax / total
+ * per pax, plus the fare-basis codes (one per segment) summarized at
+ * the end. The intent is "operator can read it and see what was priced",
+ * not "byte-equivalent to real Amadeus".
+ */
+function renderAmadeusFareQuote(fq: FareQuote, sequence: number): string {
+  const lines: string[] = [`FXP ${sequence}`];
+  for (const block of fq.passengers) {
+    const total = block.total.toFixed(2);
+    const base = block.base.toFixed(2);
+    const tax = block.taxTotal.toFixed(2);
+    lines.push(`  ${block.passengerType}  ${block.count}  ${base}  ${tax}  ${total} ${fq.currency}`);
+  }
+  if (fq.fareBasis.length > 0) {
+    lines.push(`  FB ${fq.fareBasis.join(' ')}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -293,8 +450,9 @@ export class AmadeusDialect implements Dialect {
       if (!name) return FORMAT_ERROR;
       wa.pnr.names.push({
         surname: name.surname,
-        passengers: [{ firstName: name.given, title: name.title }],
-        count: 1, infant: false,
+        passengers: name.passengers.map((p) => ({ firstName: p.given, title: p.title })),
+        count: name.passengers.length,
+        infant: false,
       });
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
@@ -364,18 +522,117 @@ export class AmadeusDialect implements Dialect {
       if (!found) return PNR_NOT_FOUND;
       wa.pnr = found;
       try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
-      // Render: locator + first name + segments (one per line). Amadeus
-      // uses `RP/<office>/<agent>` headers; we use a simplified form.
-      const lines: string[] = [`RP/${ctx.pcc}/${wa.agent ?? '----'}  ${locator}`];
-      found.names.forEach((n, i) => {
-        const pax = n.passengers[0];
-        const title = pax.title ? ` ${pax.title}` : '';
-        lines.push(`  ${i + 1}. ${n.surname}/${pax.firstName}${title}`);
+      return renderAmadeusPnr(found, ctx.pcc, wa.agent);
+    }
+
+    // --- v3: cancel, segment-status modify, SSR/OSI, remarks, pricing ---
+
+    // Cancel: XI = itinerary, XE<n> = segment n, XE<n>,<m> = multi-segment
+    // (range syntax XE2,4-6 expands to {2,4,5,6}).
+    if (entry === 'XI') {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      // Return seats to inventory before clearing the segments.
+      for (const seg of wa.pnr.segments) {
+        ctx.backend.inventory.release(seg.date, seg.carrier, seg.flightNumber, seg.bookingClass, seg.seats);
+      }
+      wa.pnr.segments = [];
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return 'CNL';
+    }
+    if (entry.startsWith('XE')) {
+      const segs = parseSegmentList(entry.slice(2));
+      if (!segs || segs.length === 0) return FORMAT_ERROR;
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      const toCancel = new Set(segs);
+      const kept: AirSegment[] = [];
+      for (const seg of wa.pnr.segments) {
+        if (toCancel.has(seg.segmentNumber)) {
+          ctx.backend.inventory.release(seg.date, seg.carrier, seg.flightNumber, seg.bookingClass, seg.seats);
+        } else {
+          kept.push(seg);
+        }
+      }
+      wa.pnr.segments = kept;
+      wa.pnr.renumberSegments();
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return wa.pnr.segments.length === 0 ? 'CNL' : renderAmadeusItinerary(wa.pnr);
+    }
+
+    // Segment status modify: <n>/<status> (QRG p.31 "Change segment status").
+    // E.g. `2/HK` sets segment 2 to HK. Valid status codes per the
+    // Amadeus QRG status set (shared with the Sabre manual-entry set).
+    const statusModify = /^([1-9]\d?)\/([A-Z]{2})$/.exec(entry);
+    if (statusModify) {
+      const segNum = parseInt(statusModify[1], 10);
+      const status = statusModify[2];
+      if (!MANUAL_STATUS_CODES.has(status)) return 'INVALID STATUS CODE';
+      const seg = wa.pnr.segments.find((s) => s.segmentNumber === segNum);
+      if (!seg) return 'SEGMENT NOT IN ITINERARY';
+      seg.status = status;
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return renderAmadeusItinerary(wa.pnr);
+    }
+
+    // Remarks: RM <text> general remark, RC <text> confidential.
+    if (entry.startsWith('RM ') || entry === 'RM') {
+      const text = entry.slice(2).trim();
+      if (!text) return FORMAT_ERROR;
+      wa.pnr.remarks.push({ type: 'general', text });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+    if (entry.startsWith('RC ') || entry === 'RC') {
+      const text = entry.slice(2).trim();
+      if (!text) return FORMAT_ERROR;
+      // Confidential remarks share the 'historical' bucket in our model —
+      // closest equivalent to "not displayed in regular *R" semantics.
+      wa.pnr.remarks.push({ type: 'historical', text });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // SSR — SR <code>[/P<n>] [text]. QRG p.34: e.g. `SR LSML` (low-salt
+    // meal, all pax) or `SR VGML/P1-3` (vegetarian, pax 1-3) or
+    // `SR INFT-JONES/TOM 02FEB06/P2` (infant data on pax 2).
+    if (entry.startsWith('SR ')) {
+      const ssr = parseSsr(entry.slice(3));
+      if (!ssr) return FORMAT_ERROR;
+      wa.pnr.ssrs.push({
+        code: ssr.code,
+        carrier: ssr.carrier ?? 'YY',
+        text: ssr.text,
+        nameRef: ssr.nameRef,
+        status: 'NN',
       });
-      found.segments.forEach((s) => {
-        lines.push(`  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`);
-      });
-      return lines.join('\n');
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // OSI — OS <carrier> <text>[/P<n>]. QRG p.34: `OS QF VIP COMPANY CEO/P2`.
+    if (entry.startsWith('OS ')) {
+      const osi = parseOsi(entry.slice(3));
+      if (!osi) return FORMAT_ERROR;
+      wa.pnr.osis.push({ carrier: osi.carrier, text: osi.text });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // Pricing — FXP (best buy on booked itinerary), FXX (display saved quotes).
+    if (entry === 'FXP') {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const fq = priceItinerary(wa.pnr, {});
+      if (!fq) return 'NO FARE FOUND'; // reconstructed
+      wa.pnr.priceQuotes.push(fq);
+      wa.lastPricing = fq;
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return renderAmadeusFareQuote(fq, wa.pnr.priceQuotes.length);
+    }
+    if (entry === 'FXX' || entry === 'TQT') {
+      if (wa.pnr.priceQuotes.length === 0) return 'NO FARE QUOTES';
+      return wa.pnr.priceQuotes
+        .map((fq, i) => renderAmadeusFareQuote(fq, i + 1))
+        .join('\n\n');
     }
 
     // Everything else: honest "not implemented" stub.

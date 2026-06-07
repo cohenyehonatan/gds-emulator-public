@@ -78,14 +78,14 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     expect(resp).toContain('HA');
   });
 
-  it('verbs not yet implemented (e.g. FXP pricing) return the explicit honest-boundary stub', async () => {
+  it('verbs not yet implemented (e.g. DM MCT, FQD fare display) return the explicit honest-boundary stub', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // FXP = best fare price, FXX = display priced quotes, MD = scroll
-    // (avail+context-dependent) — all deferred past v2.
-    expect(await host.process('FXP', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
-    expect(await host.process('FXX', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    // DM = MCT lookup, FQD = fare display, DH = display history,
+    // LOT = negotiated space — all deferred past v3.
+    expect(await host.process('DMFRA', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    expect(await host.process('FQDLAXNYC', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
   });
 
   it('malformed sign-in returns FORMAT', async () => {
@@ -110,8 +110,8 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // FXP returns NOT IMPLEMENTED → chain stops → JO never runs.
-    await host.process('FXP;JO', wa);
+    // DMFRA returns NOT IMPLEMENTED → chain stops → JO never runs.
+    await host.process('DMFRA;JO', wa);
     expect(wa.agent).toBe('HA'); // still signed in
   });
 });
@@ -241,5 +241,151 @@ describe('Amadeus dialect — v2 PNR build cycle', () => {
     expect(retrieved).toContain(locator);
     expect(retrieved).toContain('SMITH/JOHN MR');
     expect(retrieved).toContain('B6');
+  });
+});
+
+describe('Amadeus dialect — v3 multi-pax names + cancel + remarks + SSR/OSI + pricing', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('NM3<sur>/<g1> <t>/<g2> <t>/<g3> <t> creates 3 passengers under one surname', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('NM3LEE/SAM MR/JOAN MRS/TOM MR', wa)).toBe('OK');
+    expect(wa.pnr.names).toHaveLength(1);
+    expect(wa.pnr.names[0].passengers).toHaveLength(3);
+    expect(wa.pnr.names[0].passengers[0].firstName).toBe('SAM');
+    expect(wa.pnr.names[0].passengers[0].title).toBe('MR');
+    expect(wa.pnr.names[0].passengers[1].firstName).toBe('JOAN');
+    expect(wa.pnr.names[0].passengers[2].firstName).toBe('TOM');
+  });
+
+  it('Multiple NM entries with different surnames accumulate', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM2SCHWARZ/MANFRED MR/SABINE', wa);
+    await host.process('NM1BLACK/ANDREW MR', wa);
+    expect(wa.pnr.names).toHaveLength(2);
+    expect(wa.pnr.names[0].surname).toBe('SCHWARZ');
+    expect(wa.pnr.names[1].surname).toBe('BLACK');
+  });
+
+  it('XI cancels the whole itinerary and returns seats to inventory', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(await host.process('XI', wa)).toBe('CNL');
+    expect(wa.pnr.segments).toHaveLength(0);
+  });
+
+  it('XE<n> cancels a specific segment and renumbers the rest', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SS1Y2', wa);
+    expect(wa.pnr.segments).toHaveLength(2);
+    await host.process('XE1', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(wa.pnr.segments[0].segmentNumber).toBe(1); // renumbered
+  });
+
+  it('<n>/<status> modifies segment status when status is in the allowed set', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('1/HK', wa);
+    expect(resp).toContain('HK');
+    expect(wa.pnr.segments[0].status).toBe('HK');
+  });
+
+  it('<n>/<status> rejects invalid status codes', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process('1/ZZ', wa)).toBe('INVALID STATUS CODE');
+  });
+
+  it('RM <text> adds a general remark', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RM PAX HAS DOG IN CABIN', wa)).toBe('OK');
+    expect(wa.pnr.remarks).toHaveLength(1);
+    expect(wa.pnr.remarks[0].type).toBe('general');
+    expect(wa.pnr.remarks[0].text).toBe('PAX HAS DOG IN CABIN');
+  });
+
+  it('SR <code> adds an SSR for all passengers', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SR LSML', wa)).toBe('OK');
+    expect(wa.pnr.ssrs).toHaveLength(1);
+    expect(wa.pnr.ssrs[0].code).toBe('LSML');
+    expect(wa.pnr.ssrs[0].carrier).toBe('YY'); // default carrier
+  });
+
+  it('SR <code>/P<n> binds the SSR to a specific passenger', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('SR VGML/P1', wa);
+    expect(wa.pnr.ssrs[0].code).toBe('VGML');
+    expect(wa.pnr.ssrs[0].nameRef?.item).toBe(1);
+  });
+
+  it('OS <carrier> <text> adds an OSI', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('OS QF VIP COMPANY CEO', wa)).toBe('OK');
+    expect(wa.pnr.osis).toHaveLength(1);
+    expect(wa.pnr.osis[0].carrier).toBe('QF');
+    expect(wa.pnr.osis[0].text).toBe('VIP COMPANY CEO');
+  });
+
+  it('FXP prices the booked itinerary and stores a quote', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    const resp = await host.process('FXP', wa);
+    expect(resp).toContain('FXP');
+    expect(wa.pnr.priceQuotes).toHaveLength(1);
+  });
+
+  it('FXP without an itinerary returns NO ITINERARY', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('FXP', wa)).toBe('NO ITINERARY');
+  });
+
+  it('FXX after FXP displays the stored quote(s)', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('FXP', wa);
+    const resp = await host.process('FXX', wa);
+    expect(resp).toContain('FXP');
   });
 });
