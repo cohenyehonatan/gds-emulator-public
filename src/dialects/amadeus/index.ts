@@ -883,6 +883,52 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
+    // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.
+    //   ST/12C/P2/S5    specific seat 12C, pax 2, segment 5
+    //   ST/WB/P3        preference (window/bulkhead), pax 3
+    //   ST/NSSA         preference (non-smoking aisle), all pax
+    // The dispatcher splits on `/`, takes the first chunk as the seat
+    // code/preference, then peels passenger/segment refs from the rest.
+    if (entry.startsWith('ST/')) {
+      const parts = entry.slice(3).split('/');
+      if (parts.length === 0 || !parts[0]) return FORMAT_ERROR;
+      const code = parts[0];
+      let segment: number | undefined;
+      let nameRef: { item: number; passenger?: number } | undefined;
+      for (const tok of parts.slice(1)) {
+        const pMatch = /^P(\d+)(?:\.(\d+))?$/.exec(tok);
+        const sMatch = /^S(\d+)$/.exec(tok);
+        if (pMatch) {
+          nameRef = {
+            item: parseInt(pMatch[1], 10),
+            passenger: pMatch[2] ? parseInt(pMatch[2], 10) : undefined,
+          };
+        } else if (sMatch) {
+          segment = parseInt(sMatch[1], 10);
+        } else {
+          return FORMAT_ERROR;
+        }
+      }
+      wa.pnr.seatRequests.push({ code, segment, nameRef });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    // SX — cancel ALL seat assignments. SX/S<n> cancels seats for a
+    // specific segment. QRG p.40.
+    if (entry === 'SX') {
+      wa.pnr.seatRequests = [];
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return 'CNL';
+    }
+    const sxSegMatch = /^SX\/S([1-9]\d?)$/.exec(entry);
+    if (sxSegMatch) {
+      const seg = parseInt(sxSegMatch[1], 10);
+      wa.pnr.seatRequests = wa.pnr.seatRequests.filter((s) => s.segment !== seg);
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return 'CNL';
+    }
+
     // AM / AB — Mailing / billing address elements. QRG p.38.
     //   AM <text>[/P<n>]                 mailing, standard
     //   AM/H <text>[/P<n>]               mailing, home

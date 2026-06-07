@@ -18,6 +18,7 @@ import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import type { AddressElement } from './address.js';
+import type { SeatRequest } from './seat-request.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
 /**
@@ -46,6 +47,12 @@ export class Pnr {
    * but the model is dialect-agnostic and any dialect can populate it.
    */
   addresses: AddressElement[] = [];
+  /**
+   * Seat assignments / preferences (Amadeus ST family, QRG p.40).
+   * Cross-dialect — Sabre/Galileo can populate when their seat
+   * cryptic lands.
+   */
+  seatRequests: SeatRequest[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   /**
@@ -104,6 +111,7 @@ export class Pnr {
     p.remarks = this.remarks.map((x) => ({ ...x }));
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
     p.addresses = this.addresses.map((x) => ({ ...x }));
+    p.seatRequests = this.seatRequests.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));

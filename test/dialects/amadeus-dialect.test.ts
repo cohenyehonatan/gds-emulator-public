@@ -983,6 +983,77 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(resp).toContain('AB-1 OFFICE');
   });
 
+  it('ST/<seat>/P<n>/S<n> stores a specific-seat request', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('ST/12C/P2/S5', wa)).toBe('OK');
+    expect(wa.pnr.seatRequests).toHaveLength(1);
+    expect(wa.pnr.seatRequests[0].code).toBe('12C');
+    expect(wa.pnr.seatRequests[0].nameRef?.item).toBe(2);
+    expect(wa.pnr.seatRequests[0].segment).toBe(5);
+  });
+
+  it('ST/<preference> stores a preference request for all pax', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('ST/NSSA', wa);
+    expect(wa.pnr.seatRequests[0].code).toBe('NSSA');
+    expect(wa.pnr.seatRequests[0].nameRef).toBeUndefined();
+    expect(wa.pnr.seatRequests[0].segment).toBeUndefined();
+  });
+
+  it('ST/WB/P3 binds a preference to a specific passenger', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('ST/WB/P3', wa);
+    expect(wa.pnr.seatRequests[0].code).toBe('WB');
+    expect(wa.pnr.seatRequests[0].nameRef?.item).toBe(3);
+  });
+
+  it('SX cancels all seat requests', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('ST/12C/P1/S1', wa);
+    await host.process('ST/14A/P2/S1', wa);
+    expect(wa.pnr.seatRequests).toHaveLength(2);
+    expect(await host.process('SX', wa)).toBe('CNL');
+    expect(wa.pnr.seatRequests).toHaveLength(0);
+  });
+
+  it('SX/S<n> cancels only seats on the specified segment', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('ST/12C/P1/S1', wa);
+    await host.process('ST/15A/P1/S2', wa);
+    await host.process('SX/S1', wa);
+    expect(wa.pnr.seatRequests).toHaveLength(1);
+    expect(wa.pnr.seatRequests[0].segment).toBe(2);
+  });
+
+  it('ST with malformed tokens returns FORMAT', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('ST/12C/XYZ', wa)).toBe('FORMAT'); // not /P or /S
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
