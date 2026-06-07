@@ -622,7 +622,13 @@ different upside.
 
 ## Infra / DX
 
-- [ ] `start:terminal:tcp` — drive the CRT over a real socket via `AgentTerminal`.
+- [x] **`start:terminal:tcp`** (`65cccaa`) — drives a remote `GdsHost`
+      over TCP via `AgentTerminal`. The server (run via `start:server`
+      in another shell) owns the dialect, work area, and PNR state;
+      the local terminal is just a line-mode I/O shell. `GDS_HOST` and
+      `GDS_PORT` env vars override the localhost:5555 default. v1
+      ships plain line-mode; CRT-over-TCP (with the server pushing
+      `wa.state()` updates) is a follow-up.
 - [x] **JSON-file persistence backend for `PnrStore`** (`5d6979a`) —
       `JsonFilePnrStore` mirrors the in-memory `PnrStore` surface but
       writes the map to a JSON file on every commit (atomic via
@@ -632,5 +638,10 @@ different upside.
       Set fields as arrays; loader tolerates missing fields for
       forward-compat. Smoke: REPL session builds PNR `JOKGQV` →
       file written → fresh process recovers it.
-- [ ] End-to-end TCP scenario test (host + terminal over the wire).
+- [x] **End-to-end TCP scenario test** (`65cccaa`) — 3 tests in
+      `test/transport/tcp-e2e.test.ts` spin up a real GdsHost on an
+      ephemeral port, connect AgentTerminal as a client, and run a
+      full BF build through the socket (Sabre + Galileo dialects).
+      Proves length-prefix framing + Connection lifecycle survive the
+      whole BF lifecycle and the dialect seam works over TCP.
 - [ ] CRT polish: keep the input row's right border intact during live typing.
