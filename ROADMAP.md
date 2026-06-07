@@ -410,11 +410,26 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
       one C-grade category — same Format Finder gap Sabre has — mitigable by
       provoking errors against the live REST API and using the few public
       examples as style anchors.
-- [ ] **Apollo (1V) as a sibling dialect** — almost free given Galileo: the
-      Comparison Guide gives a verb-by-verb Rosetta, and Apollo's conventions
-      are closer to Sabre's (`0` sell, `¤` change/delete, `:3`/`:4` SSR/OSI,
-      `N:` name) than Galileo's. Same Travelport OAuth path with a 1V access
-      group. Not a separate version — a co-build once Galileo lands.
+- [x] **Apollo (1V) as a sibling dialect** (`798df7e`) — `ApolloDialect`
+      in `src/dialects/apollo/` shares Galileo's parser + dispatch +
+      serializer entirely, with a 3-pattern Apollo→Galileo translator
+      applied before parse. Verified against pp.5-18 + 27-30 + 34 of the
+      GDS Format Comparison Guide: Apollo and Galileo cryptic overlap
+      ~95% (SON/SOF, work-area switching, scrolling, encode/decode,
+      queue place/access, retrieve, mandatory + optional fields, SSR/OSI,
+      cancel, fare quote, ticketing all IDENTICAL). The three syntactic
+      deltas:
+      * Reference sell `01Y1` ↔ `N1Y1` (Apollo `0<digit>` → `N<digit>`,
+        guarded so direct sells `0AY631...` pass through unchanged)
+      * Segment-status change `.1HK` ↔ `@1HK`
+      * Avail carrier qualifier `+LH` ↔ `/LH`
+
+      Wired into DialectId + pickDialect + CLI (`npm run start:terminal:
+      apollo`). The diff-oracle (see below) gained a `--dialect=apollo`
+      flag so Apollo's translator gets real live-traffic regression
+      coverage. Same `LiveTravelportBackend` (OAuth + TripServices REST)
+      backs both dialects; a 1V access group's PCC code goes in via the
+      same env vars.
 - [x] **OAuth client** (`b4bc113`) — `LiveTravelportBackend.ensureToken()`
       with in-memory cache + 60s pre-expiry refetch. Reads
       `TVP_CLIENT_ID/SECRET/USERNAME/PASSWORD` from env via
@@ -478,17 +493,42 @@ is the source of truth — but cryptic format fidelity becomes the new burden.
       same dialect serializer renders the emulated and live responses
       identically; only the source-of-truth differs. Pattern extends
       to the remaining verbs as their mappers land.
-- [ ] **Hybrid coverage, made explicit** — only entries with REST analogs
-      (search/price/order/ticket/retrieve) go live. Queue ops, exotic displays,
-      host-only functions have no endpoint → return a single, explicit
-      "not-supported in `galileo:live`" string. Silent stubs are worse than
-      an honest boundary.
-- [ ] **Vendor-pacing discipline** — single-worker, jittered delays,
-      capture-then-replay for dev iteration. Local response cache so iteration
-      doesn't hammer pre-prod. Never probe for limits. (Project rule.)
-- [ ] **Sandbox caveats documented** — pre-prod = synthetic inventory, no real
-      tickets, trial creds expirable. Make these surface in the banner, not in
-      a comment somewhere.
+- [x] **Hybrid coverage, made explicit** (`3b8fde1`) — three verbs with no
+      v11 REST equivalent (verified against the GDS reference-payload
+      devkit) now append `[LOCAL VIEW ONLY — no v11 REST equivalent]` to
+      their response when running on a live backend:
+      * `@<n>HK` segment-status manual override (no agent-override
+        endpoint; Travelport's model is server-driven via async carrier
+        notifications)
+      * `*H` / `*HI` / `*HFF` / `*HNP` history display (only
+        `POST /documents/history` exists and it's ticket-scoped)
+      * `*-<surname>` retrieve (surname search is "GDS-host-only" per the
+        spec; we serve from a session-local pnrStore shadow)
+
+      Emulated backend doesn't append the trailer (the local store IS
+      authoritative). Error responses (FORMAT, NO_PNR) are exempt from
+      decoration. Single helper `appendLocalOnlyTrailer(response, ctx)`
+      keyed on `ctx.backend instanceof LiveTravelportBackend`.
+- [x] **Vendor-pacing discipline — pacing half** (`e01adcb`) — every
+      outbound HTTP request from LiveTravelportBackend serializes through
+      a single-worker async chain with a jittered inter-request delay
+      (default 200-400ms, override via `opts.pacing`). Failures consume
+      a slot too (no burst-retry on stuck endpoints). Disabled
+      automatically when `process.env.VITEST === 'true'` to keep the
+      mocked test suite fast. Per CLAUDE.md project rule: never probes
+      pre-prod's limit; paces conservatively regardless.
+
+      Capture-then-replay cache half is still open — needs a serialization
+      format for request+response pairs and a cache-file convention.
+- [x] **Sandbox caveats documented** (`9211905`) — REPL banner now
+      includes a `── BACKEND: ... ──` advisory block after the dialect
+      banner. Emulated mode says "No live REST calls. All state
+      synthesized in-process." Live mode surfaces the synthetic-inventory
+      + no-real-tickets + known trial-tenant (7K9S) silent-failure gaps:
+      `addReservationComment`, `/fromfaredisplay`, `canceloffer`
+      per-offer, `documentoverrides` commission. Live ticket issuance
+      requires production-tier access. Visible on every REPL start;
+      fires for both CRT mode and the line-mode fallback.
 
 - [ ] **Production tenant access** — five live behaviors are wired canonically
       against the GDS reference-payload devkit but provably broken on the 7K9S
@@ -547,10 +587,34 @@ different upside.
 
 ### Live-as-oracle (bonus, after both Galileo backends exist)
 
-- [ ] Diff harness — fire the same cryptic at `galileo:emulated` and
-      `galileo:live`, structurally compare the rendered screens. Live 1G becomes
-      ground truth for *building* the emulated Galileo, instead of speculation.
-      This is precisely why `Backend ⊥ Dialect` is worth the abstraction.
+- [x] **Diff harness** (`b1566e5`/`9e158cf`) — `validate-galileo-diff-
+      oracle.ts` at repo root fires the same cryptic sequence through
+      two GdsHosts (emulated + live) and structurally compares each pair
+      of responses via a categorize() classifier. Categories: IDENTICAL,
+      TRAILER-DIFF, LOCATOR-DIFF, STRUCTURAL, ERROR-EITHER. Exit code
+      flips only for UNEXPECTED structural diffs (per-step
+      `expectStructural: true` opt-out for intrinsically divergent
+      verbs like availability). `--dialect=apollo` swaps in ApolloDialect
+      to exercise the translator end-to-end live. First run surfaced
+      two real signals: emulated needed DEN-FRA inventory (added —
+      mirrors pre-prod's FI 670/520 KEF connection) and the emulated/
+      live error wording diverges on N1Y1 (FORMAT vs CLASS NOT AVAILABLE).
+      The exit-1 signal makes the harness CI-ready against regression.
+
+- [ ] **Calibrate emulated to match live wording** (surfaced by diff
+      harness, 2026-06-06) — emulated FORMAT vs live CLASS NOT AVAILABLE,
+      emulated NO FLIGHTS vs live (synthetic-but-shaped) flight set.
+      Both are honest divergences with concrete fixes; ROADMAP open as
+      the "speculation vs ground truth" calibration the harness was
+      designed to surface.
+
+- [ ] **Capture-then-replay cache** — the second half of vendor-pacing
+      discipline (`e01adcb` did the pacing half). When `TVP_CAPTURE=<file>`
+      is set, write each request+response pair to a JSONL log. When
+      `TVP_REPLAY=<file>` is set, read pairs in order and return the
+      cached responses without hitting live. Lets the diff harness +
+      verifier scripts iterate against a recorded session instead of
+      pre-prod.
 
 ## Infra / DX
 
