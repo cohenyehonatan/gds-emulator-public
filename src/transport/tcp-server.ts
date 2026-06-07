@@ -47,6 +47,18 @@ export class TcpServer extends EventEmitter {
     return Array.from(this.connections.values());
   }
 
+  /**
+   * Return the actual listening port. When constructed with port 0,
+   * the OS picks a free port and `server.address()` reflects it after
+   * `listen` resolves. Useful for tests that need to connect to an
+   * ephemeral port.
+   */
+  getPort(): number {
+    const addr = this.server.address();
+    if (addr && typeof addr === 'object') return addr.port;
+    return this.port;
+  }
+
   private handleConnection(socket: net.Socket): void {
     const id = `${socket.remoteAddress}:${socket.remotePort}`;
     const connection = new Connection(socket, this.framing);

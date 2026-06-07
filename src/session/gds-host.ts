@@ -54,7 +54,13 @@ export class GdsHost {
 
   async start(): Promise<void> {
     await this.server.start();
-    this.logger.info(`GDS host listening on port ${this.options.port}`);
+    this.logger.info(`GDS host listening on port ${this.server.getPort()}`);
+  }
+
+  /** Actual listening port — useful when constructed with port 0
+   *  (the OS picks a free port; tests need it back). */
+  getPort(): number {
+    return this.server.getPort();
   }
 
   async stop(): Promise<void> {

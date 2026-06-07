@@ -15,6 +15,7 @@ import { CrtScreen } from './crt-screen.js';
 import { LiveTravelportBackend, liveTravelportFromEnv } from '../backends/live-travelport-backend.js';
 import { EmulatedBackend, type Backend } from '../backends/backend.js';
 import { JsonFilePnrStore } from '../store/json-file-pnr-store.js';
+import { AgentTerminal } from './agent-terminal.js';
 
 export async function startRepl(dialect?: Dialect, backend?: Backend): Promise<void> {
   // Auto-pick a live backend if env vars are present and the caller
@@ -109,6 +110,71 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
     rl.on('close', () => {
       screen.leave();
       console.log('Session ended.');
+      resolve();
+    });
+  });
+}
+
+/**
+ * TCP-client terminal: connect to a remote GdsHost (run via
+ * `npx tsx src/index.ts server`) and forward cryptic entries over the
+ * socket via AgentTerminal. The remote host owns the dialect, work area,
+ * and PNR state; the local terminal is just a thin line-mode I/O loop.
+ *
+ * Defaults: localhost:5555 (matches `start:server`). Override via
+ * --host=<h> and --port=<p> CLI flags or the GDS_HOST / GDS_PORT env
+ * vars.
+ *
+ * No CRT mode yet — the local terminal doesn't have visibility into
+ * `wa.state()` for the status bar (that lives on the server). v1 ships
+ * plain line-mode for simplicity; CRT-over-TCP is a follow-up.
+ */
+export async function startReplTcp(opts: { host: string; port: number }): Promise<void> {
+  const terminal = new AgentTerminal({
+    host: opts.host,
+    port: opts.port,
+    logLevel: 'warn',
+  });
+  try {
+    await terminal.connect();
+  } catch (err) {
+    console.error(
+      `Failed to connect to GDS host ${opts.host}:${opts.port} — ${err instanceof Error ? err.message : String(err)}`
+    );
+    console.error(`Is the server running? Try \`npm run start:server\` in another terminal.`);
+    process.exit(1);
+  }
+  console.log(`Connected to GDS host at ${opts.host}:${opts.port}.`);
+  console.log('── BACKEND: REMOTE (TCP) ──');
+  console.log('  Entries forward to the server over the socket; responses');
+  console.log('  return verbatim. Server owns the dialect, work area, and PNR state.');
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const prompt = () => process.stdout.write('\n› ');
+  prompt();
+
+  rl.on('line', async (line) => {
+    const entry = line.trim();
+    if (isQuit(entry)) {
+      rl.close();
+      return;
+    }
+    if (entry.length > 0) {
+      try {
+        const response = await terminal.enter(entry);
+        console.log(response);
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    prompt();
+  });
+
+  return new Promise<void>((resolve) => {
+    rl.on('close', () => {
+      terminal.disconnect();
+      console.log('\nSession ended.');
       resolve();
     });
   });

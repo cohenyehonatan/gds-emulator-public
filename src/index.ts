@@ -17,7 +17,7 @@ import { GdsHost } from './session/gds-host.js';
 import { AgentTerminal } from './terminal/agent-terminal.js';
 import { ScenarioRunner } from './terminal/scenarios/scenario-runner.js';
 import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scenario.js';
-import { startRepl } from './terminal/repl.js';
+import { startRepl, startReplTcp } from './terminal/repl.js';
 import type { Dialect } from './dialects/dialect.js';
 import { GalileoDialect } from './dialects/galileo/index.js';
 import { ApolloDialect } from './dialects/apollo/index.js';
@@ -107,6 +107,17 @@ switch (command) {
       process.exit(1);
     }
     startRepl(dialect).catch((err) => {
+      logger.error(err.message);
+      process.exit(1);
+    });
+    break;
+  }
+  case 'terminal:tcp': {
+    // TCP client: connect to a remote GdsHost. The server owns the dialect
+    // (pick it at server startup); we just push entries over the wire.
+    const host = process.env.GDS_HOST ?? 'localhost';
+    const port = Number(process.env.GDS_PORT ?? DEFAULT_PORT);
+    startReplTcp({ host, port }).catch((err) => {
       logger.error(err.message);
       process.exit(1);
     });
