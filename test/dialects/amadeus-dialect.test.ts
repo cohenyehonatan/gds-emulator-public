@@ -1517,6 +1517,116 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('VFFD ZZ', wa)).toBe('ZZ NO FF AGREEMENT');
   });
 
+  it('RRN/DP<n> copies and pushes all segment dates forward n days', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    const resp = await host.process('RRN/DP7', wa);
+    expect(resp).toContain('DP7');
+    expect(wa.pnr.segments[0].date).toBe('22JUL');
+  });
+
+  it('RRN/DM<n> copies and pushes all segment dates back n days', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    await host.process('RRN/DM3', wa);
+    expect(wa.pnr.segments[0].date).toBe('12JUL');
+  });
+
+  it('RRN/C<class> copies and changes all segments to that class', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    await host.process('RRN/CJ', wa);
+    expect(wa.pnr.segments[0].bookingClass).toBe('J');
+  });
+
+  it('RRN/S<segs> copies only the specified segments', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('SS1Y2', w);
+    await host.process('SS1Y3', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    await host.process('RRN/S1,3', wa);
+    // Only segments 1 and 3 kept, renumbered to 1 and 2.
+    expect(wa.pnr.segments).toHaveLength(2);
+    expect(wa.pnr.segments[0].segmentNumber).toBe(1);
+    expect(wa.pnr.segments[1].segmentNumber).toBe(2);
+  });
+
+  it('RRN/ with an unknown qualifier returns FORMAT', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    expect(await host.process('RRN/XYZ', wa)).toBe('FORMAT');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

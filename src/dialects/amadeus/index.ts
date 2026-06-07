@@ -124,6 +124,28 @@ const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', '
 const DOW_LETTERS = ['S', 'M', 'T', 'W', 'Q', 'F', 'J']; // Sun-Sat (Sabre convention)
 
 /**
+ * Push (or pull) a DDMON date by a number of days. Used by RRN/DP<n>
+ * (forward) and RRN/DM<n> (backward) to roll dates across all segments
+ * of a copied PNR. Returns the input unchanged if it doesn't parse.
+ *
+ * Year wrap is handled by JS Date arithmetic: the current year is
+ * assumed for the base, then setUTCDate(+days) lets Date roll over
+ * month and year boundaries naturally.
+ */
+function pushDdmonByDays(ddmon: string, days: number): string {
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(ddmon);
+  if (!m) return ddmon;
+  const day = parseInt(m[1], 10);
+  const month = MONTHS.indexOf(m[2]);
+  if (month < 0) return ddmon;
+  const year = new Date().getUTCFullYear();
+  const base = new Date(Date.UTC(year, month, day));
+  base.setUTCDate(base.getUTCDate() + days);
+  const newDay = String(base.getUTCDate()).padStart(2, '0');
+  return `${newDay}${MONTHS[base.getUTCMonth()]}`;
+}
+
+/**
  * Parse an Amadeus DDMON date (e.g. `15JUL`) to a date-of-week tuple
  * matching the Inventory.availability signature. The current year is
  * implied. Returns undefined if the input isn't a valid DDMON.
@@ -1089,7 +1111,7 @@ export class AmadeusDialect implements Dialect {
     //   RRN/CY      Copy + change all classes to Y
     //   RRN/P2-5    Copy a passenger range only
     //   RRN/S2,4    Copy specific segments only
-    if (entry === 'RRN') {
+    if (entry === 'RRN' || entry.startsWith('RRN/')) {
       if (!wa.pnr.locator) return 'NO PNR ON SCREEN';
       const cloned = wa.pnr.clone();
       cloned.locator = undefined;
@@ -1098,10 +1120,44 @@ export class AmadeusDialect implements Dialect {
       cloned.history = [];
       cloned.createdAt = undefined;
       const originalLocator = wa.pnr.locator;
+      let modifierTag = '';
+      if (entry !== 'RRN') {
+        const opt = entry.slice(4);
+        // RRN/DP<n> — push all dates forward n days
+        const dpMatch = /^DP(\d+)$/.exec(opt);
+        // RRN/DM<n> — push all dates back n days
+        const dmMatch = /^DM(\d+)$/.exec(opt);
+        // RRN/C<class> — change all classes to <class>
+        const cMatch = /^C([A-Z])$/.exec(opt);
+        // RRN/S<segs> — copy only specified segments (parseSegmentList
+        // supports comma + range syntax)
+        const sMatch = /^S([0-9,\-]+)$/.exec(opt);
+        if (dpMatch) {
+          const days = parseInt(dpMatch[1], 10);
+          cloned.segments.forEach((s) => { s.date = pushDdmonByDays(s.date, days); });
+          modifierTag = ` DP${days}`;
+        } else if (dmMatch) {
+          const days = parseInt(dmMatch[1], 10);
+          cloned.segments.forEach((s) => { s.date = pushDdmonByDays(s.date, -days); });
+          modifierTag = ` DM${days}`;
+        } else if (cMatch) {
+          cloned.segments.forEach((s) => { s.bookingClass = cMatch[1]; });
+          modifierTag = ` C${cMatch[1]}`;
+        } else if (sMatch) {
+          const segs = parseSegmentList(sMatch[1]);
+          if (!segs) return FORMAT_ERROR;
+          const keep = new Set(segs);
+          cloned.segments = cloned.segments.filter((_, idx) => keep.has(idx + 1));
+          cloned.renumberSegments();
+          modifierTag = ` S${sMatch[1]}`;
+        } else {
+          return FORMAT_ERROR;
+        }
+      }
       wa.pnr = cloned;
-      recordHistory(cloned, `RRN COPY FROM ${originalLocator}`);
+      recordHistory(cloned, `RRN COPY FROM ${originalLocator}${modifierTag}`);
       try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
-      return `COPIED FROM ${originalLocator}`;
+      return `COPIED FROM ${originalLocator}${modifierTag}`;
     }
 
     // LP/<carrier><flight>/<date> — List PNRs by flight. QRG p.50:
