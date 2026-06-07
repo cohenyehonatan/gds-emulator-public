@@ -298,8 +298,11 @@ shape means:
   hand-author every aircraft type from scratch.
 - The "does column-position labeling differ by aircraft" open
   question is answered: yes, and the live response includes it
-  per-cabin per-aircraft, so each equipment type does need its
-  own representative seed (chunk 1 picks ~5-6 common equipments).
+  per-cabin per-aircraft, so each equipment type needs its own
+  seed. Chunk 1 seeds all 14 equipment types currently in
+  `SCHEDULE` — see chunk 0's resolved-question block for the
+  rationale (avoid `undefined` returns from `seatMapFor` in
+  cross-dialect tests later).
 
 Synthesized availability for emulated stays — we don't track real
 seat occupancy across PNRs. Deterministic seed from
@@ -320,25 +323,52 @@ everywhere and the renderer will guess at code semantics (`N` = "no
 recline"? "next to lavatory"?). Pulled forward from chunk 6 follow-ups
 because chunk 1 can't ship safely without them.
 
+**Sourcing path (where to look first)** — preferred order, fallback at
+each step:
+
+1. **Travelport v11 OpenAPI / JSON schema.** The canonical source for
+   any enum. Travelport publishes per-version schemas; check
+   `support.travelport.com/PSC/` for the swagger / OpenAPI archive,
+   and `references/galileo/Travelport-JSON-Air-v11-API-Spec.md`'s
+   "Reference docs" links. Most likely path: a downloadable
+   `.yaml` / `.json` with every `enum` listed explicitly. Grep for
+   `SeatCharacteristic`, `seatAvailabilityStatus`, `SccCode`.
+2. **Webhelp narrative** at
+   `support.travelport.com/webhelp/TripServices/#Air/Seats/Seatsv9.htm`
+   (URL from the devkit's endpoint description). Webhelp pages often
+   describe response shapes inline; whether they list the full enum
+   varies. Worth a single fetch as a backup to the schema dive.
+3. **Capture-then-extract from pre-prod.** Run
+   `validate-live-galileo:capture` for several flights spanning
+   different equipment + carriers (UA 777, BA 38M, LH 320, AA 76W) and
+   accumulate the observed set. Less complete than the schema but
+   gives ground truth for codes that actually appear; useful as a
+   sanity check on what the schema says.
+4. **ATPCO industry-standard SSR/SCC list** as a reality check —
+   Travelport's codes mostly align with the airline-industry standard
+   table. If a code appears in the live response that's not in
+   Travelport's schema (rare but possible — vendor extensions), ATPCO
+   usually has the definition.
+
+Whoever picks up chunk 0 should start at step 1; the four-step list is
+documented so they don't start from zero.
+
 - [ ] **Travelport Seat Characteristic Code (SCC) table — full enum.**
       Empirically present in the v11 devkit sample: `A` (Aisle),
-      `W` (Window), `N` (?). That's 3 of likely 30+ codes. Source the
-      canonical table from the v11 OpenAPI schema or the Travelport
-      webhelp at `support.travelport.com/webhelp/TripServices/`. Land
-      as a string-union or const map in `src/models/seat-map.ts` with
-      a `SCC_LABELS: Record<SccCode, string>` for the renderer.
-      Unknown codes (anything not in the closed set) get a
-      `[code]` literal fallback in the renderer + a runtime warning so
-      we notice when new codes appear.
+      `W` (Window), `N` (?). That's 3 of likely 30+ codes. Land as a
+      string-union or const map in `src/models/seat-map.ts` with a
+      `SCC_LABELS: Record<SccCode, string>` for the renderer. Unknown
+      codes (anything not in the closed set) get a `[code]` literal
+      fallback in the renderer + a runtime warning so we notice when
+      new codes appear.
 - [ ] **`seatAvailabilityStatus` full enum.** Empirically present:
       `Available`, `Reserved`. That's 2 of probably 4-6. Likely
-      candidates: `Blocked`, `Restricted`, `Premium`, `Occupied`.
-      Same sourcing path as SCC. Land as a string-union in
-      `src/models/seat-map.ts` so the synthesizer (chunk 1) emits
-      from the same closed set the live mapper expects. The status
-      enum determines per-seat rendering character (e.g. `.` for
-      Available, `X` for Reserved, `*` for Premium), so it's the
-      renderer's core input alongside SCC.
+      candidates: `Blocked`, `Restricted`, `Premium`, `Occupied`. Land
+      as a string-union in `src/models/seat-map.ts` so the synthesizer
+      (chunk 1) emits from the same closed set the live mapper
+      expects. The status enum determines per-seat rendering character
+      (e.g. `.` for Available, `X` for Reserved, `*` for Premium), so
+      it's the renderer's core input alongside SCC.
 
 **Default-fallback policy if a code/status appears that wasn't in the
 sourced enum:** keep it literal in the model (`status: string` accepts
@@ -387,11 +417,47 @@ chunk 2 to prevent chunk 7 from having to undo a Pnr choice.
 - [ ] Render vertical (default) and `/V` / `/H` layout variants. QRG
       doesn't pin the literal rendering — flag the wording as
       reconstructed.
+
+      **Render anchor (concrete target so chunk 7 has something to
+      scroll against):**
+
+      ```
+       SM 1 — UA2430 15JUL DEN-ORD — 777
+            A  B    D  E  F  G    K  L
+       F   1.W  .    .  .  .  .    .  W
+       F   2.W  X    .  X  .  X    X  W
+       J   3.W  .    A  .  .  A    .  W
+       J   4.W  .    X  X  X  X    .  W
+       --- EXIT ROW ---
+       Y   5.W  .    .  .  .  .    .  W
+       Y   6.W  X    .  .  .  X    .  W
+       ...
+       LEGEND: . avail  X reserved  * premium  - blocked
+               W window  A aisle  E exit  B bulkhead
+      ```
+
+      Notes for the renderer:
+      - One row per `Row[]` entry. Spaces correspond to `Space[]`.
+      - Column header drawn from the cabin's `Layout[]` block,
+        gapped by aisle position.
+      - Left-of-row label: cabin code (F/J/W/Y).
+      - Per-seat character is `STATUS_GLYPHS[status]` from chunk 0's
+        status enum; SCC overrides (window/aisle/exit/bulkhead) take
+        precedence when the seat has both an availability status
+        AND a structural characteristic — show the characteristic.
+      - Exit-row dividers between cabin rows that contain the exit
+        Characteristic.
+
+      `/V` (vertical, default) renders as above. `/H` (horizontal)
+      transposes — rows along the X axis, columns along Y. Chunk 7's
+      MD/MU/MB/MT scrolling navigates within this rendered frame.
+
 - [ ] ST (chunk 10) gains seat-existence validation: when an ST/<seat>
       entry references a seat that doesn't exist in the segment's
       seatmap (e.g. row 99 on a 30-row 320), reject with
       `INVALID SEAT`. Don't validate against availability yet — keep
-      the validation about static seatmap structure.
+      the validation about static seatmap structure. (See chunk 8 for
+      availability validation as a separately-tracked piece.)
 - [ ] Tests: SM happy path, SM no-segment, SM on segment with no
       schedule, ST/12C accepted, ST/12Z rejected, ST/99A rejected.
 
@@ -473,23 +539,35 @@ chunk 2 to prevent chunk 7 from having to undo a Pnr choice.
 - [ ] State on WorkArea: cache the last-displayed seatmap so scrolling
       verbs operate on it. Mirrors the availability-cache pattern.
 
-### Chunk 8 — ST availability validation (optional, after chunk 1)
+### Chunk 8 — ST availability validation
 
-- [ ] When `ST/<seat>` references an occupied seat (per the synthesizer),
-      reject with `SEAT NOT AVAILABLE`.
+- [ ] When `ST/<seat>` references an occupied seat (per the synthesizer
+      from chunk 1), reject with `SEAT NOT AVAILABLE`.
 - [ ] When `ST/<seat>` references an exit-row seat without the right
       passenger profile (deferred — needs pax type modeling), warn but
       accept.
-- [ ] Reserve the chunk: only meaningful if synthesized availability
-      proves useful. May get folded into chunk 2 if the validation feels
-      cheap there.
+- [ ] **Stays a separate chunk, not folded into chunk 2.** Chunk 2 is
+      already doing model + renderer + ST existence-validation + tests;
+      adding availability validation on top would make the commit
+      message dishonest about scope. Even if the actual implementation
+      is 20 lines, the chunking discipline is worth more than the line
+      count — separate commits keep history grep-able by feature
+      ("ST seat-existence" vs "ST availability") and let chunk 6's live
+      wire land between them without bundling.
 
 ## Open questions
 
 - [x] **Aircraft column patterns:** each equipment type needs its own
       column spec. Resolved 2026-06-07 by the live shape — Travelport
       returns per-cabin per-equipment `Layout[]` blocks; we mirror that
-      structure. Pick 5-6 common equipments to seed (chunk 1).
+      structure. **Seed all 14 equipment types currently in `SCHEDULE`**
+      (737, 738, 320, 752, 73J, 332, 339, 321, 787, 789, 32N, 75W, 7M9,
+      7M8) — chunk 1 covers it. Structural data per equipment is ~15-20
+      lines (cabin partitions + column-position map + exit rows); the
+      total seed is ~250 lines. Worth it to avoid `seatMapFor` returning
+      `undefined` mid-test in chunk 4/5 when a Galileo or Sabre test
+      hits a 75W. The earlier "5-6 common" sentence was wrong; corrected
+      to "all 14" so chunk 0 and chunk 1 don't disagree.
 - [x] **Does the live `/seatmaps` endpoint need an active workbench?**
       Yes — workbench-tied. Requires `catalogProductOfferingsIdentifier`
       (= UUID from prior `A` query, lives on
