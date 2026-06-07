@@ -1,10 +1,15 @@
 # Seat Maps — design plan and chunks
 
-**Status:** PRE-DESIGN — modeling decision locked to **Option C** as of
-2026-06-07 once the live shape was checked (see below). Chunking still
-pending. ROADMAP.md flags this under "remaining for future chunks: seat
-maps (SM display)" with the note "needs new seat-map data structure".
-This doc unpacks that note.
+**Status:** PRE-CHUNK-0 (2026-06-07). Modeling decision locked to
+**Option C** once the live `/seatmaps` shape was checked. Storage
+location locked to **WorkArea** (not Pnr). Chunk 0 — sourcing the
+canonical SCC + status enums from Travelport's schema — is the active
+blocker before chunk 1 can ship; chunk 1 can't ship safely without
+closed sets matching live.
+
+ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
+display)" with the note "needs new seat-map data structure". This doc
+unpacks that note.
 
 Updated chunk-by-chunk like ROADMAP.md — flip `[ ]` to `[x]` with a
 commit ref when a piece lands.
@@ -94,23 +99,15 @@ mapping.
 **Decision: Option C is locked in** based on this. The model field names
 will mirror Travelport's so the mapper is one-pass.
 
-**Open follow-ups from the live shape** (lift into chunk planning):
-- Travelport SCC characteristic codes: full table is published in the
-  v11 schema doc. Catalog the relevant codes (A=Aisle, W=Window,
-  E=Exit, etc.) into `src/models/seat-map.ts` as an enum or string-union
-  so the renderer can label them. Pull the table verbatim before
-  chunk 1 starts — same fidelity bar Sabre uses for response wording.
-- Status codes seen: `Reserved`, `Available`. Need to enumerate the
-  full set (`Blocked`, `Restricted`, `Premium`, `Occupied`?) — likely
-  in the same schema doc. Synthesizer in chunk 1 should emit the same
-  set so emulated and live render identically.
+**Open follow-ups from the live shape** (SCC + status enums promoted
+to chunk 0 above; remaining shape-level notes captured here):
 - `seatAvailabilityStatus` is GROUPED in the response (one entry per
   status with a flat seat-list), NOT per-seat. Our internal model can
   go either way; mirror the live grouping so the mapper is trivial,
   then "flatten" at render time.
 - `SeatingChartRef` is a separate ReferenceList entry — same indirection
-  pattern as `FlightRef` / `ProductRef` elsewhere. The mapper has to
-  walk ReferenceList[] to resolve.
+  pattern as `FlightRef` / `ProductRef` elsewhere. String-keyed lookup
+  (not array index); see chunk 6 mapper bullet for the full gotcha.
 - `Brand.name = "SEAT ASSIGNMENT"` (free) vs other names indicates
   paid seat brands. v1 ignores brand pricing; chunk 8 (deferred) could
   surface "EXTRA LEGROOM +50.00" style display.
@@ -314,6 +311,56 @@ answer twice.
 Each chunk = one self-contained commit with code + tests. Mirrors the
 v4 chunking pattern from ROADMAP.md.
 
+### Chunk 0 — Prerequisite source lookups (HARD BLOCKER for chunk 1)
+
+The two enums below are load-bearing for both the synthesizer (chunk 1)
+and the renderer (chunk 2). Without closed sets matching what live
+returns, the diff-oracle in chunk 6 will flag false STRUCTURALs
+everywhere and the renderer will guess at code semantics (`N` = "no
+recline"? "next to lavatory"?). Pulled forward from chunk 6 follow-ups
+because chunk 1 can't ship safely without them.
+
+- [ ] **Travelport Seat Characteristic Code (SCC) table — full enum.**
+      Empirically present in the v11 devkit sample: `A` (Aisle),
+      `W` (Window), `N` (?). That's 3 of likely 30+ codes. Source the
+      canonical table from the v11 OpenAPI schema or the Travelport
+      webhelp at `support.travelport.com/webhelp/TripServices/`. Land
+      as a string-union or const map in `src/models/seat-map.ts` with
+      a `SCC_LABELS: Record<SccCode, string>` for the renderer.
+      Unknown codes (anything not in the closed set) get a
+      `[code]` literal fallback in the renderer + a runtime warning so
+      we notice when new codes appear.
+- [ ] **`seatAvailabilityStatus` full enum.** Empirically present:
+      `Available`, `Reserved`. That's 2 of probably 4-6. Likely
+      candidates: `Blocked`, `Restricted`, `Premium`, `Occupied`.
+      Same sourcing path as SCC. Land as a string-union in
+      `src/models/seat-map.ts` so the synthesizer (chunk 1) emits
+      from the same closed set the live mapper expects. The status
+      enum determines per-seat rendering character (e.g. `.` for
+      Available, `X` for Reserved, `*` for Premium), so it's the
+      renderer's core input alongside SCC.
+
+**Default-fallback policy if a code/status appears that wasn't in the
+sourced enum:** keep it literal in the model (`status: string` accepts
+anything; SCC list is `string[]`), but warn at the renderer + log to
+diff-oracle output so the calibration loop surfaces it. Better to fail
+explicit than to silently render wrong.
+
+**Decision: `SeatMap` lives on `WorkArea`, not `Pnr`.** Locked
+2026-06-07. A seatmap is *query state* tied to "the last segment I
+asked about" — not booking state. Three reasons:
+1. The map regenerates per query (different equipment per segment;
+   `RT<locator>` doesn't restore a seatmap, only the PNR).
+2. `JsonFilePnrStore` round-trip cost is unjustified — nothing on the
+   PNR references the map by content; ST seat-requests reference seats
+   by label which validates against a fresh fetch.
+3. Chunk 7 (scrolling MD/MU/MB/MT on a displayed map) needs the cache
+   on WorkArea anyway — same pattern as `wa.lastAvailability`.
+
+Concrete: add `lastSeatMap?: SeatMap` to WorkArea, cleared on
+`reset()` and on `SM` of a different segment. This is settled before
+chunk 2 to prevent chunk 7 from having to undo a Pnr choice.
+
 ### Chunk 1 — `SeatMap` model + Inventory.seatMapFor seed
 
 - [ ] Create `src/models/seat-map.ts` with the agreed shape (see
@@ -394,8 +441,15 @@ v4 chunking pattern from ROADMAP.md.
       `src/backends/travelport-mapper.ts`:
       - Walk `CatalogOfferingsID[].CatalogOffering[].ProductOptions[]`
         `.Product[].SeatAvailability[]` for the status-grouped seat lists
-      - Resolve `SeatingChartRef` via `ReferenceList[]` walk (same
-        indirection pattern as FlightRef / ProductRef)
+      - Resolve `SeatingChartRef` via `ReferenceList[]` walk. **String-
+        keyed lookup, not array index** — `SeatingChartRef:
+        "seatingChart_1"` must match against
+        `ReferenceList[i].SeatingChart[j].id`. Don't assume position 0.
+        Validate the ref value resolved to something non-null and warn
+        if not; the FlightRef / ProductRef helpers in the existing
+        mapper follow the same shape and you can copy that pattern
+        verbatim. Looks trivial; takes 45 minutes when the key doesn't
+        match and you're staring at `undefined`.
       - Convert Travelport's `Layout[]` + `Row[].Space[]` to our
         `SeatMap.Cabin[]` shape (chunk 1 settles the exact field names)
 - [ ] Galileo's seatmap handler dispatches live with `instanceof`
@@ -440,9 +494,16 @@ v4 chunking pattern from ROADMAP.md.
       Yes — workbench-tied. Requires `catalogProductOfferingsIdentifier`
       (= UUID from prior `A` query, lives on
       `wa.lastAvailability.vendorRef.offerId`). Resolved 2026-06-07.
-- [ ] Should `SeatMap` go on `Pnr` (so the cached map round-trips through
-      JsonFilePnrStore) or stay on `WorkArea` (transient)? Lean: WorkArea
-      — the map belongs to the query, not the PNR.
+- [x] **Should `SeatMap` go on `Pnr` or `WorkArea`?** WorkArea —
+      resolved in chunk 0 (see decision block there). Locked
+      2026-06-07 so chunk 2 can wire the cache without chunk 7 having
+      to undo it.
+- [x] **Travelport Seat Characteristic Codes (SCC) — full table.**
+      Promoted to chunk 0 (HARD BLOCKER). Moved out of follow-ups
+      because chunk 1's synthesizer + chunk 2's renderer both need
+      the closed set before they can ship.
+- [x] **Full set of `seatAvailabilityStatus` values.** Promoted to
+      chunk 0 (HARD BLOCKER). Same reason.
 - [ ] Sabre's seatmap verb — `4G*<line>` / `SA*<flight>`? — needs source
       verification before chunk 4.
 - [ ] Galileo's seatmap verb in Smartpoint Module 2 — does it match
@@ -450,20 +511,15 @@ v4 chunking pattern from ROADMAP.md.
 - [ ] Apollo: the Comparison Guide should say whether SM is the same
       in 1V. If yes, no translator change needed; if no, add a 4th
       translator pattern.
-- [ ] Travelport Seat Characteristic Codes (SCC) — full table. The
-      response uses 1-letter codes (`A`/`W`/`N`/`E`/...). Catalog the
-      full set into `src/models/seat-map.ts` before chunk 1 so the
-      renderer can label them consistently.
-- [ ] Full set of `seatAvailabilityStatus` values. Sample showed
-      `Reserved` and `Available`; need to enumerate (`Blocked`,
-      `Premium`, `Restricted`, `Occupied`?) so the synthesizer + the
-      renderer share a closed set.
 - [ ] Devkit Postman variable name confusion: collection sets
       `SeatmapsRefDevKit` but the request also uses
       `catalogProductOfferingsIdentifierValueDevKit` /
       `catalogProductOfferingIdDevKit` / `productOfferingIdentifierDevKit`
-      as query params. Confirm during chunk 6 which one of those maps
-      to the UUID we already have at `vendorRef.offerId`.
+      as query params. 10-minute clarification pass before chunk 6's
+      pre-prod manual run — not during, so the 401-debugging path
+      isn't where this surfaces. Resolve by reading the devkit's
+      collection-variables block + cross-checking the request URL
+      construction.
 
 ## Tie-ins to existing code
 
