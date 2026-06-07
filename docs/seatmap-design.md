@@ -376,6 +376,15 @@ anything; SCC list is `string[]`), but warn at the renderer + log to
 diff-oracle output so the calibration loop surfaces it. Better to fail
 explicit than to silently render wrong.
 
+**Closed-output / open-input asymmetry — intentional.** The model
+fields stay open (`status: string`) so live responses with vendor-
+specific extensions don't break parsing. The synthesizer in chunk 1
+is typed to the closed `SeatAvailabilityStatus` union so a typo in
+the emulated emit path (`Avaliable` instead of `Available`) is caught
+at typecheck. Same for SCC: model holds `string[]`, synthesizer emits
+`SccCode[]`. The asymmetry is by design — live input is open, emulated
+output is closed.
+
 **Decision: `SeatMap` lives on `WorkArea`, not `Pnr`.** Locked
 2026-06-07. A seatmap is *query state* tied to "the last segment I
 asked about" — not booking state. Three reasons:
@@ -440,7 +449,11 @@ chunk 2 to prevent chunk 7 from having to undo a Pnr choice.
       - One row per `Row[]` entry. Spaces correspond to `Space[]`.
       - Column header drawn from the cabin's `Layout[]` block,
         gapped by aisle position.
-      - Left-of-row label: cabin code (F/J/W/Y).
+      - Left-of-row label: cabin code (F/J/W/Y), **shown only at the
+        cabin boundary row, blank for subsequent rows in the same
+        cabin**. Matches real Amadeus SM output convention; a 777 with
+        30+ Y rows shouldn't have `Y Y Y Y...` running down the left
+        margin — visual noise without information.
       - Per-seat character is `STATUS_GLYPHS[status]` from chunk 0's
         status enum; SCC overrides (window/aisle/exit/bulkhead) take
         precedence when the seat has both an availability status
