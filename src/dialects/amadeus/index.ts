@@ -880,6 +880,69 @@ export class AmadeusDialect implements Dialect {
         .join('\n\n');
     }
 
+    // --- v4 chunk 7: queue work verbs (QSTART / QN / QF / QFR / QXI) ---
+    // Sign into a queue, walk it with the cursor, remove or skip
+    // PNRs, exit. Uses WorkArea's existing currentQueue / queueCursor /
+    // queueWorkingSet fields (same shape Galileo's queue handler uses).
+    // QRG p.42: QF / QFR / QES exit verbs assume queue mode is active;
+    // QSTART<n> is reconstructed from Amadeus mainframe convention.
+
+    const qstartMatch = /^QSTART(\d+(?:C\d+)?(?:D\d+)?)$/.exec(entry);
+    if (qstartMatch) {
+      const queueKey = qstartMatch[1];
+      const locators = ctx.backend.queues.get(queueKey) ?? [];
+      if (locators.length === 0) return `QUEUE ${queueKey} EMPTY`;
+      wa.currentQueue = queueKey;
+      wa.queueWorkingSet = [...locators];
+      wa.queueCursor = 0;
+      const pnr = ctx.backend.pnrs.get(locators[0]);
+      if (!pnr) return `QUEUE ${queueKey} PNR NOT FOUND`;
+      wa.pnr = pnr;
+      try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
+      return `QUEUE ${queueKey} - 1 OF ${locators.length}\n${renderAmadeusPnr(pnr, ctx.pcc, wa.agent)}`;
+    }
+
+    if (entry === 'QN' || entry === 'QF' || entry === 'QFR' || entry === 'QES') {
+      if (!wa.currentQueue || !wa.queueWorkingSet) return 'NOT IN QUEUE MODE';
+      // QF / QFR remove the current locator from the queue before advancing.
+      if (entry === 'QF' || entry === 'QFR') {
+        const currentLoc = wa.queueWorkingSet[wa.queueCursor ?? 0];
+        const queueList = ctx.backend.queues.get(wa.currentQueue) ?? [];
+        const idx = queueList.indexOf(currentLoc);
+        if (idx >= 0) {
+          queueList.splice(idx, 1);
+          if (queueList.length === 0) ctx.backend.queues.delete(wa.currentQueue);
+          else ctx.backend.queues.set(wa.currentQueue, queueList);
+        }
+      }
+      // Advance the cursor.
+      const next = (wa.queueCursor ?? 0) + 1;
+      if (next >= wa.queueWorkingSet.length) {
+        const queueKey = wa.currentQueue;
+        wa.currentQueue = undefined;
+        wa.queueCursor = undefined;
+        wa.queueWorkingSet = undefined;
+        return `END OF QUEUE ${queueKey}`;
+      }
+      wa.queueCursor = next;
+      const nextLoc = wa.queueWorkingSet[next];
+      const pnr = ctx.backend.pnrs.get(nextLoc);
+      if (!pnr) return `QUEUE PNR NOT FOUND - ${nextLoc}`;
+      wa.pnr = pnr;
+      return `QUEUE ${wa.currentQueue} - ${next + 1} OF ${wa.queueWorkingSet.length}\n${renderAmadeusPnr(pnr, ctx.pcc, wa.agent)}`;
+    }
+
+    if (entry === 'QXI') {
+      if (!wa.currentQueue) return 'NOT IN QUEUE MODE';
+      const queueKey = wa.currentQueue;
+      wa.currentQueue = undefined;
+      wa.queueCursor = undefined;
+      wa.queueWorkingSet = undefined;
+      wa.reset();
+      try { wa.machine.transition(SessionEvent.IGNORE); } catch { /* */ }
+      return `QUEUE ${queueKey} EXITED`;
+    }
+
     // --- v4 chunk 1: queue verbs ---
     // QE<n>[C<cat>][D<date>] — place the current PNR on queue n, end
     // the transaction. QRG p.42 "Place the PNR on a queue, category,

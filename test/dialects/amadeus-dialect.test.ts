@@ -783,3 +783,100 @@ describe('Amadeus dialect — v4 chunk 6: partial PNR display family (RTA/RTI/RT
     expect(await host.process('RTR', wa)).toBe('NO REMARKS');
   });
 });
+
+describe('Amadeus dialect — v4 chunk 7: queue work (QSTART/QN/QF/QFR/QXI)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  async function buildAndQueue(host: GdsHost, queueNum: string): Promise<string> {
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const resp = await host.process(`QE${queueNum}`, wa);
+    const locator = / - ([A-Z0-9]{6})$/.exec(resp)?.[1]!;
+    return locator;
+  }
+
+  it('QSTART<n> on an empty queue returns QUEUE n EMPTY', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('QSTART99', wa)).toBe('QUEUE 99 EMPTY');
+  });
+
+  it('QSTART<n> on a populated queue loads the first PNR + cursor=0', async () => {
+    const host = makeHost();
+    await buildAndQueue(host, '10');
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('QSTART10', wa);
+    expect(resp).toContain('QUEUE 10 - 1 OF 1');
+    expect(resp).toContain('SMITH/JOHN MR');
+    expect(wa.currentQueue).toBe('10');
+    expect(wa.queueCursor).toBe(0);
+  });
+
+  it('QN advances the cursor across queued PNRs', async () => {
+    const host = makeHost();
+    const loc1 = await buildAndQueue(host, '11');
+    const loc2 = await buildAndQueue(host, '11');
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('QSTART11', wa);
+    expect(wa.pnr.locator).toBe(loc1);
+    const resp = await host.process('QN', wa);
+    expect(resp).toContain('2 OF 2');
+    expect(wa.pnr.locator).toBe(loc2);
+  });
+
+  it('QN past the end clears queue mode and returns END OF QUEUE', async () => {
+    const host = makeHost();
+    await buildAndQueue(host, '12');
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('QSTART12', wa);
+    expect(await host.process('QN', wa)).toBe('END OF QUEUE 12');
+    expect(wa.currentQueue).toBeUndefined();
+  });
+
+  it('QF removes the current PNR from the queue + advances', async () => {
+    const host = makeHost();
+    const loc1 = await buildAndQueue(host, '13');
+    const loc2 = await buildAndQueue(host, '13');
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('QSTART13', wa);
+    // QF removes loc1 from queue 13.
+    await host.process('QF', wa);
+    expect(host.backend.queues.get('13')).toEqual([loc2]);
+  });
+
+  it('QXI exits queue mode without removing the current PNR', async () => {
+    const host = makeHost();
+    const loc1 = await buildAndQueue(host, '14');
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('QSTART14', wa);
+    expect(await host.process('QXI', wa)).toBe('QUEUE 14 EXITED');
+    expect(wa.currentQueue).toBeUndefined();
+    // PNR still on the queue.
+    expect(host.backend.queues.get('14')).toEqual([loc1]);
+  });
+
+  it('QN / QF / QFR / QXI outside queue mode return NOT IN QUEUE MODE', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    for (const e of ['QN', 'QF', 'QFR', 'QXI']) {
+      expect(await host.process(e, wa)).toBe('NOT IN QUEUE MODE');
+    }
+  });
+});
