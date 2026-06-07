@@ -858,6 +858,24 @@ export class AmadeusDialect implements Dialect {
       return wa.pnr.segments.length === 0 ? 'CNL' : renderAmadeusItinerary(wa.pnr);
     }
 
+    // Time-limit modify: 8/<date> (QRG p.45 "Change the time limit in
+    // the TK element"). Element 8 is the conventional Amadeus element
+    // number for the ticketing/time-limit field. The new value is a
+    // DDMON date which gets wrapped as TKTL<date> in our stored
+    // ticketing string.
+    //
+    // Disambiguation from segment-status `<n>/<status>` below: the
+    // status form requires exactly 2 uppercase letters; the time-limit
+    // form is a `\d{1,2}[A-Z]{3}` date. They don't overlap.
+    const tlMatch = /^8\/(\d{1,2}[A-Z]{3})$/.exec(entry);
+    if (tlMatch) {
+      const oldTk = wa.pnr.ticketing;
+      wa.pnr.ticketing = `TKTL${tlMatch[1]}`;
+      recordHistory(wa.pnr, oldTk ? `TK ${oldTk}→TKTL${tlMatch[1]}` : `TK TKTL${tlMatch[1]}`);
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
     // Segment status modify: <n>/<status> (QRG p.31 "Change segment status").
     // E.g. `2/HK` sets segment 2 to HK. Valid status codes per the
     // Amadeus QRG status set (shared with the Sabre manual-entry set).

@@ -1309,6 +1309,53 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(rh).toContain('NU1 JOHN→JAMES');
   });
 
+  it('8/<date> modifies the time-limit element (TKTL<date>)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('TKOK', wa);
+    expect(wa.pnr.ticketing).toBe('TKOK');
+    expect(await host.process('8/10JUL', wa)).toBe('OK');
+    expect(wa.pnr.ticketing).toBe('TKTL10JUL');
+  });
+
+  it('8/<date> records the change in history', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('TKOK', wa);
+    await host.process('8/10JUL', wa);
+    const rh = await host.process('RH', wa);
+    expect(rh).toContain('TK TKOK→TKTL10JUL');
+  });
+
+  it('8/<date> with no prior ticketing still sets one', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('8/15AUG', wa)).toBe('OK');
+    expect(wa.pnr.ticketing).toBe('TKTL15AUG');
+  });
+
+  it('8/HK still routes to segment-status modify (no syntactic overlap)', async () => {
+    // Verify the disambiguation: when the value after 8/ is a 2-letter
+    // status (not a date), it falls through to the segment-status
+    // modifier — which then complains about segment 8 not being in
+    // the itinerary.
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('8/HK', wa)).toBe('SEGMENT NOT IN ITINERARY');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
