@@ -663,6 +663,68 @@ export class AmadeusDialect implements Dialect {
       return renderAmadeusHistory(wa.pnr);
     }
 
+    // Partial PNR display family (QRG pp.43-45 "Displaying a Partial
+    // PNR"). All these are subsets of the current PNR rendered through
+    // a focused lens. Must check BEFORE the generic `RT<locator>`
+    // retrieve below (else `entry.startsWith('RT')` would swallow them
+    // as "retrieve PNR with locator A/I/N/etc.").
+    //
+    // Implemented:
+    //   RTA   air segments only
+    //   RTI   itinerary only (currently == RTA; QRG distinguishes them
+    //         by including hotel/car segments in RTI, which we don't
+    //         model emulated)
+    //   RTN   names only
+    //   RTJ   phone, address, credit card check elements only (we
+    //         render phones; address/CC deferred)
+    //   RTK   ticketing element only
+    //   RTF   fare elements only (priceQuotes)
+    //   RTG   general facts only (SSR + OSI)
+    //   RTR   remarks only
+    if (entry === 'RTA' || entry === 'RTI') {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      return renderAmadeusItinerary(wa.pnr);
+    }
+    if (entry === 'RTN') {
+      if (wa.pnr.names.length === 0) return 'NO NAMES';
+      return wa.pnr.names
+        .map((n, i) => {
+          return n.passengers
+            .map((pax, j) => {
+              const title = pax.title ? ` ${pax.title}` : '';
+              const seq = n.passengers.length > 1 ? `${i + 1}.${j + 1}` : `${i + 1}`;
+              return `  ${seq}. ${n.surname}/${pax.firstName}${title}`;
+            })
+            .join('\n');
+        })
+        .join('\n');
+    }
+    if (entry === 'RTJ') {
+      if (wa.pnr.phones.length === 0) return 'NO PHONE';
+      return wa.pnr.phones.map((p, i) => `  AP-${i + 1} ${p.number}`).join('\n');
+    }
+    if (entry === 'RTK') {
+      if (!wa.pnr.ticketing) return 'NO TICKETING';
+      return `  TK ${wa.pnr.ticketing}`;
+    }
+    if (entry === 'RTF') {
+      if (wa.pnr.priceQuotes.length === 0) return 'NO FARE QUOTES';
+      return wa.pnr.priceQuotes
+        .map((fq, i) => renderAmadeusFareQuote(fq, i + 1))
+        .join('\n\n');
+    }
+    if (entry === 'RTG') {
+      const ssrs = wa.pnr.ssrs.map((s) => `  SR ${s.code} ${s.carrier}${s.text ? ' ' + s.text : ''}`);
+      const osis = wa.pnr.osis.map((o) => `  OS ${o.carrier} ${o.text}`);
+      const lines = [...ssrs, ...osis];
+      if (lines.length === 0) return 'NO GENERAL FACTS';
+      return lines.join('\n');
+    }
+    if (entry === 'RTR') {
+      if (wa.pnr.remarks.length === 0) return 'NO REMARKS';
+      return wa.pnr.remarks.map((r, i) => `  RM-${i + 1} ${r.text}`).join('\n');
+    }
+
     // RTQ — display queues for current PNR. Must check BEFORE the
     // generic `RT<locator>` retrieve below (else `entry.startsWith('RT')`
     // would match RTQ first and try to retrieve a PNR with locator 'Q').

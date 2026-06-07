@@ -685,3 +685,101 @@ describe('Amadeus dialect — v4 chunk 5: frequent-flyer element (FFN)', () => {
     expect(wa.pnr.frequentFlyers[1].carrier).toBe('BA');
   });
 });
+
+describe('Amadeus dialect — v4 chunk 6: partial PNR display family (RTA/RTI/RTN/RTJ/RTK/RTF/RTG/RTR)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  async function buildPnr(host: GdsHost) {
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    await host.process('SR VGML/P1', wa);
+    await host.process('OS QF VIP', wa);
+    await host.process('RM HAS LATE CHECKIN', wa);
+    return wa;
+  }
+
+  it('RTA shows air segments only', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTA', wa);
+    expect(resp).toContain('B6');
+    expect(resp).not.toContain('SMITH');
+    expect(resp).not.toContain('TKOK');
+  });
+
+  it('RTI shows itinerary (same as RTA in emulated since no hotel/car)', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTI', wa);
+    expect(resp).toContain('B6');
+  });
+
+  it('RTN shows names only', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTN', wa);
+    expect(resp).toContain('SMITH/JOHN MR');
+    expect(resp).not.toContain('B6');
+  });
+
+  it('RTJ shows phone elements only', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTJ', wa);
+    expect(resp).toContain('02012345678');
+  });
+
+  it('RTK shows ticketing element', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTK', wa);
+    expect(resp).toContain('TKOK');
+  });
+
+  it('RTG shows SSR + OSI general facts', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTG', wa);
+    expect(resp).toContain('VGML');
+    expect(resp).toContain('QF');
+    expect(resp).toContain('VIP');
+  });
+
+  it('RTR shows remarks', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    const resp = await host.process('RTR', wa);
+    expect(resp).toContain('HAS LATE CHECKIN');
+  });
+
+  it('RTF shows fare quotes after pricing', async () => {
+    const host = makeHost();
+    const wa = await buildPnr(host);
+    await host.process('FXP', wa);
+    const resp = await host.process('RTF', wa);
+    expect(resp).toContain('FXP');
+  });
+
+  it('Each partial view returns its empty-state message when no data', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RTA', wa)).toBe('NO ITINERARY');
+    expect(await host.process('RTN', wa)).toBe('NO NAMES');
+    expect(await host.process('RTJ', wa)).toBe('NO PHONE');
+    expect(await host.process('RTK', wa)).toBe('NO TICKETING');
+    expect(await host.process('RTF', wa)).toBe('NO FARE QUOTES');
+    expect(await host.process('RTG', wa)).toBe('NO GENERAL FACTS');
+    expect(await host.process('RTR', wa)).toBe('NO REMARKS');
+  });
+});
