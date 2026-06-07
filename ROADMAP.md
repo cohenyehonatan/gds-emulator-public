@@ -623,6 +623,14 @@ different upside.
 ## Infra / DX
 
 - [ ] `start:terminal:tcp` — drive the CRT over a real socket via `AgentTerminal`.
-- [ ] JSON-file persistence backend for `PnrStore`.
+- [x] **JSON-file persistence backend for `PnrStore`** (`5d6979a`) —
+      `JsonFilePnrStore` mirrors the in-memory `PnrStore` surface but
+      writes the map to a JSON file on every commit (atomic via
+      tmp + rename). New `PnrStoreLike` interface lets either drop in
+      via `EmulatedBackend({ pnrStore })`. REPL auto-wires it when
+      `PNR_STORE_FILE=<path>` is set. Dates serialize as ISO strings,
+      Set fields as arrays; loader tolerates missing fields for
+      forward-compat. Smoke: REPL session builds PNR `JOKGQV` →
+      file written → fresh process recovers it.
 - [ ] End-to-end TCP scenario test (host + terminal over the wire).
 - [ ] CRT polish: keep the input row's right border intact during live typing.
