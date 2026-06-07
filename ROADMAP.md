@@ -596,10 +596,27 @@ different upside.
         for verbs not yet wired (DM MCT, FQD fare display, DH history,
         LOT negotiated space, MD/MU scrolling, etc.).
 
-      Remaining for v4+ (per the behavior-layer caveat below): NUC/
-      ROE/HIP fare construction (currently uses Sabre's emulated
-      engine), MCT exceptions, alliance ranking, fare-display family,
-      history display, queue verbs.
+      v4 progress (in chunks per the dev push pattern):
+      * Chunk 1 — queue verbs (`c10cac9`): `QE<n>[C<cat>][D<date>]`
+        place + end-tx, `RTQ` display queues current PNR is on.
+        Uses composite queue ids so QE8C1D3 is distinct from QE8.
+      * Chunk 2 — history display (`7e81324`): `RH` renders
+        pnr.history[]. Sell/cancel/name-add/status-change handlers
+        now populate the history at mutation time, so RH survives
+        end-tx + retrieve.
+      * Chunk 3 — fare display (`b802bb1`): `FQD<orig><dest>[/<date>]
+        [/A<carrier>]` renders one row per booking class using
+        the shared tariff (same `fareFor` Sabre's WP family uses).
+      * Chunk 4 — minimum connect time (`71f111a`): `DM<airport>
+        [-<airport2>][/<date>]` lookup, `DMI` segment-continuity
+        check in current PNR. Returns the emulated inventory's
+        MIN_CONNECT_MINUTES constant (45m) — consistent with what
+        the auto-connection builder uses.
+
+      Remaining for future chunks: NUC/ROE/HIP fare construction
+      (currently Sabre's emulated engine), MCT carrier-specific
+      exceptions, alliance ranking. The behavior-layer caveat
+      (below) still applies — no public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
