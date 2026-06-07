@@ -68,6 +68,21 @@ export class CrtScreen {
     this.out.write(WRAP_ON + RESET + ALT_OFF + SHOW_CURSOR);
   }
 
+  /**
+   * Redraw the input row's right-border character at column W without
+   * disturbing the cursor position. WRAP_OFF means typed characters that
+   * would otherwise wrap pile up at column W and overwrite the border
+   * `│` — calling this after each keypress restores the border immediately.
+   *
+   * Uses DEC-style save/restore (`\x1b7` / `\x1b8`) which is wider-
+   * supported than the SCO `\x1b[s` / `\x1b[u` variant.
+   */
+  redrawRightBorder(): void {
+    const row = this.inputRow();
+    const col = this.cols;
+    this.out.write(`${ESC}7${ESC}[${row};${col}H${BOLD_GREEN}│${RESET}${ESC}8`);
+  }
+
   /** Append a host response (or any text block) to the scrollback. */
   print(text: string): void {
     for (const line of text.split('\n')) this.lines.push(line);

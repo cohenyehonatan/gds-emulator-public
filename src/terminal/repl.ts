@@ -90,6 +90,18 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
 
   redraw();
 
+  // CRT polish — keep the input row's right border intact during live typing.
+  // WRAP_OFF means characters typed past column W-1 pile up at the right
+  // edge and overwrite `│`. Re-emit it after each keypress (deferred via
+  // setImmediate so readline's own write completes first, then we restore
+  // the border and the cursor position).
+  if (process.stdin.isTTY) {
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.on('keypress', () => {
+      setImmediate(() => screen.redrawRightBorder());
+    });
+  }
+
   rl.on('line', async (line) => {
     const entry = line.trim();
     if (isQuit(entry)) {

@@ -61,4 +61,41 @@ describe('CrtScreen', async () => {
     expect(frame).toContain('LINE49'); // newest shown
     expect(frame).not.toContain('LINE40'); // scrolled off the top
   });
+
+  describe('redrawRightBorder — CRT polish for live typing', () => {
+    it('emits the border char at column W of the input row, wrapped in save/restore cursor', () => {
+      const stream = fakeStream(80, 24);
+      const screen = new CrtScreen(stream);
+      screen.redrawRightBorder();
+      const out = stream.getBuffer();
+      // Save cursor: ESC 7
+      expect(out).toContain('\x1b7');
+      // Position to (inputRow, cols) = (23, 80)
+      expect(out).toContain('\x1b[23;80H');
+      // Border char with bold-green color
+      expect(out).toContain('│');
+      // Restore cursor: ESC 8
+      expect(out).toContain('\x1b8');
+    });
+
+    it('uses the actual stream dimensions (not a hardcoded 80x24)', () => {
+      const stream = fakeStream(132, 50);
+      const screen = new CrtScreen(stream);
+      screen.redrawRightBorder();
+      const out = stream.getBuffer();
+      // Position to (inputRow, cols) = (49, 132)
+      expect(out).toContain('\x1b[49;132H');
+    });
+
+    it('idempotent: multiple consecutive calls produce the same border position', () => {
+      const stream = fakeStream(80, 24);
+      const screen = new CrtScreen(stream);
+      screen.redrawRightBorder();
+      stream.clear();
+      screen.redrawRightBorder();
+      const out2 = stream.getBuffer();
+      expect(out2).toContain('\x1b[23;80H');
+      expect(out2).toContain('│');
+    });
+  });
 });
