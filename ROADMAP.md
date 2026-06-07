@@ -608,13 +608,17 @@ different upside.
       the "speculation vs ground truth" calibration the harness was
       designed to surface.
 
-- [ ] **Capture-then-replay cache** — the second half of vendor-pacing
-      discipline (`e01adcb` did the pacing half). When `TVP_CAPTURE=<file>`
-      is set, write each request+response pair to a JSONL log. When
-      `TVP_REPLAY=<file>` is set, read pairs in order and return the
-      cached responses without hitting live. Lets the diff harness +
-      verifier scripts iterate against a recorded session instead of
-      pre-prod.
+- [x] **Capture-then-replay cache** (`1fa1d5c`) — second half of
+      vendor-pacing discipline. `TVP_CAPTURE=<file>` writes a JSONL log
+      of every request+response pair (Authorization headers redacted
+      so the recording is shareable); `TVP_REPLAY=<file>` reads pairs
+      in order and constructs Responses without going live. Throws
+      "recording exhausted" if the run outpaces the file. End-to-end:
+      validate-galileo-handler-live.ts records in 29s + 28 exchanges,
+      replays in 0.6s with no creds and no pre-prod traffic — 50×
+      speedup. `liveTravelportFromEnv()` returns a backend with
+      placeholder creds when TVP_REPLAY is set, so verifier scripts
+      run from a recording without shell-env setup.
 
 ## Infra / DX
 
