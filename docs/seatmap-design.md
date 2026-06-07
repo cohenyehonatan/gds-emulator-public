@@ -1,12 +1,119 @@
 # Seat Maps — design plan and chunks
 
-**Status:** PRE-DESIGN. Modeling decision pending before chunking starts.
-ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
-display)" with the note "needs new seat-map data structure". This doc
-unpacks that note.
+**Status:** PRE-DESIGN — modeling decision locked to **Option C** as of
+2026-06-07 once the live shape was checked (see below). Chunking still
+pending. ROADMAP.md flags this under "remaining for future chunks: seat
+maps (SM display)" with the note "needs new seat-map data structure".
+This doc unpacks that note.
 
 Updated chunk-by-chunk like ROADMAP.md — flip `[ ]` to `[x]` with a
 commit ref when a piece lands.
+
+## What `/seatmaps` actually returns (checked first — 2026-06-07)
+
+Before any modeling decision, the live response shape was sourced from
+the v11 GDS reference-payload devkit Postman collection so the model
+mirrors live, not the other way around.
+
+**Endpoint:** `POST {baseURL}/{version}/air/search/seat/catalogofferings`
+`ancillaries/seatavailabilities`
+- Query string: `catalogProductOfferingsIdentifier`, `catalogProductOffer`
+  `ingID`, `productIDs` (UUIDs lifted from the prior `A` availability +
+  the selected segment's `ProductIdentifier`)
+- Headers: standard Bearer + `XAUTH_TRAVELPORT_ACCESSGROUP` (1G or 1V) +
+  `Content-Version`
+- **Workbench-tied.** The endpoint requires a `CatalogProductOfferingsID`
+  UUID, which comes from a prior `A` query — so the SM live path needs
+  `wa.lastAvailability.vendorRef.offerId` populated. Same dependency
+  the existing FQ live path has. Without prior `A`, fall back to
+  `NO AVAILABILITY` (reconstructed wording).
+
+**Request body** (canonical shape):
+```json
+{
+  "CatalogOfferingsQuerySeatAvailability": {
+    "SeatAvailabilityOfferings": {
+      "@type": "SeatAvailabilityOfferingsBuildFromCatalogProductOfferings",
+      "BuildFromCatalogProductOfferingsRequest": {
+        "@type": "BuildFromCatalogProductOfferingsRequest",
+        "CatalogProductOfferingsIdentifier": {
+          "id": "catalogProductOfferings",
+          "Identifier": { "value": "<uuid>", "authority": "Travelport" }
+        },
+        "CatalogProductOfferingSelection": [
+          {
+            "CatalogProductOfferingIdentifier": { "id": "o1" },
+            "ProductIdentifier": [ { "id": "p7" } ]
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+**Response shape** (`CatalogOfferingsAncillaryListResponse`):
+- Top-level: `CatalogOfferingsID[]` (one per flight) + `ReferenceList[]`
+  (with the actual cabin layout) + `Result.Error[]` envelope.
+- Each `CatalogOfferingsID[i]` has:
+  - `Flight[]` — carrier, number, equipment, Departure/Arrival
+  - `CatalogOffering[].ProductOptions[].Product[]`:
+    - `@type: ProductSeatAvailability`
+    - `SeatAvailability[]` — **grouped by status**, with a flat seat-label
+      list per status:
+      ```
+      { "seatAvailabilityStatus": "Reserved", "value": ["1A","1B","2A",...] }
+      { "seatAvailabilityStatus": "Available", "value": ["1D","1E","1F",...] }
+      ```
+    - `SeatingChartRef: "seatingChart_1"` — links to ReferenceList
+    - `Brand.name`: "SEAT ASSIGNMENT" (free) or other paid-brand name
+  - `Price`: per-offering total (zero for free seats)
+- `ReferenceList[].SeatingChart[]` — **per-equipment layout**:
+  - `Cabin[]` — F/J/Y partitions
+    - `name`: "FIRST" / "BUSINESS" / "ECONOMY"
+    - `Layout[]` — cabin-level column-position map:
+      - `{ startRow, endRow }` — row range owned by this cabin
+      - `{ position: ["W"], value: "A" }` — column A is **W**indow
+      - `{ position: ["A"], value: "B" }` — column B is **A**isle
+      - middle columns omit the `position` (or use a different code)
+    - `Row[]` — per-row breakdown
+      - `label: "1"`
+      - `Space[]` — per-seat:
+        - `location: "A"`
+        - `Characteristic: ["A","N"]` — Travelport SCC codes (A=Aisle,
+          N=likely "next to lavatory" or "no recline" — published table)
+
+**Key consequence:** the response IS Option C (structural model + per-date
+availability). The Layout block gives us cabin-level column positions
+exactly as our `ColumnSpec { position: 'window'|'aisle'|'middle' }`
+shape proposed; `Row[].Space[].Characteristic` lets us override per-seat
+for exit rows / bulkheads. We can mirror the Travelport shape almost 1:1
+and our mapper becomes trivial — same pattern as the rest of the v11
+mapping.
+
+**Decision: Option C is locked in** based on this. The model field names
+will mirror Travelport's so the mapper is one-pass.
+
+**Open follow-ups from the live shape** (lift into chunk planning):
+- Travelport SCC characteristic codes: full table is published in the
+  v11 schema doc. Catalog the relevant codes (A=Aisle, W=Window,
+  E=Exit, etc.) into `src/models/seat-map.ts` as an enum or string-union
+  so the renderer can label them. Pull the table verbatim before
+  chunk 1 starts — same fidelity bar Sabre uses for response wording.
+- Status codes seen: `Reserved`, `Available`. Need to enumerate the
+  full set (`Blocked`, `Restricted`, `Premium`, `Occupied`?) — likely
+  in the same schema doc. Synthesizer in chunk 1 should emit the same
+  set so emulated and live render identically.
+- `seatAvailabilityStatus` is GROUPED in the response (one entry per
+  status with a flat seat-list), NOT per-seat. Our internal model can
+  go either way; mirror the live grouping so the mapper is trivial,
+  then "flatten" at render time.
+- `SeatingChartRef` is a separate ReferenceList entry — same indirection
+  pattern as `FlightRef` / `ProductRef` elsewhere. The mapper has to
+  walk ReferenceList[] to resolve.
+- `Brand.name = "SEAT ASSIGNMENT"` (free) vs other names indicates
+  paid seat brands. v1 ignores brand pricing; chunk 8 (deferred) could
+  surface "EXTRA LEGROOM +50.00" style display.
 
 ## Why this needs its own doc
 
@@ -177,13 +284,30 @@ interface SeatMap {
   want the same SM query to return the same answer twice (a hash of
   carrier+flight+date+seat is sufficient).
 
-### Decision (TBD)
+### Decision: LOCKED to Option C (2026-06-07)
 
-Locked-in choice gets written here before chunk 1 starts. Current lean:
-**Option C** — structural model with synthetic availability. Open
-question: does the column-position labeling (`window`/`aisle`/`middle`)
-need to differ by aircraft (e.g. 2-4-2 vs 3-3 vs 3-4-3)? Probably yes,
-which means each equipment type needs a representative seat-row pattern.
+Driver: the live `/seatmaps` response shape IS Option C (see "What
+`/seatmaps` actually returns" above). The Travelport response gives
+us a per-cabin `Layout[]` block with column-position labels and a
+`Row[].Space[]` block with per-seat characteristics — exactly the
+shape we'd have designed if we'd guessed cold. Mirroring the live
+shape means:
+
+- Model field names match Travelport's (`Cabin`, `Layout`, `Row`,
+  `Space`, `Characteristic`) so the v11 mapper is one-pass with no
+  reshape.
+- Per-equipment cabin layouts can be seeded from real responses
+  captured via `TVP_CAPTURE` once the live wire lands — no need to
+  hand-author every aircraft type from scratch.
+- The "does column-position labeling differ by aircraft" open
+  question is answered: yes, and the live response includes it
+  per-cabin per-aircraft, so each equipment type does need its
+  own representative seed (chunk 1 picks ~5-6 common equipments).
+
+Synthesized availability for emulated stays — we don't track real
+seat occupancy across PNRs. Deterministic seed from
+hash(carrier+flight+date+seat) so the same query returns the same
+answer twice.
 
 ## Chunks
 
@@ -251,18 +375,41 @@ v4 chunking pattern from ROADMAP.md.
 
 ### Chunk 6 — Live Travelport `/seatmaps` REST wire
 
-- [ ] Find the canonical seatmap request body in the GDS reference-
-      payload devkit (`v11_GDS_ReferencePayload_DevKit/...json`),
-      probably under "Optional Pre Commit Requests > Optional Seats".
-- [ ] Add `getSeatMap(workbenchId, opts)` method to
-      `LiveTravelportBackend`.
-- [ ] Add mapper `mapSeatMap(response)` in
-      `src/backends/travelport-mapper.ts` that converts the REST
-      payload to our `SeatMap` shape.
+- [x] **Find the canonical seatmap request body** in the GDS reference-
+      payload devkit. **Done 2026-06-07** — endpoint, body, response
+      shape captured in the "What /seatmaps actually returns" section
+      above. Devkit file:
+      `~/.claude/jobs/2620983b/tmp/devkit/v11_GDS_ReferencePayload_DevKit/`
+      `V11 GDS Air Reference Payload Path v25.11.2.json` (search for
+      `"name": "Search Seat Maps"`).
+- [ ] Add `searchSeatAvailabilities(opts)` method to
+      `LiveTravelportBackend`. Takes a `CatalogProductOfferings`
+      identifier (UUID from prior `A`) + selected offer/product IDs.
+      URL: `POST /<version>/air/search/seat/catalogofferings`
+      `ancillaries/seatavailabilities`. Headers: standard 1G/1V
+      access-group + Content-Version. Body: as in the canonical shape
+      above. Same pacing + capture/replay semantics as the rest of the
+      live wire.
+- [ ] Add mapper `mapSeatAvailabilities(response)` in
+      `src/backends/travelport-mapper.ts`:
+      - Walk `CatalogOfferingsID[].CatalogOffering[].ProductOptions[]`
+        `.Product[].SeatAvailability[]` for the status-grouped seat lists
+      - Resolve `SeatingChartRef` via `ReferenceList[]` walk (same
+        indirection pattern as FlightRef / ProductRef)
+      - Convert Travelport's `Layout[]` + `Row[].Space[]` to our
+        `SeatMap.Cabin[]` shape (chunk 1 settles the exact field names)
 - [ ] Galileo's seatmap handler dispatches live with `instanceof`
       discrimination (same pattern as the rest of the live wire).
-- [ ] Mocked test + diff-oracle probe + manual run against pre-prod
-      with `TVP_DEBUG_DUMP=1` to confirm the canonical body matches.
+- [ ] Mocked test against a fixture extracted from the devkit sample
+      response (verbatim — same pattern as the existing FQ-response
+      fixtures).
+- [ ] Diff-oracle probe `SM` (after segment built) — should be
+      IDENTICAL between emulated and live once the synthesizer matches
+      live's status distribution closely enough; flag STRUCTURAL
+      expected otherwise.
+- [ ] Manual run against pre-prod with `TVP_DEBUG_DUMP=1` to confirm
+      the canonical body matches what 7K9S actually accepts (the same
+      pre-prod gap pattern other live verbs have hit).
 
 ### Chunk 7 — Scrolling + view variants
 
@@ -285,9 +432,14 @@ v4 chunking pattern from ROADMAP.md.
 
 ## Open questions
 
-- [ ] Aircraft column patterns: does each equipment type need its own
-      column spec, or can we group (narrow-body 3-3, twin-aisle 2-4-2,
-      etc.) and label?
+- [x] **Aircraft column patterns:** each equipment type needs its own
+      column spec. Resolved 2026-06-07 by the live shape — Travelport
+      returns per-cabin per-equipment `Layout[]` blocks; we mirror that
+      structure. Pick 5-6 common equipments to seed (chunk 1).
+- [x] **Does the live `/seatmaps` endpoint need an active workbench?**
+      Yes — workbench-tied. Requires `catalogProductOfferingsIdentifier`
+      (= UUID from prior `A` query, lives on
+      `wa.lastAvailability.vendorRef.offerId`). Resolved 2026-06-07.
 - [ ] Should `SeatMap` go on `Pnr` (so the cached map round-trips through
       JsonFilePnrStore) or stay on `WorkArea` (transient)? Lean: WorkArea
       — the map belongs to the query, not the PNR.
@@ -295,12 +447,23 @@ v4 chunking pattern from ROADMAP.md.
       verification before chunk 4.
 - [ ] Galileo's seatmap verb in Smartpoint Module 2 — does it match
       Amadeus's `SM` family or use a different prefix?
-- [ ] Does the live `/seatmaps` endpoint need an active workbench, or
-      can it be queried standalone (anonymous)? Affects whether the live
-      handler requires `wa.liveWorkbenchId`.
 - [ ] Apollo: the Comparison Guide should say whether SM is the same
       in 1V. If yes, no translator change needed; if no, add a 4th
       translator pattern.
+- [ ] Travelport Seat Characteristic Codes (SCC) — full table. The
+      response uses 1-letter codes (`A`/`W`/`N`/`E`/...). Catalog the
+      full set into `src/models/seat-map.ts` before chunk 1 so the
+      renderer can label them consistently.
+- [ ] Full set of `seatAvailabilityStatus` values. Sample showed
+      `Reserved` and `Available`; need to enumerate (`Blocked`,
+      `Premium`, `Restricted`, `Occupied`?) so the synthesizer + the
+      renderer share a closed set.
+- [ ] Devkit Postman variable name confusion: collection sets
+      `SeatmapsRefDevKit` but the request also uses
+      `catalogProductOfferingsIdentifierValueDevKit` /
+      `catalogProductOfferingIdDevKit` / `productOfferingIdentifierDevKit`
+      as query params. Confirm during chunk 6 which one of those maps
+      to the UUID we already have at `vendorRef.offerId`.
 
 ## Tie-ins to existing code
 
