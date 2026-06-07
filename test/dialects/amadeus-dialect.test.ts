@@ -1627,6 +1627,156 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('RRN/XYZ', wa)).toBe('FORMAT');
   });
 
+  it('SM with no segments returns NO ITINERARY', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SM 1', wa)).toBe('NO ITINERARY');
+  });
+
+  it('SM <n> for n outside the itinerary returns SEGMENT NOT IN ITINERARY', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process('SM 5', wa)).toBe('SEGMENT NOT IN ITINERARY');
+  });
+
+  it('SM <n> on a happy path renders the header + cabin code + status legend', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('SM 1', wa);
+    expect(resp).toContain('SM 1 — B6615');
+    expect(resp).toContain('15JUL');
+    expect(resp).toContain('JFK-LAX');
+    expect(resp).toContain('32A'); // B6615 equipment
+    expect(resp).toContain('LEGEND');
+    expect(resp).toMatch(/Y/); // ECONOMY cabin code
+  });
+
+  it('SM caches the displayed map on wa.lastSeatMap', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    expect(wa.lastSeatMap?.segment).toBe(1);
+    expect(wa.lastSeatMap?.map.equipment).toBe('32A');
+  });
+
+  it('SM is deterministic across two calls (same input → same output)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const a = await host.process('SM 1', wa);
+    const b = await host.process('SM 1', wa);
+    expect(a).toBe(b);
+  });
+
+  it('SM /H transposes — same data, different layout', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const vert = await host.process('SM 1', wa);
+    const horiz = await host.process('SM 1/H', wa);
+    expect(vert).not.toBe(horiz);
+    expect(horiz).toContain('SM 1 — B6615');
+  });
+
+  it('SM is cleared by reset() (IG)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    expect(wa.lastSeatMap).toBeDefined();
+    await host.process('IG', wa);
+    expect(wa.lastSeatMap).toBeUndefined();
+  });
+
+  it('ST/<seat>/S<n> accepts a seat that exists in the segment seatmap', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // 32A has 30 rows, columns A-F. 12C exists.
+    expect(await host.process('ST/12C/S1', wa)).toBe('OK');
+  });
+
+  it('ST/<seat>/S<n> rejects a row out of range', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process('ST/99A/S1', wa)).toBe('INVALID SEAT');
+  });
+
+  it('ST/<seat>/S<n> rejects a column not in the layout', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // 32A has columns A-F; Z doesn't exist.
+    expect(await host.process('ST/12Z/S1', wa)).toBe('INVALID SEAT');
+  });
+
+  it('ST preference codes (WB, NSSA) skip seat-existence validation', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process('ST/NSSA/S1', wa)).toBe('OK');
+    expect(await host.process('ST/WB/S1', wa)).toBe('OK');
+  });
+
+  it('ST/<seat> without /S<n> bypasses seatmap validation', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // No /S<n> — validation skipped even though 99A would be invalid against any seatmap.
+    expect(await host.process('ST/99A', wa)).toBe('OK');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

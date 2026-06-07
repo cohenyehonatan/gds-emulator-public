@@ -1,11 +1,12 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-1 LANDED — PRE-CHUNK-2 (2026-06-07). Chunk 0
-sourced the canonical SCC + status enums; chunk 1 landed the
-`SeatMap` model + `Inventory.seatMapFor` seed (10 equipment types
-covering all of `SCHEDULE`) + deterministic synthesizer. Chunk 2
-(Amadeus `SM <segment>` dispatch + WorkArea cache + ST existence-
-validation) is the next code-bearing chunk. 1022 tests pass.
+**Status:** CHUNK-2 LANDED — PRE-CHUNK-3 (2026-06-07). Chunks 0+1+2
+all closed: SCC + status enums sourced (chunk 0); SeatMap model +
+10-equipment seed + synthesizer landed (chunk 1); Amadeus SM
+dispatch + WorkArea cache + ST existence-validation landed (chunk 2,
+this commit). 1034 tests pass. Chunk 3 (Amadeus direct-access SM
+forms `SM <flight>/<class>/<route>` + `SM/<line>` from cached
+availability) is the next code-bearing chunk.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -446,14 +447,21 @@ Landed in commit (this commit).
       70/20/5/5 mix, no-seat SCC always returns NoSeat regardless of
       hash. 1022 total tests pass (+21).
 
-### Chunk 2 — Amadeus `SM <segment>` (current PNR + ST validation)
+### Chunk 2 — Amadeus `SM <segment>` (current PNR + ST validation) ✅
 
-- [ ] `SM <n>` parses segment number, looks up the segment, calls
+Landed in commit (this commit).
+
+- [x] `SM <n>` parses segment number, looks up the segment, calls
       `Inventory.seatMapFor(carrier, flightNumber, equipment)`, calls
-      `synthesizeAvailability` keyed on `(locator, date)`.
-- [ ] Render vertical (default) and `/V` / `/H` layout variants. QRG
-      doesn't pin the literal rendering — flag the wording as
-      reconstructed.
+      `synthesizeAvailability` keyed on `(pnr.locator ?? 'PENDING', date)`.
+- [x] Render vertical (default) and `/V` / `/H` layout variants in
+      `src/dialects/amadeus/seat-map-render.ts`. Position SCC override
+      tweaked from the design-doc anchor: K (bulkhead) dropped from
+      per-cell rendering because the cabin-code prefix on the left
+      margin already marks the boundary — per-cell K was visual noise
+      without information. Final priority: E (exit) > W (window) > A
+      (aisle) > M (middle) > H (handicapped) > status glyph. Renderer
+      output matches the doc anchor for 32A / 738 / 777 layouts.
 
       **Render anchor (concrete target so chunk 7 has something to
       scroll against):**
@@ -493,14 +501,30 @@ Landed in commit (this commit).
       transposes — rows along the X axis, columns along Y. Chunk 7's
       MD/MU/MB/MT scrolling navigates within this rendered frame.
 
-- [ ] ST (chunk 10) gains seat-existence validation: when an ST/<seat>
-      entry references a seat that doesn't exist in the segment's
-      seatmap (e.g. row 99 on a 30-row 320), reject with
-      `INVALID SEAT`. Don't validate against availability yet — keep
-      the validation about static seatmap structure. (See chunk 8 for
-      availability validation as a separately-tracked piece.)
-- [ ] Tests: SM happy path, SM no-segment, SM on segment with no
-      schedule, ST/12C accepted, ST/12Z rejected, ST/99A rejected.
+- [x] ST seat-existence validation: when an `ST/<seat>/S<n>` entry
+      references a seat that doesn't exist in segment n's seatmap
+      (row out of range or column not in layout), reject with
+      `INVALID SEAT`. Preferences (NSSA / WB / etc. — anything not
+      matching `\d{1,3}[A-Z]`) skip validation; bare ST without /S
+      also skips (no segment to validate against). Availability
+      validation (occupied seats) remains chunk 8.
+- [x] **WorkArea cache:** `wa.lastSeatMap = { segment, map }` stores
+      the displayed seatmap so chunk 7 scrolling can reuse it without
+      re-synthesizing. Cleared on `reset()` (IG/E). Accessor pair
+      added to WorkArea forwarding the slot field.
+- [x] 12 tests in `test/dialects/amadeus-dialect.test.ts`:
+      - NO ITINERARY when no segments
+      - SEGMENT NOT IN ITINERARY when segment number out of range
+      - Happy path renders header + cabin code + legend
+      - Cache populated correctly
+      - Deterministic across two calls (same input → same output)
+      - /H transposes (different from default /V)
+      - reset() (IG) clears the cache
+      - ST/12C/S1 accepted (valid seat)
+      - ST/99A/S1 rejected (row out of range)
+      - ST/12Z/S1 rejected (column not in layout)
+      - ST/NSSA/S1 + ST/WB/S1 accepted (preferences bypass validation)
+      - ST/99A (no /S<n>) accepted (no segment to validate against)
 
 ### Chunk 3 — Amadeus direct-access SM (no current PNR)
 

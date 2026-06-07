@@ -79,6 +79,17 @@ export class WorkAreaSlot {
    * right `fareRuleIdentifier` + `FareID`. Cleared on `reset()`.
    */
   lastFareDisplay?: FareDisplayResult;
+
+  /**
+   * Cached result of the most recent `SM <segment>` seat-map query.
+   * Holds the displayed SeatMap plus the segment number it was queried
+   * against; chunk 7's scrolling verbs (MD/MU/MB/MT) operate on this.
+   * Cleared on `reset()` and on `SM <m>` for a different segment.
+   * Per `docs/seatmap-design.md` chunk 0: SeatMap lives on WorkArea
+   * (query state) not Pnr (booking state).
+   */
+  lastSeatMap?: { segment: number; map: import('../models/seat-map.js').SeatMap };
+
   /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
@@ -127,6 +138,7 @@ export class WorkAreaSlot {
     this.liveTravelerIds = undefined;
     this.liveWorkbenchOfferIds = undefined;
     this.lastFareDisplay = undefined;
+    this.lastSeatMap = undefined;
   }
 }
 
@@ -300,5 +312,11 @@ export class WorkArea {
   }
   set lastFareDisplay(v: FareDisplayResult | undefined) {
     this.s.lastFareDisplay = v;
+  }
+  get lastSeatMap(): WorkAreaSlot['lastSeatMap'] {
+    return this.s.lastSeatMap;
+  }
+  set lastSeatMap(v: WorkAreaSlot['lastSeatMap']) {
+    this.s.lastSeatMap = v;
   }
 }

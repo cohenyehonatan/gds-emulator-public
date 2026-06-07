@@ -63,6 +63,8 @@ import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
+import { synthesizeAvailability } from '../../models/seat-map.js';
+import { renderSeatMap, type RenderOrientation } from './seat-map-render.js';
 
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
@@ -1180,6 +1182,27 @@ export class AmadeusDialect implements Dialect {
       return [header, ...rows].join('\n');
     }
 
+    // SM <segment>[/V|/H] — Display seat map for a segment in the
+    // current PNR. QRG p.39-40. See docs/seatmap-design.md for the
+    // full design + render anchor. Vertical (/V) is the default;
+    // /H transposes. The displayed map is cached on
+    // wa.lastSeatMap so chunk 7 scrolling verbs (deferred) can
+    // operate on it without re-synthesizing.
+    const smMatch = /^SM\s+(\d{1,2})(?:\/([VH]))?$/.exec(entry);
+    if (smMatch) {
+      const segNum = parseInt(smMatch[1], 10);
+      const orientation = (smMatch[2] ?? 'V') as RenderOrientation;
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      const seg = wa.pnr.segments.find((s) => s.segmentNumber === segNum);
+      if (!seg) return 'SEGMENT NOT IN ITINERARY';
+      const map = ctx.backend.inventory.seatMapFor(seg.carrier, seg.flightNumber);
+      if (!map) return 'NO SEAT MAP AVAILABLE';
+      const locatorKey = wa.pnr.locator ?? 'PENDING';
+      const availability = synthesizeAvailability(map, locatorKey, seg.date);
+      wa.lastSeatMap = { segment: segNum, map };
+      return renderSeatMap(map, availability, seg, segNum, orientation);
+    }
+
     // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.
     //   ST/12C/P2/S5    specific seat 12C, pax 2, segment 5
     //   ST/WB/P3        preference (window/bulkhead), pax 3
@@ -1204,6 +1227,27 @@ export class AmadeusDialect implements Dialect {
           segment = parseInt(sMatch[1], 10);
         } else {
           return FORMAT_ERROR;
+        }
+      }
+      // Seat-existence validation (chunk 2 addition): when the code is
+      // a specific seat label (row + column letter) AND a segment is
+      // specified, validate the seat exists in that segment's seat
+      // map. Preferences (NSSA / WB / etc.) skip validation —
+      // anything not matching the seat-label regex passes through.
+      // Availability validation (occupied seats) is chunk 8.
+      const seatLabel = /^(\d{1,3})([A-Z])$/.exec(code);
+      if (seatLabel && segment !== undefined) {
+        const seg = wa.pnr.segments.find((s) => s.segmentNumber === segment);
+        if (seg) {
+          const map = ctx.backend.inventory.seatMapFor(seg.carrier, seg.flightNumber);
+          if (map) {
+            const rowLabel = seatLabel[1];
+            const col = seatLabel[2];
+            const exists = map.Cabin.some((c) =>
+              c.Row.some((r) => r.label === rowLabel && r.Space.some((s) => s.location === col)),
+            );
+            if (!exists) return 'INVALID SEAT';
+          }
         }
       }
       wa.pnr.seatRequests.push({ code, segment, nameRef });
