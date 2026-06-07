@@ -1,14 +1,11 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-0 LANDED — PRE-CHUNK-1 (2026-06-07). Modeling
-decision locked to **Option C** once the live `/seatmaps` shape was
-checked. Storage location locked to **WorkArea** (not Pnr). Chunk 0
-landed: SCC enum (PADIS 9825, ~115 codes) + `seatAvailabilityStatus`
-enum (5 values) both sourced from Travelport's public docs +
-industry PADIS table; verbatim reference at
-`references/iata-padis-9825-seat-codes.md`. Chunk 1 (`SeatMap` model
-+ `Inventory.seatMapFor` seed for all 14 SCHEDULE equipment types)
-is the next blocker.
+**Status:** CHUNK-1 LANDED — PRE-CHUNK-2 (2026-06-07). Chunk 0
+sourced the canonical SCC + status enums; chunk 1 landed the
+`SeatMap` model + `Inventory.seatMapFor` seed (10 equipment types
+covering all of `SCHEDULE`) + deterministic synthesizer. Chunk 2
+(Amadeus `SM <segment>` dispatch + WorkArea cache + ST existence-
+validation) is the next code-bearing chunk. 1022 tests pass.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -405,23 +402,49 @@ Concrete: add `lastSeatMap?: SeatMap` to WorkArea, cleared on
 `reset()` and on `SM` of a different segment. This is settled before
 chunk 2 to prevent chunk 7 from having to undo a Pnr choice.
 
-### Chunk 1 — `SeatMap` model + Inventory.seatMapFor seed
+### Chunk 1 — `SeatMap` model + Inventory.seatMapFor seed ✅
 
-- [ ] Create `src/models/seat-map.ts` with the agreed shape (see
-      decision above).
-- [ ] Seed `Inventory` with representative seatmaps for the equipment
-      types currently in `SCHEDULE` (737, 738, 320, 752, 73J, 332, 339,
-      321, 787, 789, 32N, 75W, 7M9, 7M8). Each gets a `cabins[]` entry
-      with cabin code, row range, columns with position labels, and
-      exit rows.
-- [ ] `Inventory.seatMapFor(carrier, flightNumber, equipment?)` returns
-      the SeatMap or undefined.
-- [ ] Helper `synthesizeAvailability(seatMap, locator, date)` returns
-      a deterministic `{ occupied: Set<string> }` per the chosen
-      synthesizer scheme.
-- [ ] Unit tests in `test/store/seat-map.test.ts` covering: lookup,
-      cabin boundaries, exit-row detection, column-position labeling,
-      synthesizer determinism (same seed → same answer twice).
+Landed in commit (this commit).
+
+- [x] **Created `src/models/seat-map.ts`** mirroring Travelport's
+      Cabin/Layout/Row/Space hierarchy. Closed unions `SccCode`
+      (~115 PADIS values) + `SeatAvailabilityStatus` (5 values) for
+      typed emits; open `string` / `string[]` on the model fields
+      themselves for vendor-extension tolerance. `SCC_LABELS` curated
+      for the chunk-2 renderer (~25 codes most relevant to display);
+      `STATUS_GLYPHS` maps the 5 statuses to render characters.
+- [x] **Seeded `Inventory` with 10 equipment layouts** in
+      `src/store/seat-map-seed.ts`: 320, 32A, 32B, 738, 739, 7M9, 752,
+      75W, 76W, 777. **The doc previously said 14 equipment types from
+      an inaccurate count** — actual `SCHEDULE` has 10 unique codes,
+      and chunk 1 seeds all of them. `makeCabin(name, fromRow, toRow,
+      pattern, exitRows)` helper keeps each layout to ~3 lines per
+      cabin. Patterns supported: F22 (2-2 first), Y33 (3-3 narrow-body
+      Y), J222 (2-2-2 twin-aisle business), Y232 (2-3-2 twin-aisle Y),
+      Y333 (3-3-3 wide-body Y). Bulkhead-row K, exit-row E auto-
+      applied per row position.
+- [x] **`Inventory.seatMapFor(carrier, flightNumber, equipment?)`** —
+      look up by carrier+flight (via schedule), or by explicit equipment
+      override. Returns SeatMap or undefined.
+- [x] **`synthesizeAvailability(seatMap, locator, date)`** — DJB2
+      hash-keyed deterministic synthesizer. Returns
+      `SeatAvailabilityList[]` (status-grouped, mirroring live shape).
+      Distribution ~70% Available, ~20% Reserved, ~5% Blocked, ~5%
+      NoSeat. Seats with structural no-seat SCCs (LA / GN / SO / ST /
+      TA / CL / KN / D / EX / `8`) bypass the hash and always return
+      NoSeat — position-driven, not chance.
+- [x] **21 tests in `test/store/seat-map.test.ts`** covering: every
+      SCHEDULE equipment has a seat map, unseeded equipment returns
+      undefined, equipment override beats schedule, cabin/row/layout
+      structural invariants (Layout starts with row-range; column
+      positions in closed {W,A,C,M} set; row labels match Layout
+      bounds; bulkhead K on cabin-first row; exit-row E auto-applied),
+      seat labeling (windows + aisles for 738 row 5), synthesizer
+      determinism (same input → same output, different locator/date
+      → different output), full-coverage (every seat appears exactly
+      once), closed-status emit, distribution roughly matches the
+      70/20/5/5 mix, no-seat SCC always returns NoSeat regardless of
+      hash. 1022 total tests pass (+21).
 
 ### Chunk 2 — Amadeus `SM <segment>` (current PNR + ST validation)
 

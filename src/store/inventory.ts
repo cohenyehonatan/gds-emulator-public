@@ -7,7 +7,9 @@
  */
 
 import type { AvailabilityLine } from '../models/availability-result.js';
+import type { SeatMap } from '../models/seat-map.js';
 import { parseClockToMinutes } from '../utils/validation.js';
+import { SEAT_MAP_SEED } from './seat-map-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -73,6 +75,22 @@ export class Inventory {
   /** Look up a scheduled flight (for filling times on a long sell). */
   scheduleFor(carrier: string, flightNumber: string): ScheduledFlight | undefined {
     return SCHEDULE.find((f) => f.carrier === carrier && f.flightNumber === flightNumber);
+  }
+
+  /**
+   * Look up a seat map for a flight. `equipment` overrides the
+   * schedule's equipment when given (e.g. for direct-access SM
+   * queries that bypass an itinerary). Returns undefined if the
+   * equipment isn't in the seed — the renderer / dispatch should
+   * surface "NO SEAT MAP AVAILABLE" to the operator in that case.
+   */
+  seatMapFor(carrier: string, flightNumber: string, equipment?: string): SeatMap | undefined {
+    let eq = equipment;
+    if (!eq) eq = this.scheduleFor(carrier, flightNumber)?.equipment;
+    if (!eq) return undefined;
+    const cabins = SEAT_MAP_SEED[eq];
+    if (!cabins) return undefined;
+    return { carrier, flightNumber, equipment: eq, Cabin: cabins };
   }
 
   private seatsFor(date: string, f: ScheduledFlight): Record<string, number> {
