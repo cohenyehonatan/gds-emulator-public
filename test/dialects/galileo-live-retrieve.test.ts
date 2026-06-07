@@ -111,6 +111,28 @@ describe('Galileo live retrieve (mocked fetch)', () => {
     expect(await host.process('*EXPIRD', wa)).toBe('NO BOOKING FILE');
   });
 
+  it('Travelport semantic-200 "RECORD LOCATOR DOES NOT EXIST" → NO BOOKING FILE', async () => {
+    // VERIFIED PRE-PROD 2026-06-07 via diff-oracle calibration: pre-prod
+    // returns HTTP 200 with a Result.Error[] payload for unknown locators
+    // (not a 404). The semantic-error extractor surfaces the message as
+    // "[VALIDATION/200] RECORD LOCATOR DOES NOT EXIST"; the retrieve
+    // handler translates that to NO_PNR so emulated and live both
+    // produce IDENTICAL "NO BOOKING FILE" for *<missing-locator>.
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ReservationResponse: {
+              Result: { Error: [{ Code: 'VALIDATION', Message: 'RECORD LOCATOR DOES NOT EXIST' }] },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+    expect(await host.process('*XYZ999', wa)).toBe('NO BOOKING FILE');
+  });
+
   it('5xx surfaces as LIVE BACKEND ERROR with status preserved', async () => {
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())

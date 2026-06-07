@@ -1166,6 +1166,15 @@ async function retrieveGalileoLive(
     // 404 / 410 → reservation doesn't exist; surface the Galileo
     // dialect's NO BOOKING FILE rather than the raw upstream error.
     if (/HTTP 40[4]|HTTP 410/.test(msg)) return GalileoResponse.NO_PNR;
+    // Travelport JSON Air v11 returns HTTP 200 with a Result.Error[]
+    // payload for not-found locators — extractor surfaces it as
+    // "[VALIDATION/200] RECORD LOCATOR DOES NOT EXIST" (verified
+    // 2026-06-07 against pre-prod 7K9S via *XYZ999). Translate to the
+    // same NO_PNR string the emulated path returns so the diff oracle
+    // sees IDENTICAL wording on both backends.
+    if (/RECORD LOCATOR DOES NOT EXIST|BOOKING FILE NOT FOUND/i.test(msg)) {
+      return GalileoResponse.NO_PNR;
+    }
     return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
   }
   const pnr = mapReservation(response, locator);

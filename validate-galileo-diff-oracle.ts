@@ -209,9 +209,28 @@ async function main(): Promise<void> {
   await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: '*H', expectStructural: true }, rows, apollo);
   await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: '*HI', expectStructural: true }, rows, apollo);
 
-  // Pure parity check — SOF doesn't depend on session state, so it
-  // should always be IDENTICAL regardless of upstream sell outcome.
-  // This is the canary: if SOF ever diverges, something deeper broke.
+  // Stateless wording canaries — verbs that should produce IDENTICAL
+  // responses regardless of session state (no inventory/PNR dependency).
+  // These exercise the narrow-target calibration: the verb's response
+  // wording must match byte-for-byte between emulated and live. If any
+  // diverges, emulated's GalileoResponse string in src/dialects/galileo/
+  // responses.ts needs updating to match what pre-prod actually returns.
+  //
+  // For each canary we use a SECOND pair of WorkAreas so the existing
+  // build state doesn't interfere. The session state is "signed in,
+  // nothing built" — clean baseline for stateless wording checks.
+  const cleanEmu = emulatedHost.newWorkArea();
+  const cleanLive = liveHost.newWorkArea();
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'SON/ZHA' }, rows, apollo);
+
+  // *<random-locator> — both should return "NO BOOKING FILE". Verifies
+  // the canonical Galileo no-PNR wording matches between emulated's
+  // GalileoResponse.NO_PNR ("NO BOOKING FILE") and pre-prod's actual
+  // retrieve-not-found response.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*XYZ999' }, rows, apollo);
+
+  // SOF — stateless, no upstream dependency. The original canary.
+  // If SOF ever diverges, something deeper broke.
   await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: 'SOF' }, rows, apollo);
 
   // Summary table.
