@@ -1240,6 +1240,75 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(host.backend.pnrs.has(loc2)).toBe(true);
   });
 
+  it('NU<n>/<full-NM-body> replaces surname + given + title', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    expect(await host.process('NU1/1JONES/JANE MRS', wa)).toBe('OK');
+    expect(wa.pnr.names[0].surname).toBe('JONES');
+    expect(wa.pnr.names[0].passengers[0].firstName).toBe('JANE');
+    expect(wa.pnr.names[0].passengers[0].title).toBe('MRS');
+  });
+
+  it('NU<n>/<given-only> replaces just the given name', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    expect(await host.process('NU1/JAMES', wa)).toBe('OK');
+    expect(wa.pnr.names[0].surname).toBe('SMITH'); // unchanged
+    expect(wa.pnr.names[0].passengers[0].firstName).toBe('JAMES');
+  });
+
+  it('NU<n>/<given-only> preserves the original title when no new title given', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('NU1/JAMES', wa);
+    expect(wa.pnr.names[0].passengers[0].title).toBe('MR');
+  });
+
+  it('NU<n>/<given title> sets a new title', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('NU1/JAMES DR', wa);
+    expect(wa.pnr.names[0].passengers[0].firstName).toBe('JAMES');
+    expect(wa.pnr.names[0].passengers[0].title).toBe('DR');
+  });
+
+  it('NU on a non-existent element returns NAME NOT IN PNR', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('NU1/JAMES', wa)).toBe('NAME NOT IN PNR');
+  });
+
+  it('NU records the change in history', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('NU1/JAMES', wa);
+    const rh = await host.process('RH', wa);
+    expect(rh).toContain('NU1 JOHN→JAMES');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

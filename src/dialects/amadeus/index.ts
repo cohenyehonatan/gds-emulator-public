@@ -919,6 +919,51 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
+    // NU<n>/<body> — Modify Name Element n. QRG p.45.
+    //   NU1/1SMITH/JOHN MR    replace name 1 with the full NM body
+    //                         (`1` is the new count, `SMITH/JOHN MR` is
+    //                         the new surname / given / title)
+    //   NU1/JAMES             replace given-name only on name 1's
+    //                         first passenger (surname + title unchanged)
+    //
+    // Element-number addressing: n indexes into pnr.names[] (1-based).
+    // Body parsing falls back through two patterns: full-NM (parseName)
+    // first, then bare-given-name-only.
+    const nuMatch = /^NU([1-9]\d?)\/(.+)$/.exec(entry);
+    if (nuMatch) {
+      const idx = parseInt(nuMatch[1], 10) - 1;
+      if (idx < 0 || idx >= wa.pnr.names.length) return 'NAME NOT IN PNR';
+      const body = nuMatch[2];
+      // Try the full NM body shape first.
+      const parsed = parseName(body);
+      if (parsed) {
+        const prev = wa.pnr.names[idx];
+        wa.pnr.names[idx] = {
+          surname: parsed.surname,
+          passengers: parsed.passengers.map((p) => ({ firstName: p.given, title: p.title })),
+          count: parsed.passengers.length,
+          infant: prev.infant,
+        };
+        recordHistory(wa.pnr, `NU${idx + 1} ${parsed.surname}/${parsed.passengers.map((p) => p.given).join('/')}`);
+        try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+        return 'OK';
+      }
+      // Bare given-name (no surname, no count prefix) — replace just
+      // the first passenger's given name on that name item.
+      const bareGiven = /^([A-Z]+(?:\s+[A-Z]+)*)$/.exec(body);
+      if (bareGiven) {
+        const { given, title } = splitTitle(bareGiven[1]);
+        const target = wa.pnr.names[idx];
+        if (target.passengers.length === 0) return 'NAME NOT IN PNR';
+        const oldGiven = target.passengers[0].firstName;
+        target.passengers[0] = { firstName: given, title: title ?? target.passengers[0].title };
+        recordHistory(wa.pnr, `NU${idx + 1} ${oldGiven}→${given}`);
+        try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+        return 'OK';
+      }
+      return FORMAT_ERROR;
+    }
+
     // RRN — Copy the current PNR (must be retrieved/displayed). QRG p.47.
     // The clone retains names + segments + phones + addresses + remarks
     // + SSRs + OSIs + FF elements + seat requests; drops locator,
