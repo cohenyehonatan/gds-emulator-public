@@ -293,6 +293,35 @@ function renderAmadeusItinerary(pnr: Pnr): string {
 }
 
 /**
+ * Append an audit-trail entry to pnr.history. Amadeus's actual history
+ * format uses an `RH` display with timestamp + actor + change code; we
+ * record a free-text line and let `renderAmadeusHistory` lay it out.
+ * Sell / cancel / status-change handlers call this so RH later shows
+ * a recognizable audit trail.
+ */
+function recordHistory(pnr: Pnr, text: string): void {
+  pnr.history.push({ timestamp: new Date(), text });
+}
+
+/**
+ * Render `RH` — Amadeus PNR change history. The QRG mentions history
+ * in print contexts (p.49 `WRA/RH`); the display form `RH` is
+ * reconstructed from mainframe-Amadeus convention since the QRG
+ * doesn't show response wording literally. Empty history returns
+ * the canonical "NO HISTORY" reconstructed string.
+ */
+function renderAmadeusHistory(pnr: Pnr): string {
+  if (pnr.history.length === 0) return 'NO HISTORY';
+  const head = `RH ${pnr.locator ?? ''}`.trim();
+  const rows = pnr.history.map((h, i) => {
+    const hh = String(h.timestamp.getUTCHours()).padStart(2, '0');
+    const mm = String(h.timestamp.getUTCMinutes()).padStart(2, '0');
+    return `${String(i + 1).padStart(3)}. ${hh}:${mm} ${h.text}`;
+  });
+  return [head, ...rows].join('\n');
+}
+
+/**
  * Render an Amadeus-style fare quote.
  *
  * Reconstructed format — the QRG p.37 doesn't show the actual response
@@ -441,6 +470,7 @@ export class AmadeusDialect implements Dialect {
         departTime: line.departTime, arriveTime: line.arriveTime,
       };
       wa.pnr.segments.push(segment);
+      recordHistory(wa.pnr, `SELL ${segment.carrier}${segment.flightNumber}${segment.bookingClass}/${segment.date}`);
       try { wa.machine.transition(SessionEvent.SELL); } catch { /* */ }
       return ` ${segment.segmentNumber}. ${segment.carrier} ${segment.flightNumber} ${segment.bookingClass} ${segment.date} ${segment.origin} ${segment.destination} SS${segment.seats}`;
     }
@@ -454,6 +484,7 @@ export class AmadeusDialect implements Dialect {
         count: name.passengers.length,
         infant: false,
       });
+      recordHistory(wa.pnr, `NM ${name.surname}/${name.passengers.map((p) => p.given).join('/')}`);
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
     }
@@ -515,6 +546,15 @@ export class AmadeusDialect implements Dialect {
       return 'IGNORED';
     }
 
+    // RH — display PNR change history. QRG p.49 references `WRA/RH`
+    // for "Print the entire PNR history"; the display form `RH` is
+    // reconstructed from mainframe-Amadeus convention. Source is
+    // `pnr.history[]` which we populate at sell / cancel / status-
+    // change / name-add time.
+    if (entry === 'RH') {
+      return renderAmadeusHistory(wa.pnr);
+    }
+
     // RTQ — display queues for current PNR. Must check BEFORE the
     // generic `RT<locator>` retrieve below (else `entry.startsWith('RT')`
     // would match RTQ first and try to retrieve a PNR with locator 'Q').
@@ -550,6 +590,7 @@ export class AmadeusDialect implements Dialect {
         ctx.backend.inventory.release(seg.date, seg.carrier, seg.flightNumber, seg.bookingClass, seg.seats);
       }
       wa.pnr.segments = [];
+      recordHistory(wa.pnr, 'XI CANCEL ITINERARY');
       try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
       return 'CNL';
     }
@@ -568,6 +609,7 @@ export class AmadeusDialect implements Dialect {
       }
       wa.pnr.segments = kept;
       wa.pnr.renumberSegments();
+      recordHistory(wa.pnr, `XE ${segs.join(',')}`);
       try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
       return wa.pnr.segments.length === 0 ? 'CNL' : renderAmadeusItinerary(wa.pnr);
     }
@@ -582,7 +624,9 @@ export class AmadeusDialect implements Dialect {
       if (!MANUAL_STATUS_CODES.has(status)) return 'INVALID STATUS CODE';
       const seg = wa.pnr.segments.find((s) => s.segmentNumber === segNum);
       if (!seg) return 'SEGMENT NOT IN ITINERARY';
+      const prev = seg.status;
       seg.status = status;
+      recordHistory(wa.pnr, `STAT ${segNum}/${prev}→${status}`);
       try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
       return renderAmadeusItinerary(wa.pnr);
     }

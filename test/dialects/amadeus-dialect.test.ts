@@ -478,3 +478,69 @@ describe('Amadeus dialect — v4 chunk 1: queue verbs (QE / RTQ)', () => {
     expect(await host.process('RTQ', wa)).toBe('NO PNR ON SCREEN');
   });
 });
+
+describe('Amadeus dialect — v4 chunk 2: history display (RH)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('RH on an empty PNR returns NO HISTORY', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RH', wa)).toBe('NO HISTORY');
+  });
+
+  it('RH after sell + name shows the recorded mutations in order', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    const resp = await host.process('RH', wa);
+    expect(resp).toContain('SELL B6615Y');
+    expect(resp).toContain('NM SMITH/JOHN');
+    // Order: SELL first (index 1), NM second (index 2).
+    const sellIdx = resp.indexOf('SELL');
+    const nmIdx = resp.indexOf('NM SMITH');
+    expect(sellIdx).toBeLessThan(nmIdx);
+  });
+
+  it('RH records cancel and segment-status mutations', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('1/HK', wa);
+    await host.process('XI', wa);
+    const resp = await host.process('RH', wa);
+    expect(resp).toContain('STAT 1/SS→HK');
+    expect(resp).toContain('XI CANCEL');
+  });
+
+  it('RH after a committed-and-retrieved PNR replays the recorded history', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const er = await host.process('ET', wa);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    // Fresh WA, retrieve, RH.
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    await host.process(`RT${locator}`, wa2);
+    const rh = await host.process('RH', wa2);
+    expect(rh).toContain(locator);
+    expect(rh).toContain('SELL');
+    expect(rh).toContain('NM SMITH');
+  });
+});
