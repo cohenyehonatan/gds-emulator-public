@@ -116,6 +116,26 @@ const DEFAULT_OPTS: ResolvedOpts = {
   pacing: DEFAULT_PACING,
 };
 
+/**
+ * Captured request+response exchange for replay/recording. Written as
+ * one JSON object per JSONL line in the TVP_CAPTURE file. Auth headers
+ * are redacted before serialization so the recording is shareable.
+ */
+interface CapturedExchange {
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string | null;
+  };
+  response: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: string;
+  };
+}
+
 interface TokenCache {
   accessToken: string;
   expiresAt: number; // epoch ms
@@ -168,6 +188,11 @@ export class LiveTravelportBackend implements Backend {
    *  in [pacing.minMs, pacing.maxMs] before issuing. */
   private requestChain: Promise<void> = Promise.resolve();
   private lastRequestAt = 0;
+  /** Replay queue — populated lazily from TVP_REPLAY=<file> on first
+   *  pacedFetch call. Each call shifts the head. Empty queue with
+   *  TVP_REPLAY set throws (loud signal that the recording is shorter
+   *  than the run). */
+  private replayQueue: CapturedExchange[] | null = null;
   /** Surface the polite-citizen flag so handlers can branch on it. */
   get politeReceivedFromAudit(): boolean {
     return this.opts.politeReceivedFromAudit;
@@ -196,27 +221,112 @@ export class LiveTravelportBackend implements Backend {
    * Skips the pacing wait entirely when `pacing.minMs === 0` and
    * `pacing.maxMs === 0` — tests pass `{ pacing: { minMs: 0, maxMs: 0 } }`
    * to keep the unit suite fast.
+   *
+   * Capture-then-replay (vendor-pacing discipline, half 2):
+   *  - `TVP_REPLAY=<file>` — read captured exchanges in order;
+   *    return the next one without going live. Bypasses pacing
+   *    (no point sleeping for a replay). Throws if the recording
+   *    runs out before the run does — surfaces drift instead of
+   *    silently re-running queries.
+   *  - `TVP_CAPTURE=<file>` — do the actual fetch, then append the
+   *    request + response to the file as one JSONL line. Auth
+   *    headers redacted so the file is shareable.
    */
   private async pacedFetch(input: string, init?: RequestInit): Promise<Response> {
-    const { minMs, maxMs } = this.opts.pacing;
-    if (minMs === 0 && maxMs === 0) return fetch(input, init);
-    const previousChain = this.requestChain;
-    let releaseSlot: () => void = () => {};
-    this.requestChain = new Promise((r) => {
-      releaseSlot = r;
-    });
-    try {
-      await previousChain;
-      const elapsed = Date.now() - this.lastRequestAt;
-      const targetDelay = minMs + Math.random() * (maxMs - minMs);
-      if (elapsed < targetDelay) {
-        await new Promise((r) => setTimeout(r, targetDelay - elapsed));
-      }
-      this.lastRequestAt = Date.now();
-      return await fetch(input, init);
-    } finally {
-      releaseSlot();
+    if (process.env.TVP_REPLAY) {
+      return this.replayNext(input, init);
     }
+    const { minMs, maxMs } = this.opts.pacing;
+    const skipPacing = minMs === 0 && maxMs === 0;
+    let response: Response;
+    if (skipPacing) {
+      response = await fetch(input, init);
+    } else {
+      const previousChain = this.requestChain;
+      let releaseSlot: () => void = () => {};
+      this.requestChain = new Promise((r) => {
+        releaseSlot = r;
+      });
+      try {
+        await previousChain;
+        const elapsed = Date.now() - this.lastRequestAt;
+        const targetDelay = minMs + Math.random() * (maxMs - minMs);
+        if (elapsed < targetDelay) {
+          await new Promise((r) => setTimeout(r, targetDelay - elapsed));
+        }
+        this.lastRequestAt = Date.now();
+        response = await fetch(input, init);
+      } finally {
+        releaseSlot();
+      }
+    }
+    if (process.env.TVP_CAPTURE) {
+      await this.captureExchange(process.env.TVP_CAPTURE, input, init, response);
+    }
+    return response;
+  }
+
+  private async replayNext(input: string, init?: RequestInit): Promise<Response> {
+    if (this.replayQueue === null) {
+      const fs = await import('node:fs/promises');
+      const content = await fs.readFile(process.env.TVP_REPLAY!, 'utf8');
+      this.replayQueue = content
+        .split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => JSON.parse(l) as CapturedExchange);
+    }
+    const next = this.replayQueue.shift();
+    if (!next) {
+      throw new Error(
+        `LiveTravelportBackend TVP_REPLAY: recording exhausted (requested ${init?.method ?? 'GET'} ${input})`
+      );
+    }
+    return new Response(next.response.body, {
+      status: next.response.status,
+      statusText: next.response.statusText,
+      headers: next.response.headers,
+    });
+  }
+
+  private async captureExchange(
+    capturePath: string,
+    input: string,
+    init: RequestInit | undefined,
+    response: Response
+  ): Promise<void> {
+    // Clone so the caller can still consume response.text() / .json().
+    const clone = response.clone();
+    const body = await clone.text();
+    const responseHeaders: Record<string, string> = {};
+    clone.headers.forEach((v, k) => {
+      responseHeaders[k] = v;
+    });
+    // Redact request headers — Authorization carries the OAuth Bearer.
+    const reqHeaders: Record<string, string> = {};
+    if (init?.headers) {
+      const h = init.headers as Record<string, string> | Headers;
+      const each = (k: string, v: string) => {
+        reqHeaders[k] = k.toLowerCase() === 'authorization' ? '<redacted>' : v;
+      };
+      if (h instanceof Headers) h.forEach((v, k) => each(k, v));
+      else for (const [k, v] of Object.entries(h)) each(k, v);
+    }
+    const exchange: CapturedExchange = {
+      request: {
+        method: init?.method ?? 'GET',
+        url: input,
+        headers: reqHeaders,
+        body: typeof init?.body === 'string' ? init.body : null,
+      },
+      response: {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+        body,
+      },
+    };
+    const fs = await import('node:fs/promises');
+    await fs.appendFile(capturePath, JSON.stringify(exchange) + '\n', 'utf8');
   }
 
   nextTicketSerial(): number {
@@ -1779,7 +1889,23 @@ export function parseCrypticPhone(raw: string): { cityCode?: string; phoneNumber
 export function liveTravelportFromEnv(
   opts?: LiveTravelportBackendOptions
 ): LiveTravelportBackend | undefined {
-  const { TVP_CLIENT_ID, TVP_CLIENT_SECRET, TVP_USERNAME, TVP_PASSWORD } = process.env;
+  const { TVP_CLIENT_ID, TVP_CLIENT_SECRET, TVP_USERNAME, TVP_PASSWORD, TVP_REPLAY } = process.env;
+  // Replay mode: no creds needed (every fetch returns from the JSONL
+  // recording). Construct a backend with placeholder creds so the
+  // OAuth flow's request shape stays exercisable when the recording
+  // replays the token call. The placeholder is never echoed to the
+  // network — pacedFetch short-circuits to replayNext.
+  if (TVP_REPLAY) {
+    return new LiveTravelportBackend(
+      {
+        clientId: TVP_CLIENT_ID ?? 'replay',
+        clientSecret: TVP_CLIENT_SECRET ?? 'replay',
+        username: TVP_USERNAME ?? 'replay',
+        password: TVP_PASSWORD ?? 'replay',
+      },
+      opts
+    );
+  }
   if (!TVP_CLIENT_ID || !TVP_CLIENT_SECRET || !TVP_USERNAME || !TVP_PASSWORD) return undefined;
   return new LiveTravelportBackend(
     {
