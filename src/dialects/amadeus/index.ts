@@ -982,6 +982,68 @@ export class AmadeusDialect implements Dialect {
       return FORMAT_ERROR;
     }
 
+    // SP <n>[,<m>[,<a>-<b>]...] — Split a PNR. QRG p.48 "Splitting a PNR":
+    //   SP 7           Split name 7 off into an "associate" PNR
+    //   SP 3,4,5-7     Split names 3, 4, 5, 6, 7 off
+    // The parent PNR (current minus the split names) is stashed on
+    // wa.dividedOriginal; wa.pnr swaps to the new associate. `EF` then
+    // commits the associate + restores + re-commits the parent.
+    //
+    // v1 limitation: only the bare element-number form. Sub-passenger
+    // notation (`SP 0.15`, `SP 3.2`) and group-PNR auxiliary handling
+    // (QRG p.48 advanced forms) deferred.
+    const spMatch = /^SP\s+([0-9,\-]+)$/.exec(entry);
+    if (spMatch) {
+      if (!wa.pnr.locator) return 'NO PNR ON SCREEN';
+      const indices = parseSegmentList(spMatch[1]);
+      if (!indices || indices.length === 0) return FORMAT_ERROR;
+      const splitSet = new Set(indices);
+      for (const i of indices) {
+        if (i < 1 || i > wa.pnr.names.length) return 'NAME NOT IN PNR';
+      }
+      // Stash the parent: clone the current PNR, then drop the split
+      // names. The parent retains the original locator + everything else.
+      const parent = wa.pnr.clone();
+      parent.names = parent.names.filter((_, idx) => !splitSet.has(idx + 1));
+      wa.dividedOriginal = parent;
+      // Build the associate: clone, keep only the split names, clear
+      // commit-tied fields so EF assigns a fresh locator.
+      const associate = wa.pnr.clone();
+      associate.names = associate.names.filter((_, idx) => splitSet.has(idx + 1));
+      associate.locator = undefined;
+      associate.priceQuotes = [];
+      associate.tickets = [];
+      associate.history = [];
+      associate.createdAt = undefined;
+      recordHistory(associate, `SP FROM ${wa.pnr.locator}`);
+      wa.pnr = associate;
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return `SPLIT - ASSOCIATE PNR READY`;
+    }
+
+    // EF — End the transaction and file the associate PNR. QRG p.48.
+    // Commits the in-progress associate, then restores + re-commits
+    // the parent (whose names were trimmed by the prior SP). Both
+    // PNRs persist with distinct locators after EF.
+    if (entry === 'EF') {
+      if (!wa.dividedOriginal) return 'NOTHING TO FILE';
+      const associate = wa.pnr;
+      if (associate.segments.length === 0) return NO_ITINERARY;
+      if (associate.names.length === 0 || associate.phones.length === 0 ||
+          !associate.ticketing || !associate.receivedFrom) {
+        return NEED_MANDATORY;
+      }
+      associate.locator = generateRecordLocator((loc) => ctx.backend.pnrs.has(loc));
+      ctx.backend.pnrs.commit(associate);
+      const associateLocator = associate.locator!;
+      // Restore parent + re-commit (names were trimmed by SP).
+      const parent = wa.dividedOriginal;
+      ctx.backend.pnrs.commit(parent);
+      wa.pnr = parent;
+      wa.dividedOriginal = undefined;
+      return `ASSOCIATE ${associateLocator} FILED - PARENT ${parent.locator}`;
+    }
+
     // RRN — Copy the current PNR (must be retrieved/displayed). QRG p.47.
     // The clone retains names + segments + phones + addresses + remarks
     // + SSRs + OSIs + FF elements + seat requests; drops locator,

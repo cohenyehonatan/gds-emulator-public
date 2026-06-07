@@ -1356,6 +1356,135 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('8/HK', wa)).toBe('SEGMENT NOT IN ITINERARY');
   });
 
+  it('SP <n> splits name n off into an associate PNR (parent stashed)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    // Build a 3-name PNR + commit.
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('NM1JONES/JANE MRS', w);
+    await host.process('NM1BLACK/ANDREW MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const parentLoc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    // Retrieve + split name 2 off.
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${parentLoc}`, wa);
+    expect(await host.process('SP 2', wa)).toBe('SPLIT - ASSOCIATE PNR READY');
+    // wa.pnr is now the associate: only JONES.
+    expect(wa.pnr.names).toHaveLength(1);
+    expect(wa.pnr.names[0].surname).toBe('JONES');
+    expect(wa.pnr.locator).toBeUndefined();
+    // Parent stashed.
+    expect(wa.dividedOriginal).toBeDefined();
+    expect(wa.dividedOriginal?.names).toHaveLength(2);
+  });
+
+  it('EF commits the associate + restores + re-commits the parent', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('NM1JONES/JANE MRS', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const parentLoc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${parentLoc}`, wa);
+    await host.process('SP 2', wa);
+    const efResp = await host.process('EF', wa);
+    const associateLoc = /ASSOCIATE ([A-Z0-9]{6})/.exec(efResp)?.[1]!;
+    expect(associateLoc).toBeDefined();
+    expect(associateLoc).not.toBe(parentLoc);
+    // Both PNRs persist.
+    expect(host.backend.pnrs.has(parentLoc)).toBe(true);
+    expect(host.backend.pnrs.has(associateLoc)).toBe(true);
+    // Parent now has only JOHN (JONES split off).
+    expect(host.backend.pnrs.get(parentLoc)!.names).toHaveLength(1);
+    expect(host.backend.pnrs.get(parentLoc)!.names[0].surname).toBe('SMITH');
+    // Associate has only JONES.
+    expect(host.backend.pnrs.get(associateLoc)!.names).toHaveLength(1);
+    expect(host.backend.pnrs.get(associateLoc)!.names[0].surname).toBe('JONES');
+  });
+
+  it('SP <n>,<m>-<o> splits multiple names', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    for (const sur of ['A', 'B', 'C', 'D', 'E']) {
+      await host.process(`NM1${sur}NAME/JOHN MR`, w);
+    }
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const parentLoc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${parentLoc}`, wa);
+    await host.process('SP 2,4-5', wa);
+    // Associate gets names 2, 4, 5 = B, D, E.
+    expect(wa.pnr.names.map((n) => n.surname)).toEqual(['BNAME', 'DNAME', 'ENAME']);
+    // Parent retains 1, 3 = A, C.
+    expect(wa.dividedOriginal!.names.map((n) => n.surname)).toEqual(['ANAME', 'CNAME']);
+  });
+
+  it('SP with no PNR on screen returns NO PNR ON SCREEN', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SP 1', wa)).toBe('NO PNR ON SCREEN');
+  });
+
+  it('SP <n> with n out of range returns NAME NOT IN PNR', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const w = host.newWorkArea();
+    await host.process('JI2345HA/GS', w);
+    await host.process('AN15JULJFKLAX', w);
+    await host.process('SS1Y1', w);
+    await host.process('NM1SMITH/JOHN MR', w);
+    await host.process('AP02012345678-A', w);
+    await host.process('RFAGT', w);
+    await host.process('TKOK', w);
+    const er = await host.process('ET', w);
+    const loc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process(`RT${loc}`, wa);
+    expect(await host.process('SP 99', wa)).toBe('NAME NOT IN PNR');
+  });
+
+  it('EF without a prior SP returns NOTHING TO FILE', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('EF', wa)).toBe('NOTHING TO FILE');
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
