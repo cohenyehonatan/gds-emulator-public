@@ -644,14 +644,21 @@ different upside.
         clearing locator/quotes/tickets/history so a fresh ET creates
         a distinct new BF that shares the names + segments + service
         elements with the original.
+      * Chunk 14 — NU name modify (`fa1fc32`): `NU<n>/<NM-body>`
+        replaces name element n with a full NM body; `NU<n>/<given>`
+        replaces just the given name (preserves title unless a new
+        one is specified). History records the rename.
+      * Chunk 15 — time-limit modify (`63f89c9`): `8/<DDMON>` rewrites
+        the TK element to TKTL<date>. Disambiguates from segment-
+        status `<n>/<status>` by the value shape (date vs 2-letter).
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
       exceptions, alliance ranking, VFFD agreements display, FFA/FFR
       mileage accrual/redemption, seat maps (SM display), RRN
-      variants (date push, class change), SP split PNR, generic
-      element modify (`<n>/<new>`). The behavior-layer caveat
-      (below) still applies — no public source for these algorithms.
+      variants (date push, class change), SP split PNR. The
+      behavior-layer caveat (below) still applies — no public source
+      for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
