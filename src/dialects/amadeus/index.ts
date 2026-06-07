@@ -515,6 +515,20 @@ export class AmadeusDialect implements Dialect {
       return 'IGNORED';
     }
 
+    // RTQ — display queues for current PNR. Must check BEFORE the
+    // generic `RT<locator>` retrieve below (else `entry.startsWith('RT')`
+    // would match RTQ first and try to retrieve a PNR with locator 'Q').
+    if (entry === 'RTQ') {
+      const locator = wa.pnr.locator;
+      if (!locator) return 'NO PNR ON SCREEN';
+      const onQueues: string[] = [];
+      for (const [queueKey, locators] of ctx.backend.queues) {
+        if (locators.includes(locator)) onQueues.push(queueKey);
+      }
+      if (onQueues.length === 0) return `${locator} NOT ON QUEUE`;
+      return `${locator} ON QUEUE(S): ${onQueues.join(', ')}`;
+    }
+
     if (entry.startsWith('RT')) {
       const locator = entry.slice(2).trim();
       if (!locator) return FORMAT_ERROR;
@@ -633,6 +647,44 @@ export class AmadeusDialect implements Dialect {
       return wa.pnr.priceQuotes
         .map((fq, i) => renderAmadeusFareQuote(fq, i + 1))
         .join('\n\n');
+    }
+
+    // --- v4 chunk 1: queue verbs ---
+    // QE<n>[C<cat>][D<date>] — place the current PNR on queue n, end
+    // the transaction. QRG p.42 "Place the PNR on a queue, category,
+    // and date range" example: `QE8C1D3` = queue 8, category 1, 3 days
+    // in the future. Category and date are accepted but stored only
+    // as part of the queue-id key (not modelled separately). Requires
+    // the work area to have a committed PNR (post-RT) OR a buildable
+    // PNR (commit + queue happens atomically per the QRG's "Ending a
+    // PNR Transaction" section).
+    const queueEnd = /^QE([1-9]\d*)(?:C([1-9]\d*))?(?:D([1-9]\d*))?$/.exec(entry);
+    if (queueEnd) {
+      const queueNum = queueEnd[1];
+      const category = queueEnd[2];
+      const dateOffset = queueEnd[3];
+      const pnr = wa.pnr;
+      if (pnr.segments.length === 0) return NO_ITINERARY;
+      if (pnr.names.length === 0 || pnr.phones.length === 0 || !pnr.ticketing || !pnr.receivedFrom) {
+        return NEED_MANDATORY;
+      }
+      // Commit (assign locator if absent), then queue.
+      if (!pnr.locator) {
+        pnr.locator = generateRecordLocator((loc) => ctx.backend.pnrs.has(loc));
+      }
+      ctx.backend.pnrs.commit(pnr);
+      const locator = pnr.locator!;
+      // Queue id includes category and date so the same queue number
+      // with different qualifiers maps to distinct queues — matches
+      // Amadeus's queue-management semantics where category routes
+      // within a queue (e.g., 8C1 = queue 8 category 1).
+      const queueKey = `${queueNum}${category ? 'C' + category : ''}${dateOffset ? 'D' + dateOffset : ''}`;
+      const existing = ctx.backend.queues.get(queueKey) ?? [];
+      if (!existing.includes(locator)) existing.push(locator);
+      ctx.backend.queues.set(queueKey, existing);
+      try { wa.machine.transition(SessionEvent.END_TX); } catch { /* */ }
+      wa.reset();
+      return `QUEUED ${queueKey} - ${locator}`;
     }
 
     // Everything else: honest "not implemented" stub.

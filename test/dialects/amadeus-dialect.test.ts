@@ -389,3 +389,92 @@ describe('Amadeus dialect — v3 multi-pax names + cancel + remarks + SSR/OSI + 
     expect(resp).toContain('FXP');
   });
 });
+
+describe('Amadeus dialect — v4 chunk 1: queue verbs (QE / RTQ)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  async function buildBuildable(host: GdsHost) {
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    return wa;
+  }
+
+  it('QE<n> places the current build on queue n + ends the transaction', async () => {
+    const host = makeHost();
+    const wa = await buildBuildable(host);
+    const resp = await host.process('QE8', wa);
+    expect(resp).toMatch(/^QUEUED 8 - [A-Z0-9]{6}$/);
+    expect(wa.pnr.segments).toHaveLength(0); // ended + reset
+    const locator = / - ([A-Z0-9]{6})$/.exec(resp)?.[1]!;
+    expect(host.backend.queues.get('8')).toEqual([locator]);
+  });
+
+  it('QE<n>C<cat>D<date> namespaces by category + date offset', async () => {
+    const host = makeHost();
+    const wa = await buildBuildable(host);
+    const resp = await host.process('QE8C1D3', wa);
+    expect(resp).toMatch(/^QUEUED 8C1D3 - [A-Z0-9]{6}$/);
+    expect(host.backend.queues.has('8C1D3')).toBe(true);
+    expect(host.backend.queues.has('8')).toBe(false); // distinct from queue 8
+  });
+
+  it('QE without mandatory fields returns CHECK MANDATORY FIELDS', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // No name/phone/RF/ticketing.
+    expect(await host.process('QE8', wa)).toBe('CHECK MANDATORY FIELDS');
+  });
+
+  it('QE without an itinerary returns NO ITINERARY', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('QE8', wa)).toBe('NO ITINERARY');
+  });
+
+  it('RTQ on a PNR not on any queue returns NOT ON QUEUE', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    // Retrieve via RT after a separate-session commit.
+    const wa1 = await buildBuildable(host);
+    const er = await host.process('ET', wa1);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    await host.process(`RT${locator}`, wa);
+    expect(await host.process('RTQ', wa)).toBe(`${locator} NOT ON QUEUE`);
+  });
+
+  it('RTQ on a PNR placed on a queue lists the queue(s)', async () => {
+    const host = makeHost();
+    const wa = await buildBuildable(host);
+    const queueResp = await host.process('QE8C1', wa);
+    const locator = / - ([A-Z0-9]{6})/.exec(queueResp)?.[1]!;
+    // Retrieve into a new WA, then RTQ.
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    await host.process(`RT${locator}`, wa2);
+    const rtq = await host.process('RTQ', wa2);
+    expect(rtq).toContain(locator);
+    expect(rtq).toContain('8C1');
+  });
+
+  it('RTQ with no PNR on screen returns NO PNR ON SCREEN', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RTQ', wa)).toBe('NO PNR ON SCREEN');
+  });
+});
