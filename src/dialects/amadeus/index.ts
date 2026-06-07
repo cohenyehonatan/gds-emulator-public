@@ -883,6 +883,26 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
+    // LP/<carrier><flight>/<date> — List PNRs by flight. QRG p.50:
+    //   LP/2X933/18AUG    List PNRs for flight 2X933 on 18AUG
+    // The flight argument is parsed as `<2-char-carrier><digits>`.
+    // Output is a numbered list of locator + first-name pairs; an
+    // empty match returns "NO PNRS FOUND".
+    const lpMatch = /^LP\/([A-Z0-9]{2})(\d{1,4})\/(\d{1,2}[A-Z]{3})$/.exec(entry);
+    if (lpMatch) {
+      const matches = ctx.backend.pnrs.findByFlight(lpMatch[1], lpMatch[2], lpMatch[3]);
+      if (matches.length === 0) return 'NO PNRS FOUND';
+      const header = `LP ${lpMatch[1]}${lpMatch[2]} ${lpMatch[3]} - ${matches.length} PNR(S)`;
+      const rows = matches.map((p, i) => {
+        const first = p.names[0];
+        const passenger = first
+          ? `${first.surname}/${first.passengers[0].firstName}${first.passengers[0].title ? ' ' + first.passengers[0].title : ''}`
+          : '(no name)';
+        return `  ${String(i + 1).padStart(2)}. ${p.locator} ${passenger}`;
+      });
+      return [header, ...rows].join('\n');
+    }
+
     // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.
     //   ST/12C/P2/S5    specific seat 12C, pax 2, segment 5
     //   ST/WB/P3        preference (window/bulkhead), pax 3

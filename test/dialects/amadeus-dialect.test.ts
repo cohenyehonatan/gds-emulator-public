@@ -1054,6 +1054,53 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('ST/12C/XYZ', wa)).toBe('FORMAT'); // not /P or /S
   });
 
+  it('LP/<flight>/<date> lists PNRs matching a flight + date', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    // Build two PNRs on B6 615 / 15JUL.
+    for (const surname of ['SMITH', 'JONES']) {
+      const w = host.newWorkArea();
+      await host.process('JI2345HA/GS', w);
+      await host.process('AN15JULJFKLAX', w);
+      await host.process('SS1Y1', w);
+      await host.process(`NM1${surname}/JOHN MR`, w);
+      await host.process('AP02012345678-A', w);
+      await host.process('RFAGT', w);
+      await host.process('TKOK', w);
+      await host.process('ET', w);
+    }
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('LP/B6615/15JUL', wa);
+    expect(resp).toContain('LP B6615 15JUL - 2 PNR(S)');
+    expect(resp).toContain('SMITH');
+    expect(resp).toContain('JONES');
+  });
+
+  it('LP on a flight with no PNRs returns NO PNRS FOUND', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('LP/UA9999/01JAN', wa)).toBe('NO PNRS FOUND');
+  });
+
+  it('LP with malformed flight argument returns NOT IMPLEMENTED stub', async () => {
+    // The parser returns the honest-boundary stub for malformed LP rather
+    // than FORMAT — LP has many variants we don't model (options, queue
+    // lists, etc.) and a falling-through entry could be one of those.
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('LP/IE/2X026/12SEP', wa)).toBe(
+      'NOT IMPLEMENTED — amadeus dialect (v2)'
+    );
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

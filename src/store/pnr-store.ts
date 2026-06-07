@@ -15,6 +15,12 @@ export interface PnrStoreLike {
   commit(pnr: Pnr): string;
   get(locator: string): Pnr | undefined;
   findBySurname(surname: string): Pnr[];
+  /** Find PNRs that contain at least one segment matching the
+   *  carrier+flight+date triple. Used by Amadeus LP / Sabre flight-list
+   *  cryptics. Carrier is the 2-char IATA code; flight is the numeric
+   *  flight number as a string (no padding). Date is the DDMON form
+   *  the segment carries (e.g. "15JUL"). */
+  findByFlight(carrier: string, flightNumber: string, date: string): Pnr[];
   has(locator: string): boolean;
   values(): Pnr[];
   readonly size: number;
@@ -42,6 +48,17 @@ export class PnrStore implements PnrStoreLike {
     const target = surname.toUpperCase();
     return [...this.byLocator.values()].filter((p) =>
       p.names.some((n) => n.surname.toUpperCase() === target)
+    );
+  }
+
+  findByFlight(carrier: string, flightNumber: string, date: string): Pnr[] {
+    const c = carrier.toUpperCase();
+    const f = String(flightNumber);
+    const d = date.toUpperCase();
+    return [...this.byLocator.values()].filter((p) =>
+      p.segments.some(
+        (s) => s.carrier.toUpperCase() === c && s.flightNumber === f && s.date.toUpperCase() === d
+      )
     );
   }
 

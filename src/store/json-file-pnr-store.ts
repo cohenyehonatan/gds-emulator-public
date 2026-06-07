@@ -79,6 +79,17 @@ export class JsonFilePnrStore {
     );
   }
 
+  findByFlight(carrier: string, flightNumber: string, date: string): Pnr[] {
+    const c = carrier.toUpperCase();
+    const f = String(flightNumber);
+    const d = date.toUpperCase();
+    return [...this.byLocator.values()].filter((p) =>
+      p.segments.some(
+        (s) => s.carrier.toUpperCase() === c && s.flightNumber === f && s.date.toUpperCase() === d
+      )
+    );
+  }
+
   has(locator: string): boolean {
     return this.byLocator.has(locator.toUpperCase());
   }
