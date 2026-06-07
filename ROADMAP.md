@@ -567,28 +567,39 @@ different upside.
       `api.dev.amadeus.net`, mirrored locally as 10 HTML pages. Verbatim
       error strings with numbered codes (e.g. `400 NO ITINERARY - FINISH OR
       IGNORE`) — exceeds anything publicly available for Sabre or Galileo.
-- [x] **Amadeus dialect (emulated) — v1 + v2** (`b6c23cf` / `e549fb5`):
-      AmadeusDialect now covers the full PNR build cycle. Cryptic sourced
-      verbatim from pp.5-24 of `references/amadeus/Amadeus-Cryptic-
-      Entries-Reference-Guide-Ed-9.2-2012.pdf`. Chain separator `;` per
-      the Dialect interface. CLI: `npm run start:terminal:amadeus`.
+- [x] **Amadeus dialect (emulated) — v1 + v2 + v3**
+      (`b6c23cf` / `e549fb5` / `294f177`): AmadeusDialect now covers
+      the full PNR build, modify, enrich, and price cycle. Cryptic
+      sourced verbatim from pp.5-36 of `references/amadeus/Amadeus-
+      Cryptic-Entries-Reference-Guide-Ed-9.2-2012.pdf`. Chain separator
+      `;` per the Dialect interface. CLI: `npm run start:terminal:amadeus`.
       * v1 sign-on family: `JI<duty><init>/<sys>`, `JIA<...>`, `JO`,
         `JO*`, `JD`.
-      * v2 PNR cycle: `AN<date><orig><dest>[<time>]` avail, `SS<seats>
-        <class><line>` sell, `NM1<sur>/<given> <title>` name, `AP<phone>
-        -<purpose>` agency phone (A/B/H purpose codes), `RF<text>`
-        received-from, `TKOK`/`TKTL<date>` ticketing, `ET`/`ER`
-        end-transaction (with mandatory-field check), `IG` ignore,
-        `RT<locator>` retrieve.
+      * v2 PNR build cycle: `AN<date><orig><dest>[<time>]` avail, `SS
+        <seats><class><line>` sell, `NM1<sur>/<given> <title>` name,
+        `AP<phone>-<purpose>` agency phone (A/B/H purpose codes),
+        `RF<text>` received-from, `TKOK`/`TKTL<date>` ticketing, `ET`/
+        `ER` end-transaction (with mandatory-field check), `IG`
+        ignore, `RT<locator>` retrieve.
+      * v3 modify + enrich: `NM<n><sur>/<g1> <t>/<g2> <t>...` multi-pax
+        same surname, `XI` cancel itinerary (returns seats), `XE<n>
+        [,<m>,<a>-<b>]` cancel segment(s) with range syntax, `<n>/
+        <status>` modify segment status (MANUAL_STATUS_CODES set),
+        `RM <text>` general remark, `RC <text>` confidential remark,
+        `SR <code>[<carrier>][/P<n>] [text]` SSR with passenger
+        binding, `OS <carrier> <text>[/P<n>]` OSI, `FXP` price the
+        booked itinerary (shared fare engine), `FXX`/`TQT` display
+        stored quotes.
       * Reconstructed-not-verified strings flagged in the dispatch
         comments (the QRG doesn't show response wordings literally).
       * Honest-boundary stub `NOT IMPLEMENTED — amadeus dialect (v2)`
-        for verbs not yet wired (FXP/FXX pricing, MD/MU scrolling, etc.).
+        for verbs not yet wired (DM MCT, FQD fare display, DH history,
+        LOT negotiated space, MD/MU scrolling, etc.).
 
-      Remaining for v3+ (per the behavior-layer caveat below): pricing
-      (FXP/FXX), NUC/ROE/HIP fare construction, MCT exceptions, alliance
-      ranking, multi-pax names (NM2+), passenger association via `/P1`
-      tail-syntax, segment-status set `HK/HX/KK/KL/NN/UC/UN/NO`.
+      Remaining for v4+ (per the behavior-layer caveat below): NUC/
+      ROE/HIP fare construction (currently uses Sabre's emulated
+      engine), MCT exceptions, alliance ranking, fare-display family,
+      history display, queue verbs.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
