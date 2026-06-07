@@ -628,13 +628,30 @@ different upside.
         Adds cross-dialect `AddressElement` model + Pnr.addresses
         field; JsonFilePnrStore round-trip support; RTJ extended to
         render addresses with per-kind indices.
+      * Chunk 10 — ST / SX seat requests (`c1ac370`): specific seats
+        or preference codes, with passenger + segment binding. Adds
+        cross-dialect `SeatRequest` model + Pnr.seatRequests field.
+        SX cancels all; SX/S<n> filters by segment.
+      * Chunk 11 — LP list PNRs by flight (`5e2e882`): `LP/<carrier>
+        <flight>/<date>` scans the PNR store for matching segments.
+        Cross-dialect: PnrStoreLike gains `findByFlight(carrier,
+        flightNumber, date)` on both PnrStore + JsonFilePnrStore.
+      * Chunk 12 — RT name-retrieve variants (`7e5dd14`): `RT/<surname>
+        [/<given-initial>]` reuses `findBySurname`. Multi-match returns
+        a numbered locator list; single-match loads the BF; given-
+        initial filters the multi-match.
+      * Chunk 13 — RRN copy PNR (`c2c237f`): clones the displayed PNR,
+        clearing locator/quotes/tickets/history so a fresh ET creates
+        a distinct new BF that shares the names + segments + service
+        elements with the original.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
       exceptions, alliance ranking, VFFD agreements display, FFA/FFR
-      mileage accrual/redemption, seat maps (SM), LP listing PNRs by
-      flight. The behavior-layer caveat (below) still applies — no
-      public source for these algorithms.
+      mileage accrual/redemption, seat maps (SM display), RRN
+      variants (date push, class change), SP split PNR, generic
+      element modify (`<n>/<new>`). The behavior-layer caveat
+      (below) still applies — no public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
