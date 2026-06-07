@@ -567,19 +567,28 @@ different upside.
       `api.dev.amadeus.net`, mirrored locally as 10 HTML pages. Verbatim
       error strings with numbered codes (e.g. `400 NO ITINERARY - FINISH OR
       IGNORE`) — exceeds anything publicly available for Sabre or Galileo.
-- [/] **Amadeus dialect (emulated) — v1 sign-on family** (`b6c23cf`):
-      AmadeusDialect implements the seam end-to-end with sign-on only
-      (`JI<duty><initials>/<system>`, `JIA<...>`, `JO`, `JO*`, `JD`).
-      Chain separator `;` per the Dialect interface. Everything else
-      returns the explicit `NOT IMPLEMENTED — amadeus dialect (v1)`
-      honest-boundary stub. CLI: `npm run start:terminal:amadeus`.
-      12 tests covering identity, chain semantics, sign-in/out, status,
-      and chain-halting on the not-implemented stub.
+- [x] **Amadeus dialect (emulated) — v1 + v2** (`b6c23cf` / `e549fb5`):
+      AmadeusDialect now covers the full PNR build cycle. Cryptic sourced
+      verbatim from pp.5-24 of `references/amadeus/Amadeus-Cryptic-
+      Entries-Reference-Guide-Ed-9.2-2012.pdf`. Chain separator `;` per
+      the Dialect interface. CLI: `npm run start:terminal:amadeus`.
+      * v1 sign-on family: `JI<duty><init>/<sys>`, `JIA<...>`, `JO`,
+        `JO*`, `JD`.
+      * v2 PNR cycle: `AN<date><orig><dest>[<time>]` avail, `SS<seats>
+        <class><line>` sell, `NM1<sur>/<given> <title>` name, `AP<phone>
+        -<purpose>` agency phone (A/B/H purpose codes), `RF<text>`
+        received-from, `TKOK`/`TKTL<date>` ticketing, `ET`/`ER`
+        end-transaction (with mandatory-field check), `IG` ignore,
+        `RT<locator>` retrieve.
+      * Reconstructed-not-verified strings flagged in the dispatch
+        comments (the QRG doesn't show response wordings literally).
+      * Honest-boundary stub `NOT IMPLEMENTED — amadeus dialect (v2)`
+        for verbs not yet wired (FXP/FXX pricing, MD/MU scrolling, etc.).
 
-      Remaining for v2+: `AN` avail, `SS` sell, `NM1` name, `AP` phone,
-      `TKOK` ticketing, `RF` received-from, `ET` end, `RT` retrieve, `IR`
-      ignore-redisplay; passenger association via `/P1` tail-syntax;
-      status set `HK/HX/KK/KL/NN/UC/UN/NO`.
+      Remaining for v3+ (per the behavior-layer caveat below): pricing
+      (FXP/FXX), NUC/ROE/HIP fare construction, MCT exceptions, alliance
+      ranking, multi-pax names (NM2+), passenger association via `/P1`
+      tail-syntax, segment-status set `HK/HX/KK/KL/NN/UC/UN/NO`.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
