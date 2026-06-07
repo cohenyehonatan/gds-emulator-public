@@ -64,7 +64,7 @@ import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { synthesizeAvailability } from '../../models/seat-map.js';
-import { renderSeatMap, type RenderOrientation } from './seat-map-render.js';
+import { renderSeatMap, amadeusSeatMapHeader, type RenderOrientation } from '../../render/seat-map-render.js';
 
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
@@ -420,7 +420,7 @@ function parseSmRequest(entry: string): SmRequest | undefined {
   // SM/<digits>[/<digit>][/<class>][/V|/H] — from cached availability
   const availMatch = /^SM\/(\d{1,2})(?:\/(\d))?(?:\/([A-Z]))?(?:\/([VH]))?$/.exec(entry);
   if (availMatch) {
-    let cls = availMatch[3];
+    let cls: string | undefined = availMatch[3];
     let orientation = (availMatch[4] ?? 'V') as RenderOrientation;
     // Disambiguation: when class slot captures `V` or `H` and there's
     // no explicit orientation suffix after it, treat the class as the
@@ -1362,7 +1362,8 @@ export class AmadeusDialect implements Dialect {
       const locatorKey = wa.pnr.locator ?? 'PENDING';
       const availability = synthesizeAvailability(map, locatorKey, segment.date);
       wa.lastSeatMap = { segment: segmentNumber, map };
-      return renderSeatMap(map, availability, segment, segmentNumber, smReq.orientation);
+      const header = amadeusSeatMapHeader(map, segment, segmentNumber);
+      return renderSeatMap(map, availability, header, smReq.orientation);
     }
 
     // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.

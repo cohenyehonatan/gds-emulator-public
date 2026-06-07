@@ -141,6 +141,26 @@ export interface FlightInfoEntry extends BaseEntry {
   lines?: number[]; // availability lines or itinerary segments (empty = all, itinerary)
 }
 
+/**
+ * Seat map display (Sabre 4G family — Basic Course "Display Seat Maps"):
+ *   4G<n>*                          segment-based; needs current PNR
+ *   4G*<carrier><flight><class><date><citypair>   direct
+ * Both forms cache the displayed map on wa.lastSeatMap for chunk 7
+ * scrolling. The seat-request side of the 4G family (4G<n>/<seat>-<name>
+ * etc.) is a separate entry kind — deferred to a follow-up chunk.
+ */
+export interface SeatMapEntry extends BaseEntry {
+  kind: 'seat_map';
+  source: 'segment' | 'direct';
+  segment?: number;
+  carrier?: string;
+  flightNumber?: string;
+  bookingClass?: string;
+  date?: string;
+  origin?: string;
+  destination?: string;
+}
+
 export interface CancelEntry extends BaseEntry {
   kind: 'cancel';
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
@@ -496,6 +516,7 @@ export type ParsedEntry =
   | TimeLimitEntry
   | FrequentFlyerEntry
   | FlightInfoEntry
+  | SeatMapEntry
   | CancelEntry
   | SegmentStatusEntry
   | PassiveCancelEntry

@@ -32,6 +32,7 @@ import { parseRemark } from './commands/remark.js';
 import { parseTimeLimit } from './commands/time-limit.js';
 import { parseFrequentFlyer } from './commands/frequent-flyer.js';
 import { parseFlightInfo } from './commands/flight-info.js';
+import { parseSeatMap } from './commands/seat-map.js';
 import { parseMove } from './commands/move.js';
 import { parseDivide, parseFile } from './commands/divide.js';
 import { parseQueue } from './commands/queue.js';
@@ -101,6 +102,7 @@ const RULES: DispatchRule[] = [
   { match: firstChar('6'), parse: parseReceivedFrom },
   { match: firstChar('5'), parse: parseRemark }, // remarks
   { match: firstChar('3'), parse: parseService }, // SSR / OSI (other airlines)
+  { match: startsWith('4G'), parse: parseSeatMap }, // 4G<n>* / 4G*<flight> seat map — before bare 4 SSR
   { match: firstChar('4'), parse: parseService }, // SSR / OSI (American)
   { match: firstChar('*'), parse: parseDisplay },
   { match: firstChar('X'), parse: parseCancel },

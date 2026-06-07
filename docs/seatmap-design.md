@@ -1,10 +1,13 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-3 LANDED — PRE-CHUNK-4 (2026-06-07). Chunks 0-3
-all closed. Amadeus SM family now covers segment-form, direct
-query, and avail-line query. 1044 tests pass. Chunk 4 (Sabre
-seatmap parity using the cross-dialect `Inventory.seatMapFor` +
-`synthesizeAvailability` helpers) is the next code-bearing chunk.
+**Status:** CHUNK-4 LANDED — PRE-CHUNK-5 (2026-06-07). Chunks 0-4
+all closed. Amadeus SM family (segment / direct / avail-line) and
+Sabre 4G family (segment / direct) both wired through the same
+cross-dialect renderer; dialect-specific headers via
+`amadeusSeatMapHeader` / `sabreSeatMapHeader`. Renderer lives at
+`src/render/seat-map-render.ts` (moved from amadeus/ in chunk 4
+refactor). 1052 tests pass. Chunk 5 (Galileo seatmap parity) is
+the next code-bearing chunk.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -575,12 +578,52 @@ Landed in commit (this commit).
       suffix on both, NO SCHEDULE FOUND / NO AVAILABILITY / LINE NOT
       IN AVAILABILITY error paths, and the V/H disambiguation.
 
-### Chunk 4 — Sabre seatmap parity
+### Chunk 4 — Sabre seatmap parity ✅
 
-- [ ] Look up Sabre's seatmap verb in the Basic Course / Seat Tools QR.
-- [ ] Implement in `dialects/sabre/` using the same `Inventory.seatMapFor`
-      + `synthesizeAvailability` helpers, with Sabre's response format.
-- [ ] Tests in `test/dialects/sabre-seatmap.test.ts`.
+Landed in commit (this commit).
+
+- [x] **Sabre's seatmap verb sourced from the Basic Course PDF**
+      (Display Seat Maps section, p.~). Two forms:
+      - `4G<n>*` — segment-based (verbatim example from PDF: `4G1*`)
+      - `4G*<carrier><flight><class><date><citypair>` — direct
+        (verbatim: `4G*LH1364F2NOVLGALHR`)
+      Seat-request side of the 4G family (`4G<n>/<seat>-<name>` etc.)
+      is a separate verb — deferred to a follow-up chunk.
+- [x] **Renderer refactored to be cross-dialect**: moved
+      `seat-map-render.ts` from `src/dialects/amadeus/` to
+      `src/render/`. `renderSeatMap` now takes a pre-built header
+      string; each dialect provides its own builder. Two helpers
+      added:
+      - `amadeusSeatMapHeader` → `SM <n> — <carrier><flight> <date>
+        <orig>-<dest> — <equipment>` (Amadeus convention)
+      - `sabreSeatMapHeader` → `<flight><class> <date> <citypair>\n
+        SEATS INVENTORY DETAIL` (Sabre Basic Course PDF verbatim)
+      Body (cabin headers, per-row seat rendering, exit-row dividers,
+      legend) stays shared across dialects.
+- [x] **Implemented in `dialects/sabre/` via the parser-first
+      architecture Sabre uses** (vs Amadeus's free-form string
+      matching):
+      - New `SeatMapEntry` interface in `protocol/entry.ts`
+        (source: 'segment' | 'direct', carrier/flight/class/date/
+        origin/destination)
+      - New parser `protocol/commands/seat-map.ts` with two regex
+        forms covering `4G<n>*` and `4G*<...>`
+      - New dispatch rule in `protocol/parser.ts` — `startsWith('4G')`
+        before the bare `4` SSR rule
+      - New handler `session/handlers/seat-map-handler.ts` calling
+        the same `Inventory.seatMapFor` + `synthesizeAvailability` +
+        `renderSeatMap` pipeline as Amadeus
+- [x] **8 tests in `test/dialects/sabre-seat-map.test.ts`**:
+      - Empty WA → NO ITINERARY
+      - Segment out of range → SEGMENT NOT IN ITINERARY
+      - 4G<n>* happy path renders Sabre-style header + grid
+      - 4G<n>* caches map on wa.lastSeatMap
+      - 4G*<direct> happy path
+      - 4G*<direct> unknown flight → NO SCHEDULE FOUND
+      - 4G with malformed body → FORMAT (parser rejects, dialect
+        returns Response.FORMAT)
+      - NO SEAT MAP path documented as covered cross-dialect by chunk
+        1's test suite
 
 ### Chunk 5 — Galileo seatmap parity
 

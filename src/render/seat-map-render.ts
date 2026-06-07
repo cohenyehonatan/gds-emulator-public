@@ -44,9 +44,9 @@ import type {
   SeatAvailabilityStatus,
   SeatMap,
   SeatSpace,
-} from '../../models/seat-map.js';
-import { STATUS_GLYPHS } from '../../models/seat-map.js';
-import type { AirSegment } from '../../models/segment.js';
+} from '../models/seat-map.js';
+import { STATUS_GLYPHS } from '../models/seat-map.js';
+import type { AirSegment } from '../models/segment.js';
 
 export type RenderOrientation = 'V' | 'H';
 
@@ -67,14 +67,19 @@ function cabinLetter(name: string): string {
   return CABIN_LETTER[name.toUpperCase()] ?? name.charAt(0).toUpperCase();
 }
 
+/**
+ * Cross-dialect seat-map renderer. Header is built by the caller so
+ * each dialect can emit its own wording (Amadeus says
+ * `SM 1 — BA192 ...`, Sabre says `192Y 15JUL DFW-LHR / SEATS
+ * INVENTORY DETAIL`). Body (cabin headers, per-row seat rendering,
+ * exit-row dividers, legend) is dialect-agnostic.
+ */
 export function renderSeatMap(
   seatMap: SeatMap,
   availability: SeatAvailabilityList[],
-  segment: AirSegment,
-  segmentNumber: number,
+  header: string,
   orientation: RenderOrientation = 'V',
 ): string {
-  const header = `SM ${segmentNumber} — ${seatMap.carrier}${seatMap.flightNumber} ${segment.date} ${segment.origin}-${segment.destination} — ${seatMap.equipment}`;
   const statusByLabel = new Map<string, SeatAvailabilityStatus>();
   for (const bucket of availability) {
     const status = bucket.seatAvailabilityStatus as SeatAvailabilityStatus;
@@ -180,4 +185,31 @@ function formatRow(columns: string[], cells: string[], aisleAfter: string[]): st
 
 function renderLegend(): string {
   return 'LEGEND: . avail  X reserved  - blocked   W window  A aisle  M middle  K bulkhead  E exit  H handicapped';
+}
+
+/**
+ * Build the Amadeus-style header line. Format:
+ *   SM <n> — <carrier><flight> <date> <orig>-<dest> — <equipment>
+ */
+export function amadeusSeatMapHeader(
+  seatMap: SeatMap,
+  segment: AirSegment,
+  segmentNumber: number,
+): string {
+  return `SM ${segmentNumber} — ${seatMap.carrier}${seatMap.flightNumber} ${segment.date} ${segment.origin}-${segment.destination} — ${seatMap.equipment}`;
+}
+
+/**
+ * Build the Sabre-style header. Per Sabre Basic Course (Display Seat
+ * Maps section) the format is:
+ *   <flight><class> <date> <citypair>
+ *   SEATS INVENTORY DETAIL
+ * Verbatim example from the PDF: "864Y 25OCT DFWSLC".
+ */
+export function sabreSeatMapHeader(
+  seatMap: SeatMap,
+  segment: AirSegment,
+): string {
+  const cls = segment.bookingClass || 'Y';
+  return `${seatMap.flightNumber}${cls} ${segment.date} ${segment.origin}${segment.destination}\nSEATS INVENTORY DETAIL`;
 }

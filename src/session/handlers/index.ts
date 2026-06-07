@@ -32,6 +32,7 @@ import {
 import { handleSsr, handleOsi } from './service-handler.js';
 import { handleFrequentFlyer } from './frequent-flyer-handler.js';
 import { handleFlightInfo } from './flight-info-handler.js';
+import { handleSeatMap } from './seat-map-handler.js';
 import { handleDivide, handleFile } from './divide-handler.js';
 import { handlePricing } from './pricing-handler.js';
 import { handleQueue } from './queue-handler.js';
@@ -88,6 +89,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleFrequentFlyer(entry, wa);
       case 'flight_info':
         return handleFlightInfo(entry, wa, ctx);
+      case 'seat_map':
+        return handleSeatMap(entry, wa, ctx);
       case 'divide':
         return handleDivide(entry, wa);
       case 'file':
