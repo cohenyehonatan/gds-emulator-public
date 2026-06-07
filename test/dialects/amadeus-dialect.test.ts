@@ -78,14 +78,14 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     expect(resp).toContain('HA');
   });
 
-  it('verbs not yet implemented (e.g. DM MCT, LOT negotiated space) return the explicit honest-boundary stub', async () => {
+  it('verbs not yet implemented (e.g. LOT negotiated space, FFD frequent flyer) return the explicit honest-boundary stub', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // DM = MCT lookup, LOT = negotiated space, FFD = frequent-flyer
-    // database — all deferred past v4.
-    expect(await host.process('DMFRA', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    // LOT = negotiated space, FFD = frequent-flyer database, AT =
+    // negotiated availability — all deferred past v4.
     expect(await host.process('LOTAIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    expect(await host.process('FFDIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
   });
 
   it('malformed sign-in returns FORMAT', async () => {
@@ -584,5 +584,58 @@ describe('Amadeus dialect — v4 chunk 3: fare display (FQD)', () => {
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
     expect(await host.process('FQDLAX', wa)).toBe('FORMAT'); // missing dest
+  });
+});
+
+describe('Amadeus dialect — v4 chunk 4: minimum connect time (DM)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('DM<airport> returns the emulated inventory MCT', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('DMFRA', wa);
+    expect(resp).toContain('DM FRA');
+    expect(resp).toContain('MCT 45 MIN');
+  });
+
+  it('DM<airport>-<airport2> shows the inter-airport pair', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('DMLGW-LHR', wa);
+    expect(resp).toContain('DM LGW-LHR');
+    expect(resp).toContain('MCT 45');
+  });
+
+  it('DM<airport>/<date> echoes the date qualifier', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('DMFRA/15DEC', wa);
+    expect(resp).toContain('15DEC');
+  });
+
+  it('DMI with no segments returns NO CONNECTIONS TO CHECK', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('DMI', wa)).toBe('NO CONNECTIONS TO CHECK');
+  });
+
+  it('DMI on a connecting itinerary checks each connection', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKSFO', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SS1Y2', wa);
+    const resp = await host.process('DMI', wa);
+    expect(resp).toContain('DMI');
+    expect(resp).toMatch(/1-2:/);
   });
 });

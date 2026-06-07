@@ -62,6 +62,7 @@ import type { AirSegment } from '../../models/segment.js';
 import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
+import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
@@ -577,6 +578,38 @@ export class AmadeusDialect implements Dialect {
       wa.reset();
       try { wa.machine.transition(SessionEvent.IGNORE); } catch { /* */ }
       return 'IGNORED';
+    }
+
+    // DM<airport>[-<airport2>][/<date>] — Minimum Connect Time lookup.
+    // QRG p.25 examples: `DMFRA` (basic), `DMFRA/15DEC` (date-specific),
+    // `DMLGW-LHR` (inter-airport pair). Returns the emulated inventory's
+    // MIN_CONNECT_MINUTES constant — same value the auto-connect builder
+    // uses for emulated availability, so MCT lookups are consistent
+    // with what `AN<route>` would actually surface in connection lines.
+    //
+    // DMI — Check MCT and segment continuity in the current PNR.
+    if (entry === 'DMI') {
+      if (wa.pnr.segments.length < 2) return 'NO CONNECTIONS TO CHECK';
+      const checks: string[] = [];
+      for (let i = 0; i < wa.pnr.segments.length - 1; i++) {
+        const a = wa.pnr.segments[i];
+        const b = wa.pnr.segments[i + 1];
+        if (a.destination === b.origin) {
+          checks.push(`  ${i + 1}-${i + 2}: ${a.destination} OK / MCT ${MIN_CONNECT_MINUTES}M`);
+        } else {
+          checks.push(`  ${i + 1}-${i + 2}: ${a.destination}->${b.origin} GAP`);
+        }
+      }
+      return ['DMI', ...checks].join('\n');
+    }
+    const dmMatch = /^DM([A-Z]{3})(?:-([A-Z]{3}))?(?:\/(\d{1,2}[A-Z]{3}))?$/.exec(entry);
+    if (dmMatch) {
+      const airport = dmMatch[1];
+      const second = dmMatch[2];
+      const date = dmMatch[3];
+      const route = second ? `${airport}-${second}` : airport;
+      const dateTail = date ? ` ${date}` : '';
+      return `DM ${route}${dateTail}\n  MCT ${MIN_CONNECT_MINUTES} MIN`;
     }
 
     // FQD<orig><dest>[/<date>][/A<carrier>] — Fare Display for a market.
