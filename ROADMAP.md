@@ -597,7 +597,7 @@ different upside.
         LOT negotiated space, MD/MU scrolling, etc.).
 
       v4 progress (in chunks per the dev push pattern):
-      * Chunk 1 — queue verbs (`c10cac9`): `QE<n>[C<cat>][D<date>]`
+      * Chunk 1 — queue placement (`c10cac9`): `QE<n>[C<cat>][D<date>]`
         place + end-tx, `RTQ` display queues current PNR is on.
         Uses composite queue ids so QE8C1D3 is distinct from QE8.
       * Chunk 2 — history display (`7e81324`): `RH` renders
@@ -610,12 +610,23 @@ different upside.
       * Chunk 4 — minimum connect time (`71f111a`): `DM<airport>
         [-<airport2>][/<date>]` lookup, `DMI` segment-continuity
         check in current PNR. Returns the emulated inventory's
-        MIN_CONNECT_MINUTES constant (45m) — consistent with what
-        the auto-connection builder uses.
+        MIN_CONNECT_MINUTES constant (45m).
+      * Chunk 5 — frequent-flyer (`41052a2`): `FFN<carrier>-<number>
+        [/P<n>]` element add. Shares the existing FrequentFlyer
+        model with Sabre's `FF<carrier><number>` cryptic.
+      * Chunk 6 — partial PNR display family (`1a8995a`): `RTA`/
+        `RTI`/`RTN`/`RTJ`/`RTK`/`RTF`/`RTG`/`RTR` — focused views
+        with canonical "NO <X>" empty-state messages.
+      * Chunk 7 — queue work (`b4ec5c9`): `QSTART<n>` sign in, `QN`
+        next, `QF`/`QFR` remove + advance, `QES` skip, `QXI` exit.
+        Uses WorkArea's existing currentQueue/queueCursor/queueWorking
+        Set fields for cross-dialect consistency.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
-      exceptions, alliance ranking. The behavior-layer caveat
+      exceptions, alliance ranking, VFFD agreements display, FFA/FFR
+      mileage accrual/redemption, seat maps (SM), LP listing PNRs by
+      flight, AM/AB address elements. The behavior-layer caveat
       (below) still applies — no public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
