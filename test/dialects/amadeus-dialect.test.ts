@@ -22,7 +22,7 @@ describe('Amadeus dialect — identity + chain semantics', () => {
 
   it('flags chain-halting errors', () => {
     const d = new AmadeusDialect();
-    expect(d.isErrorResponse('NOT IMPLEMENTED — amadeus dialect (v1)')).toBe(true);
+    expect(d.isErrorResponse('NOT IMPLEMENTED — amadeus dialect (v2)')).toBe(true);
     expect(d.isErrorResponse('FORMAT')).toBe(true);
     expect(d.isErrorResponse('NEEDS AGENT SIGN')).toBe(true);
     expect(d.isErrorResponse('HA SIGNED IN')).toBe(false);
@@ -78,13 +78,14 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     expect(resp).toContain('HA');
   });
 
-  it('unimplemented verbs return the explicit honest-boundary stub', async () => {
+  it('verbs not yet implemented (e.g. FXP pricing) return the explicit honest-boundary stub', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // AN = availability, SS = sell — both deferred for v1.
-    expect(await host.process('AN15JUNJFKLAX', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v1)');
-    expect(await host.process('SS1Y1', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v1)');
+    // FXP = best fare price, FXX = display priced quotes, MD = scroll
+    // (avail+context-dependent) — all deferred past v2.
+    expect(await host.process('FXP', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    expect(await host.process('FXX', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
   });
 
   it('malformed sign-in returns FORMAT', async () => {
@@ -109,8 +110,136 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // First entry (AN) returns NOT IMPLEMENTED → chain stops → JO never runs.
-    await host.process('AN15JUNJFKLAX;JO', wa);
+    // FXP returns NOT IMPLEMENTED → chain stops → JO never runs.
+    await host.process('FXP;JO', wa);
     expect(wa.agent).toBe('HA'); // still signed in
+  });
+});
+
+describe('Amadeus dialect — v2 PNR build cycle', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('AN<date><orig><dest> displays availability when route exists', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('AN15JULJFKLAX', wa);
+    expect(resp).toContain('15JUL JFKLAX');
+    expect(resp).toContain('B6'); // JetBlue 615 JFK-LAX in the default schedule
+  });
+
+  it('AN returns NO AVAILABILITY when the inventory has no flights', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('AN15JULXXXYYY', wa);
+    expect(resp).toBe('NO AVAILABILITY');
+  });
+
+  it('SS<seats><class><line> sells from cached availability', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    const resp = await host.process('SS1Y1', wa);
+    expect(resp).toContain('B6');
+    expect(resp).toContain('SS1');
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(wa.pnr.segments[0].bookingClass).toBe('Y');
+  });
+
+  it('SS without prior AN returns NO AVAILABILITY', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SS1Y1', wa)).toBe('NO AVAILABILITY');
+  });
+
+  it('NM1<surname>/<given> <title> stores the name', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process('NM1SMITH/JOHN MR', wa)).toBe('OK');
+    expect(wa.pnr.names).toHaveLength(1);
+    expect(wa.pnr.names[0].surname).toBe('SMITH');
+    expect(wa.pnr.names[0].passengers[0].firstName).toBe('JOHN');
+    expect(wa.pnr.names[0].passengers[0].title).toBe('MR');
+  });
+
+  it('AP<phone>-A stores the agency phone', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    expect(await host.process('AP02012345678-A', wa)).toBe('OK');
+    expect(wa.pnr.phones).toHaveLength(1);
+    expect(wa.pnr.phones[0].number).toBe('02012345678');
+  });
+
+  it('RF / TKOK / ET cycle commits a PNR with a 6-char locator', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const resp = await host.process('ET', wa);
+    expect(resp).toContain('END OF TRANSACTION COMPLETE');
+    expect(resp).toMatch(/[A-Z0-9]{6}/);
+  });
+
+  it('ET without mandatory fields returns CHECK MANDATORY FIELDS', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // No name / phone / RF / ticketing yet.
+    expect(await host.process('ET', wa)).toBe('CHECK MANDATORY FIELDS');
+  });
+
+  it('IG discards the in-progress build', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(await host.process('IG', wa)).toBe('IGNORED');
+    expect(wa.pnr.segments).toHaveLength(0);
+  });
+
+  it('RT<locator> retrieves a previously-committed PNR', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const er = await host.process('ET', wa);
+    // Locator follows " - " in the END OF TRANSACTION echo.
+    const locator = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    expect(locator).toMatch(/^[A-Z0-9]{6}$/);
+    // Fresh work area: retrieve the PNR.
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    const retrieved = await host.process(`RT${locator}`, wa2);
+    expect(retrieved).toContain(locator);
+    expect(retrieved).toContain('SMITH/JOHN MR');
+    expect(retrieved).toContain('B6');
   });
 });
