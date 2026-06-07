@@ -1176,6 +1176,70 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('RT/NOSUCHNAME', wa)).toBe('PNR NOT FOUND');
   });
 
+  it('RRN copies the current PNR — drops locator/quotes/tickets, keeps names/segments', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    // Build + commit.
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    await host.process('FXP', wa);
+    const er = await host.process('ET', wa);
+    const originalLoc = / - ([A-Z0-9]{6})/.exec(er)?.[1]!;
+    // Retrieve + RRN.
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    await host.process(`RT${originalLoc}`, wa2);
+    const resp = await host.process('RRN', wa2);
+    expect(resp).toBe(`COPIED FROM ${originalLoc}`);
+    expect(wa2.pnr.locator).toBeUndefined();
+    expect(wa2.pnr.priceQuotes).toHaveLength(0);
+    expect(wa2.pnr.names).toHaveLength(1);
+    expect(wa2.pnr.segments).toHaveLength(1);
+    expect(wa2.pnr.names[0].surname).toBe('SMITH');
+  });
+
+  it('RRN with no PNR on screen returns NO PNR ON SCREEN', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('RRN', wa)).toBe('NO PNR ON SCREEN');
+  });
+
+  it('RRN + ET commits a NEW PNR with a different locator', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('NM1SMITH/JOHN MR', wa);
+    await host.process('AP02012345678-A', wa);
+    await host.process('RFAGT', wa);
+    await host.process('TKOK', wa);
+    const er1 = await host.process('ET', wa);
+    const loc1 = / - ([A-Z0-9]{6})/.exec(er1)?.[1]!;
+    const wa2 = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa2);
+    await host.process(`RT${loc1}`, wa2);
+    await host.process('RRN', wa2);
+    const er2 = await host.process('ET', wa2);
+    const loc2 = / - ([A-Z0-9]{6})/.exec(er2)?.[1]!;
+    expect(loc2).not.toBe(loc1);
+    // Both locators in the store now.
+    expect(host.backend.pnrs.has(loc1)).toBe(true);
+    expect(host.backend.pnrs.has(loc2)).toBe(true);
+  });
+
   it('IR after RT<locator> re-renders the BF from the store', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();

@@ -919,6 +919,33 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
+    // RRN — Copy the current PNR (must be retrieved/displayed). QRG p.47.
+    // The clone retains names + segments + phones + addresses + remarks
+    // + SSRs + OSIs + FF elements + seat requests; drops locator,
+    // priceQuotes, tickets, history, createdAt — those belong to the
+    // original commit and a fresh ET will create new ones.
+    //
+    // Variants documented in QRG p.47 but deferred to a follow-up chunk:
+    //   RRN/6       Copy + change number of passengers
+    //   RRN/DP7     Copy + push date forward 7 days
+    //   RRN/CY      Copy + change all classes to Y
+    //   RRN/P2-5    Copy a passenger range only
+    //   RRN/S2,4    Copy specific segments only
+    if (entry === 'RRN') {
+      if (!wa.pnr.locator) return 'NO PNR ON SCREEN';
+      const cloned = wa.pnr.clone();
+      cloned.locator = undefined;
+      cloned.priceQuotes = [];
+      cloned.tickets = [];
+      cloned.history = [];
+      cloned.createdAt = undefined;
+      const originalLocator = wa.pnr.locator;
+      wa.pnr = cloned;
+      recordHistory(cloned, `RRN COPY FROM ${originalLocator}`);
+      try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
+      return `COPIED FROM ${originalLocator}`;
+    }
+
     // LP/<carrier><flight>/<date> — List PNRs by flight. QRG p.50:
     //   LP/2X933/18AUG    List PNRs for flight 2X933 on 18AUG
     // The flight argument is parsed as `<2-char-carrier><digits>`.
