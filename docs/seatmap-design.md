@@ -1,11 +1,14 @@
 # Seat Maps — design plan and chunks
 
-**Status:** PRE-CHUNK-0 (2026-06-07). Modeling decision locked to
-**Option C** once the live `/seatmaps` shape was checked. Storage
-location locked to **WorkArea** (not Pnr). Chunk 0 — sourcing the
-canonical SCC + status enums from Travelport's schema — is the active
-blocker before chunk 1 can ship; chunk 1 can't ship safely without
-closed sets matching live.
+**Status:** CHUNK-0 LANDED — PRE-CHUNK-1 (2026-06-07). Modeling
+decision locked to **Option C** once the live `/seatmaps` shape was
+checked. Storage location locked to **WorkArea** (not Pnr). Chunk 0
+landed: SCC enum (PADIS 9825, ~115 codes) + `seatAvailabilityStatus`
+enum (5 values) both sourced from Travelport's public docs +
+industry PADIS table; verbatim reference at
+`references/iata-padis-9825-seat-codes.md`. Chunk 1 (`SeatMap` model
++ `Inventory.seatMapFor` seed for all 14 SCHEDULE equipment types)
+is the next blocker.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -353,22 +356,24 @@ each step:
 Whoever picks up chunk 0 should start at step 1; the four-step list is
 documented so they don't start from zero.
 
-- [ ] **Travelport Seat Characteristic Code (SCC) table — full enum.**
-      Empirically present in the v11 devkit sample: `A` (Aisle),
-      `W` (Window), `N` (?). That's 3 of likely 30+ codes. Land as a
-      string-union or const map in `src/models/seat-map.ts` with a
-      `SCC_LABELS: Record<SccCode, string>` for the renderer. Unknown
-      codes (anything not in the closed set) get a `[code]` literal
-      fallback in the renderer + a runtime warning so we notice when
-      new codes appear.
-- [ ] **`seatAvailabilityStatus` full enum.** Empirically present:
-      `Available`, `Reserved`. That's 2 of probably 4-6. Likely
-      candidates: `Blocked`, `Restricted`, `Premium`, `Occupied`. Land
-      as a string-union in `src/models/seat-map.ts` so the synthesizer
-      (chunk 1) emits from the same closed set the live mapper
-      expects. The status enum determines per-seat rendering character
-      (e.g. `.` for Available, `X` for Reserved, `*` for Premium), so
-      it's the renderer's core input alongside SCC.
+- [x] **Travelport Seat Characteristic Code (SCC) table — full enum.**
+      Sourced 2026-06-07 — the canonical PADIS 9825 codeset (~115 codes)
+      is captured verbatim in `references/iata-padis-9825-seat-codes.md`.
+      Travelport's API ref confirms SCC = PADIS 9825; the codes are
+      industry-standard across all GDS and direct-connect NDC. Chunk 1
+      lands the `SccCode` union + `SCC_LABELS` map by importing from
+      that reference. The reference also pre-curates a renderer-glyph
+      mapping for the chunk-2 anchor (position markers W/A/M/K/E/H +
+      no-seat positions D/LA/GN/SO/ST/TA/CL/KN/8).
+- [x] **`seatAvailabilityStatus` full enum.** Sourced 2026-06-07 from
+      the Travelport v11 API ref — 5 values total: `Available`,
+      `Reserved`, `Blocked`, `NoSeat`, `Unavailable`. Definitions
+      verbatim in `references/iata-padis-9825-seat-codes.md`. Devkit
+      sample only showed 2 (Available, Reserved); the other 3 will
+      surface as live captures expand. Chunk 1 lands the union and the
+      synthesizer emits a realistic mix (~70% Available, ~20% Reserved,
+      ~5% Blocked, ~5% NoSeat for galley/lavatory positions in the
+      cabin row layout).
 
 **Default-fallback policy if a code/status appears that wasn't in the
 sourced enum:** keep it literal in the model (`status: string` accepts
