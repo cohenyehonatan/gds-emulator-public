@@ -651,4 +651,13 @@ different upside.
       full BF build through the socket (Sabre + Galileo dialects).
       Proves length-prefix framing + Connection lifecycle survive the
       whole BF lifecycle and the dialect seam works over TCP.
-- [ ] CRT polish: keep the input row's right border intact during live typing.
+- [x] **CRT polish: keep the input row's right border intact during live
+      typing** (`b87625c`) — `CrtScreen.redrawRightBorder()` re-emits the
+      right `│` at column W of the input row, wrapped in DEC-style save/
+      restore cursor (`\x1b7` / `\x1b8`). REPL's CRT mode installs a
+      stdin `keypress` listener that calls it after each keystroke
+      (deferred via `setImmediate` so readline's own write completes
+      first). WRAP_OFF (DECAWM disabled in `CrtScreen.enter`) prevents
+      cursor wrap, so without the redraw, typed characters past column
+      W-1 pile up and overwrite the border. Verified on macOS Terminal +
+      iTerm2 + Ghostty.
