@@ -567,12 +567,19 @@ different upside.
       `api.dev.amadeus.net`, mirrored locally as 10 HTML pages. Verbatim
       error strings with numbered codes (e.g. `400 NO ITINERARY - FINISH OR
       IGNORE`) — exceeds anything publicly available for Sabre or Galileo.
-- [ ] **Amadeus dialect (emulated)** — parser, serializer, keyboard, screen
-      layout, FSM rules under the same seam as Sabre. Cryptic differs
-      meaningfully: `AN` avail, `SS` sell, `NM1` name, `AP` phone, `TKOK`
-      ticketing, `RF` received-from, `ET` end, `RT` retrieve, `IR` ignore-
-      redisplay; passenger association via `/P1` tail-syntax; `;`-separated
-      multi-element entries; status set `HK/HX/KK/KL/NN/UC/UN/NO`.
+- [/] **Amadeus dialect (emulated) — v1 sign-on family** (`b6c23cf`):
+      AmadeusDialect implements the seam end-to-end with sign-on only
+      (`JI<duty><initials>/<system>`, `JIA<...>`, `JO`, `JO*`, `JD`).
+      Chain separator `;` per the Dialect interface. Everything else
+      returns the explicit `NOT IMPLEMENTED — amadeus dialect (v1)`
+      honest-boundary stub. CLI: `npm run start:terminal:amadeus`.
+      12 tests covering identity, chain semantics, sign-in/out, status,
+      and chain-halting on the not-implemented stub.
+
+      Remaining for v2+: `AN` avail, `SS` sell, `NM1` name, `AP` phone,
+      `TKOK` ticketing, `RF` received-from, `ET` end, `RT` retrieve, `IR`
+      ignore-redisplay; passenger association via `/P1` tail-syntax;
+      status set `HK/HX/KK/KL/NN/UC/UN/NO`.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
