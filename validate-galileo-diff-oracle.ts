@@ -229,6 +229,39 @@ async function main(): Promise<void> {
   // retrieve-not-found response.
   await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*XYZ999' }, rows, apollo);
 
+  // IG with empty work area — should be a no-op success on both sides
+  // (ignore-on-empty doesn't have anything to discard).
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'IG' }, rows, apollo);
+
+  // @1HK without any sell — both should report "NEED ITINERARY" since
+  // there's no segment to modify the status of.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '@1HK', apolloEntry: '.1HK' }, rows, apollo);
+
+  // N1Y1 (Galileo) / 01Y1 (Apollo) without an availability cache — both
+  // should respond with some form of "no availability to sell from".
+  // Exact wording is a calibration target if they differ.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'N1Y1', apolloEntry: '01Y1' }, rows, apollo);
+
+  // More stateless probes — hunting for wording mismatch.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'XI' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'FQ' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*R' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*I' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*N' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'TKP1' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'SI.WCHR' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'R.AGT' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'T.TAU/15JUL' }, rows, apollo);
+  // Malformed entry — both should report FORMAT.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'ZZZ?!' }, rows, apollo);
+
+  // Verbs touching ticket / queue / flight detail without state.
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*HTI' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*HTE' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'QEB/35' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'TTL5' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: '*PAC' }, rows, apollo);
+
   // SOF — stateless, no upstream dependency. The original canary.
   // If SOF ever diverges, something deeper broke.
   await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: 'SOF' }, rows, apollo);
