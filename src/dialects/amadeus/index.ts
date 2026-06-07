@@ -386,6 +386,167 @@ function parseFqd(arg: string): {
 
 import type { Pnr } from '../../models/pnr.js';
 import type { FareQuote } from '../../models/fare.js';
+import type { SeatMap } from '../../models/seat-map.js';
+
+/**
+ * Parse an `SM ...` entry into a typed request shape, or undefined if
+ * it doesn't match any SM form. Three shapes (chunks 2+3):
+ *   { kind: 'segment', segment }
+ *   { kind: 'direct', carrier, flightNumber, cls?, date?, origin, destination }
+ *   { kind: 'avail-line', line, subFlight?, cls? }
+ * All three carry an `orientation` (V default, H from `/H` suffix).
+ */
+type SmRequest =
+  | { kind: 'segment'; segment: number; orientation: RenderOrientation }
+  | {
+      kind: 'direct';
+      carrier: string;
+      flightNumber: string;
+      cls?: string;
+      date?: string;
+      origin: string;
+      destination: string;
+      orientation: RenderOrientation;
+    }
+  | {
+      kind: 'avail-line';
+      line: number;
+      subFlight?: number;
+      cls?: string;
+      orientation: RenderOrientation;
+    };
+
+function parseSmRequest(entry: string): SmRequest | undefined {
+  // SM/<digits>[/<digit>][/<class>][/V|/H] — from cached availability
+  const availMatch = /^SM\/(\d{1,2})(?:\/(\d))?(?:\/([A-Z]))?(?:\/([VH]))?$/.exec(entry);
+  if (availMatch) {
+    let cls = availMatch[3];
+    let orientation = (availMatch[4] ?? 'V') as RenderOrientation;
+    // Disambiguation: when class slot captures `V` or `H` and there's
+    // no explicit orientation suffix after it, treat the class as the
+    // orientation. Booking classes V and H exist but are rare in
+    // emulated SCHEDULE; orientation suffix is the more common reading.
+    if (!availMatch[4] && (cls === 'V' || cls === 'H')) {
+      orientation = cls;
+      cls = undefined;
+    }
+    return {
+      kind: 'avail-line',
+      line: parseInt(availMatch[1], 10),
+      subFlight: availMatch[2] ? parseInt(availMatch[2], 10) : undefined,
+      cls,
+      orientation,
+    };
+  }
+  // SM <args> (space-separated)
+  if (!entry.startsWith('SM ')) return undefined;
+  const args = entry.slice(3);
+  // Segment form: digits only (optionally /V or /H)
+  const segMatch = /^(\d{1,2})(?:\/([VH]))?$/.exec(args);
+  if (segMatch) {
+    return {
+      kind: 'segment',
+      segment: parseInt(segMatch[1], 10),
+      orientation: (segMatch[2] ?? 'V') as RenderOrientation,
+    };
+  }
+  // Direct form: <carrier 2 chars><flight 1-4 digits>/<class>?/[<date>?]<route 6>[/V|/H]
+  // QRG p.39 examples: SM LH330/Y/FRAJFK, SM IB123/C/14AUGMADCDG, SM SK862//28SEPSTOLHR
+  const directMatch =
+    /^([A-Z0-9]{2})(\d{1,4})\/([A-Z])?\/(\d{1,2}[A-Z]{3})?([A-Z]{6})(?:\/([VH]))?$/.exec(args);
+  if (directMatch) {
+    return {
+      kind: 'direct',
+      carrier: directMatch[1],
+      flightNumber: directMatch[2],
+      cls: directMatch[3],
+      date: directMatch[4],
+      origin: directMatch[5].slice(0, 3),
+      destination: directMatch[5].slice(3, 6),
+      orientation: (directMatch[6] ?? 'V') as RenderOrientation,
+    };
+  }
+  return undefined;
+}
+
+/** Construct a synthetic AirSegment for the renderer header from raw
+ *  carrier/flight/date/route fields (used for direct + avail-line forms
+ *  where there's no real PNR segment). */
+function synthSegment(
+  carrier: string,
+  flightNumber: string,
+  date: string,
+  origin: string,
+  destination: string,
+  segmentNumber: number,
+  cls?: string,
+): AirSegment {
+  return {
+    segmentNumber,
+    carrier,
+    flightNumber,
+    bookingClass: cls ?? 'Y',
+    date,
+    dayOfWeek: '?',
+    dayOfWeekNum: 0,
+    origin,
+    destination,
+    status: StatusCode.SS,
+    seats: 1,
+    departTime: '',
+    arriveTime: '',
+  };
+}
+
+/**
+ * Resolve an SmRequest to the seat map + segment context the renderer
+ * needs. Returns a string on the error path (the rendered host
+ * response) or a `{ map, segment, segmentNumber }` triple on success.
+ */
+function resolveSm(
+  req: SmRequest,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): string | { map: SeatMap; segment: AirSegment; segmentNumber: number } {
+  if (req.kind === 'segment') {
+    if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+    const seg = wa.pnr.segments.find((s) => s.segmentNumber === req.segment);
+    if (!seg) return 'SEGMENT NOT IN ITINERARY';
+    const map = ctx.backend.inventory.seatMapFor(seg.carrier, seg.flightNumber);
+    if (!map) return 'NO SEAT MAP AVAILABLE';
+    return { map, segment: seg, segmentNumber: req.segment };
+  }
+  if (req.kind === 'direct') {
+    // Look up the schedule to get the canonical equipment / times.
+    const sched = ctx.backend.inventory.scheduleFor(req.carrier, req.flightNumber);
+    if (!sched) return 'NO SCHEDULE FOUND';
+    const map = ctx.backend.inventory.seatMapFor(req.carrier, req.flightNumber);
+    if (!map) return 'NO SEAT MAP AVAILABLE';
+    // Default date if not supplied (QRG "current date"). 01JAN is a
+    // deterministic placeholder; the synthesizer keys on it so the same
+    // dateless query is reproducible.
+    const date = req.date ?? '01JAN';
+    const seg = synthSegment(req.carrier, req.flightNumber, date, req.origin, req.destination, 1, req.cls);
+    return { map, segment: seg, segmentNumber: 1 };
+  }
+  // avail-line
+  if (!wa.lastAvailability) return 'NO AVAILABILITY';
+  const lines = wa.lastAvailability.lines;
+  const target = lines.find((l) => l.line === req.line);
+  if (!target) return 'LINE NOT IN AVAILABILITY';
+  const map = ctx.backend.inventory.seatMapFor(target.carrier, target.flightNumber, target.equipment);
+  if (!map) return 'NO SEAT MAP AVAILABLE';
+  const seg = synthSegment(
+    target.carrier,
+    target.flightNumber,
+    target.date,
+    target.origin,
+    target.destination,
+    1,
+    req.cls,
+  );
+  return { map, segment: seg, segmentNumber: 1 };
+}
 
 /** Render a retrieved PNR (response to RT<locator>). */
 function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
@@ -1182,25 +1343,26 @@ export class AmadeusDialect implements Dialect {
       return [header, ...rows].join('\n');
     }
 
-    // SM <segment>[/V|/H] — Display seat map for a segment in the
-    // current PNR. QRG p.39-40. See docs/seatmap-design.md for the
-    // full design + render anchor. Vertical (/V) is the default;
-    // /H transposes. The displayed map is cached on
-    // wa.lastSeatMap so chunk 7 scrolling verbs (deferred) can
-    // operate on it without re-synthesizing.
-    const smMatch = /^SM\s+(\d{1,2})(?:\/([VH]))?$/.exec(entry);
-    if (smMatch) {
-      const segNum = parseInt(smMatch[1], 10);
-      const orientation = (smMatch[2] ?? 'V') as RenderOrientation;
-      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
-      const seg = wa.pnr.segments.find((s) => s.segmentNumber === segNum);
-      if (!seg) return 'SEGMENT NOT IN ITINERARY';
-      const map = ctx.backend.inventory.seatMapFor(seg.carrier, seg.flightNumber);
-      if (!map) return 'NO SEAT MAP AVAILABLE';
+    // SM family — Display seat map. QRG p.39-40. See
+    // docs/seatmap-design.md for the design. Three forms:
+    //   SM <n>[/V|/H]                                  segment in current PNR (chunk 2)
+    //   SM <carrier><flight>/<class>/[<date>]<route>[/V|/H]  direct query (chunk 3)
+    //   SM/<line>[/<class>][/V|/H]                     from cached availability (chunk 3)
+    //
+    // The dispatch path: leading slash → avail-line form; first token
+    // all-digits → segment form; else direct form.
+    //
+    // Result of any form is rendered via the shared renderer and cached
+    // on wa.lastSeatMap (chunk 7 scrolling reuses it).
+    const smReq = parseSmRequest(entry);
+    if (smReq) {
+      const resolved = resolveSm(smReq, wa, ctx);
+      if (typeof resolved === 'string') return resolved; // error path
+      const { map, segment, segmentNumber } = resolved;
       const locatorKey = wa.pnr.locator ?? 'PENDING';
-      const availability = synthesizeAvailability(map, locatorKey, seg.date);
-      wa.lastSeatMap = { segment: segNum, map };
-      return renderSeatMap(map, availability, seg, segNum, orientation);
+      const availability = synthesizeAvailability(map, locatorKey, segment.date);
+      wa.lastSeatMap = { segment: segmentNumber, map };
+      return renderSeatMap(map, availability, segment, segmentNumber, smReq.orientation);
     }
 
     // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.

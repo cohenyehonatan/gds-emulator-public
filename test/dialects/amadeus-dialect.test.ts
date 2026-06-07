@@ -1627,6 +1627,119 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(await host.process('RRN/XYZ', wa)).toBe('FORMAT');
   });
 
+  it('SM <carrier><flight>/<class>/<date><route> direct query renders without an itinerary', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    // No AN, no SS — direct query against the schedule.
+    const resp = await host.process('SM AA100/Y/15JULJFKLAX', wa);
+    expect(resp).toContain('SM 1 — AA100');
+    expect(resp).toContain('15JUL');
+    expect(resp).toContain('JFK-LAX');
+    expect(resp).toContain('738'); // AA100 equipment
+    expect(resp).toContain('LEGEND');
+  });
+
+  it('SM <carrier><flight>/<class>/<route> without date uses placeholder', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('SM B6615/Y/JFKLAX', wa);
+    expect(resp).toContain('SM 1 — B6615');
+    expect(resp).toContain('01JAN'); // deterministic placeholder
+  });
+
+  it('SM <carrier><flight>//<route> works with empty class slot', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('SM B6615//15JULJFKLAX', wa);
+    expect(resp).toContain('SM 1 — B6615');
+  });
+
+  it('SM <carrier><flight>/Y/<route>/H direct query honors orientation suffix', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const vert = await host.process('SM B6615/Y/15JULJFKLAX', wa);
+    const horiz = await host.process('SM B6615/Y/15JULJFKLAX/H', wa);
+    expect(vert).not.toBe(horiz);
+    expect(horiz).toContain('SM 1 — B6615');
+  });
+
+  it('SM <unknown-carrier><flight>/<class>/<route> returns NO SCHEDULE FOUND', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SM XX999/Y/15JULJFKLAX', wa)).toBe('NO SCHEDULE FOUND');
+  });
+
+  it('SM/<line> renders the seat map for a cached-availability line', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    const resp = await host.process('SM/1', wa);
+    expect(resp).toContain('SM 1');
+    expect(resp).toContain('15JUL');
+    expect(resp).toContain('JFK-LAX');
+    expect(resp).toContain('LEGEND');
+  });
+
+  it('SM/<line>/<class> honors a class filter on the cached line', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    const resp = await host.process('SM/1/Y', wa);
+    expect(resp).toContain('SM 1');
+  });
+
+  it('SM/<line> with no prior availability returns NO AVAILABILITY', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('SM/1', wa)).toBe('NO AVAILABILITY');
+  });
+
+  it('SM/<line> with a line out of range returns LINE NOT IN AVAILABILITY', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    expect(await host.process('SM/99', wa)).toBe('LINE NOT IN AVAILABILITY');
+  });
+
+  it('SM/<line>/V respects orientation suffix on the avail-line form', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    const vert = await host.process('SM/1/V', wa);
+    const horiz = await host.process('SM/1/H', wa);
+    expect(vert).not.toBe(horiz);
+  });
+
   it('SM with no segments returns NO ITINERARY', async () => {
     const host = new GdsHost({
       port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',

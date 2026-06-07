@@ -1,12 +1,10 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-2 LANDED — PRE-CHUNK-3 (2026-06-07). Chunks 0+1+2
-all closed: SCC + status enums sourced (chunk 0); SeatMap model +
-10-equipment seed + synthesizer landed (chunk 1); Amadeus SM
-dispatch + WorkArea cache + ST existence-validation landed (chunk 2,
-this commit). 1034 tests pass. Chunk 3 (Amadeus direct-access SM
-forms `SM <flight>/<class>/<route>` + `SM/<line>` from cached
-availability) is the next code-bearing chunk.
+**Status:** CHUNK-3 LANDED — PRE-CHUNK-4 (2026-06-07). Chunks 0-3
+all closed. Amadeus SM family now covers segment-form, direct
+query, and avail-line query. 1044 tests pass. Chunk 4 (Sabre
+seatmap parity using the cross-dialect `Inventory.seatMapFor` +
+`synthesizeAvailability` helpers) is the next code-bearing chunk.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -544,15 +542,38 @@ Landed in commit (this commit).
       - ST/NSSA/S1 + ST/WB/S1 accepted (preferences bypass validation)
       - ST/99A (no /S<n>) accepted (no segment to validate against)
 
-### Chunk 3 — Amadeus direct-access SM (no current PNR)
+### Chunk 3 — Amadeus direct-access SM (no current PNR) ✅
 
-- [ ] `SM <carrier><flight>/<class>/[<date>]<orig><dest>` — direct
-      query without an itinerary. Looks up by carrier+flight via
-      `Inventory.scheduleFor`.
-- [ ] `SM/<line>` and `SM/<line>/<class>` — from cached availability
-      (uses `wa.lastAvailability.lines`).
-- [ ] Tests: direct happy path, unknown carrier, unknown class for
-      cabin lookup, SM/<line> with no prior AN.
+Landed in commit (this commit).
+
+- [x] **`SM <carrier><flight>/<class>/[<date>]<route>[/V|/H]`** —
+      direct query without an itinerary. Looks up the schedule via
+      `Inventory.scheduleFor`; if not found returns `NO SCHEDULE
+      FOUND`. Class slot is optional (`SM B6615//15JULJFKLAX` parses
+      with no class filter). Date slot is optional too — if absent,
+      uses `01JAN` placeholder (deterministic so the synthesizer's
+      output is stable across calls).
+- [x] **`SM/<line>[/<sub>][/<class>][/V|/H]`** — from cached
+      availability. Reads `wa.lastAvailability.lines`; if absent
+      returns `NO AVAILABILITY`. Line not found returns `LINE NOT IN
+      AVAILABILITY`. Class filter (e.g. `SM/1/Y`) accepted but doesn't
+      affect render in v1 — passes through to the synthesizer's seed.
+- [x] **Disambiguation hack** for the avail-line form: when the
+      "class" regex slot captures `V` or `H` and there's no explicit
+      `[VH]` slot after it, re-interpret as orientation. Booking
+      classes V and H exist but are rare in emulated SCHEDULE;
+      orientation suffix is the more common reading. Without this
+      `SM/1/V` parses as line=1+class=V instead of line=1+vertical.
+- [x] **Parser refactor**: extracted `parseSmRequest(entry)` →
+      `SmRequest` union + `resolveSm(req, wa, ctx)` → `string |
+      { map, segment, segmentNumber }`. Single dispatch path for all
+      three forms; the renderer call is shared.
+- [x] **Synthetic segment** for direct + avail-line forms (no real
+      `AirSegment` to feed the renderer): `synthSegment` builds a
+      minimal AirSegment from raw carrier/flight/date/route fields.
+- [x] **10 new tests** covering both new forms, the orientation
+      suffix on both, NO SCHEDULE FOUND / NO AVAILABILITY / LINE NOT
+      IN AVAILABILITY error paths, and the V/H disambiguation.
 
 ### Chunk 4 — Sabre seatmap parity
 
