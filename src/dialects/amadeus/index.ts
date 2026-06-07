@@ -61,6 +61,7 @@ import { generateRecordLocator } from '../../models/record-locator.js';
 import type { AirSegment } from '../../models/segment.js';
 import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
+import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
@@ -264,6 +265,38 @@ function parseOsi(arg: string): { carrier: string; text: string } | undefined {
   const m = /^([A-Z]{2})\s+(.+?)(\/P\d+(?:\.\d+)?)?$/.exec(arg.trim());
   if (!m) return undefined;
   return { carrier: m[1], text: m[2].trim() };
+}
+
+/**
+ * Parse `FQD<orig><dest>[/<date>][/A<carrier>]` — fare display.
+ * QRG p.23 examples (under Direct Access `1XXFQD`); the standalone FQD
+ * form is reconstructed since the QRG only documents the airline-
+ * specific direct-access variant. Recognized qualifiers:
+ *   FQDLAXNYC                       → basic, all classes
+ *   FQDLAXNYC/15JUL                 → date specified
+ *   FQDLAXNYC/AAA                   → carrier specified
+ *   FQDLAXNYC/15JUL/AAA             → both
+ */
+function parseFqd(arg: string): {
+  origin: string;
+  destination: string;
+  date?: string;
+  carrier?: string;
+} | undefined {
+  // Origin + destination are the first 6 characters (3+3 IATA).
+  const m = /^([A-Z]{3})([A-Z]{3})(\/.+)?$/.exec(arg);
+  if (!m) return undefined;
+  const result: { origin: string; destination: string; date?: string; carrier?: string } = {
+    origin: m[1],
+    destination: m[2],
+  };
+  if (m[3]) {
+    for (const q of m[3].slice(1).split('/')) {
+      if (/^\d{1,2}[A-Z]{3}$/.test(q)) result.date = q;
+      else if (/^A[A-Z0-9]{2}$/.test(q)) result.carrier = q.slice(1);
+    }
+  }
+  return result;
 }
 
 import type { Pnr } from '../../models/pnr.js';
@@ -544,6 +577,21 @@ export class AmadeusDialect implements Dialect {
       wa.reset();
       try { wa.machine.transition(SessionEvent.IGNORE); } catch { /* */ }
       return 'IGNORED';
+    }
+
+    // FQD<orig><dest>[/<date>][/A<carrier>] — Fare Display for a market.
+    // QRG p.23 example: `FQDLAXNYC` (basic, all fares), with optional
+    // date and carrier qualifiers (`/15JUL`, `/AAA`). Renders one row
+    // per booking class using the emulated tariff's market+class fare.
+    if (entry.startsWith('FQD')) {
+      const fqd = parseFqd(entry.slice(3));
+      if (!fqd) return FORMAT_ERROR;
+      const lines: string[] = [`FQD ${fqd.origin}${fqd.destination}${fqd.date ? ' ' + fqd.date : ''}${fqd.carrier ? ' /A' + fqd.carrier : ''}`];
+      for (const cls of BOOKING_CLASSES) {
+        const fare = fareFor(fqd.origin, fqd.destination, cls);
+        lines.push(`  ${cls}  ${fare.base.toFixed(2)} USD  ${fare.fareBasis}`);
+      }
+      return lines.join('\n');
     }
 
     // RH — display PNR change history. QRG p.49 references `WRA/RH`

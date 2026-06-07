@@ -78,14 +78,14 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     expect(resp).toContain('HA');
   });
 
-  it('verbs not yet implemented (e.g. DM MCT, FQD fare display) return the explicit honest-boundary stub', async () => {
+  it('verbs not yet implemented (e.g. DM MCT, LOT negotiated space) return the explicit honest-boundary stub', async () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // DM = MCT lookup, FQD = fare display, DH = display history,
-    // LOT = negotiated space — all deferred past v3.
+    // DM = MCT lookup, LOT = negotiated space, FFD = frequent-flyer
+    // database — all deferred past v4.
     expect(await host.process('DMFRA', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
-    expect(await host.process('FQDLAXNYC', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
+    expect(await host.process('LOTAIB', wa)).toBe('NOT IMPLEMENTED — amadeus dialect (v2)');
   });
 
   it('malformed sign-in returns FORMAT', async () => {
@@ -542,5 +542,47 @@ describe('Amadeus dialect — v4 chunk 2: history display (RH)', () => {
     expect(rh).toContain(locator);
     expect(rh).toContain('SELL');
     expect(rh).toContain('NM SMITH');
+  });
+});
+
+describe('Amadeus dialect — v4 chunk 3: fare display (FQD)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+  }
+
+  it('FQD<orig><dest> renders a fare row per booking class', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('FQDJFKLAX', wa);
+    expect(resp).toContain('FQD JFKLAX');
+    expect(resp).toContain('USD');
+    // Should have at least Y class (the emulated tariff has Y).
+    expect(resp).toMatch(/Y\s+\d+\.\d{2} USD/);
+  });
+
+  it('FQD<orig><dest>/<date> echoes the date in the header', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('FQDJFKLAX/15JUL', wa);
+    expect(resp).toContain('15JUL');
+  });
+
+  it('FQD<orig><dest>/A<carrier> echoes the carrier in the header', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('FQDJFKLAX/AAA', wa);
+    expect(resp).toContain('/AAA');
+  });
+
+  it('FQD with malformed route returns FORMAT', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    expect(await host.process('FQDLAX', wa)).toBe('FORMAT'); // missing dest
   });
 });
