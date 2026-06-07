@@ -667,10 +667,11 @@ different upside.
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
       exceptions, alliance ranking, FFA/FFR mileage accrual/
-      redemption (needs name-element interleaving), seat maps (SM
-      display — needs new seat-map data structure), RRN/P<n>
-      passenger-specific copy variants. The behavior-layer caveat
-      (below) still applies — no public source for these algorithms.
+      redemption (needs name-element interleaving), seat maps —
+      see `docs/seatmap-design.md` for the unpacked decision tree
+      + chunk plan (it needs its own design pass before code), RRN
+      passenger-specific variants. The behavior-layer caveat (below)
+      still applies — no public source for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
