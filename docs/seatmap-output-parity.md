@@ -143,70 +143,167 @@ So `.` for TAKEN appears to be universal across Sabre samples. The
 AVAILABLE character is what varies (seat letter for airline,
 asterisk for rail).
 
-## Amadeus Service Hub symbol legend (official)
+## Amadeus Service Hub — verbatim rendered sample
 
-The official Amadeus Service Hub documentation lists this seat-map
-symbol legend (covers chargeable + preferred seats specifically):
+**Major correction**: an earlier read of the legend (transcribed via
+WebSearch summary) had `<>` as the AVAILABLE marker. Pulled the actual
+page through Playwright (2026-06-08, bypassing the 403 the
+unauthenticated fetcher gets) — the legend is two separate entries:
+`. AVAILABLE` AND `<> WING`. The period is AVAILABLE; the angle
+brackets are wing-positional markers framing wing-section rows.
+
+### Horizontal sample (verbatim, from servicehub.amadeus.com solution 794907)
+
+```
+SM AA 0505/M/18FEBMIAMEX
+SM AA  0505  M 18FEB MIAMEX        737
+   Y
+   0 0         0         0
+   0 1         2         3
+   89012345678901234567890123
+   B    <  EE   >
+F  LLYYY.Y.LLYYY............+                                                 F
+E  +LYYVVY.LLYYY............+                                                 E
+D  +LYYVVV.LLYYY............+                                                 D
+
+C  LLYYVVV.LLYYYV...........+                                                 C
+B  LLYYVVY.LLYYYY...........+                                                 B
+A  LLYY..Y.LLYYYY...........+                                                 A
+B    <  EE
+   89012345678901234567890123
+   0 1         2         3
+. AVAILABLE   <> WING     F GEN FACI   K GALLEY   E EXIT    C COT
++ OCCUPIED    - LAST OFF  H HANDICAP   Q QUIET    G GROUPS  P PET
+/ RESTRICTED  B BULKHEAD  V PREF.SEAT  X BLOCKED  L LEGROOM U UMNR
+() SMOKING    D DEPORTEE  UP UP-DECK   Z NO FILM  I INFANT  R REAR
+Y CHARGEABLE
+```
+
+### Vertical sample (verbatim, `/V` suffix)
+
+```
+SM AA 0505/M/18FEBMIAMEX/V
+SM AA  0505  M 18FEB MIAMEX        737
+         A  B  C     D  E  F
+Y  8  B  L  L  L     +  +  L  B  8  Y
+   9     L  L  L     L  L  L     9
+  10     Y  Y  Y     Y  Y  Y     10
+  11     Y  Y  Y     Y  Y  Y     11
+  12     .  V  V     V  V  Y     12
+  13 <   .  V  V     V  V  .   > 13
+  14 <   Y  Y  V     V  Y  Y   > 14
+  15 <   .  .  .     .  .  .   > 15
+  16 <E  L  L  L     L  L  L  E> 16
+  17 <E  L  L  L     L  L  L  E> 17
+  18 <   Y  Y  Y     Y  Y  Y   > 18
+  19 <   Y  Y  Y     Y  Y  Y   > 19
+  20 <   Y  Y  Y     Y  Y  Y   > 20
+         A  B  C     D  E  F
+. AVAILABLE   <> WING     F GEN FACI   K GALLEY   E EXIT    C COT
++ OCCUPIED    - LAST OFF  H HANDICAP   Q QUIET    G GROUPS  P PET
+/ RESTRICTED  B BULKHEAD  V PREF.SEAT  X BLOCKED  L LEGROOM U UMNR
+() SMOKING    D DEPORTEE  UP UP-DECK   Z NO FILM  I INFANT  R REAR
+Y CHARGEABLE
+```
+
+### Symbol legend (verbatim, sorted)
 
 | Symbol | Meaning |
 |---|---|
-| `<>` | AVAILABLE (with wing indicators where applicable) |
+| `.` | AVAILABLE |
 | `+` | OCCUPIED |
-| `-` | LAST OFF (last seats to be assigned?) |
+| `-` | LAST OFF |
 | `X` | BLOCKED |
 | `/` | RESTRICTED |
-| `V` | PREFERRED SEAT |
-| `L` | LEGROOM (extra-legroom seat) |
+| `V` | PREF.SEAT (preferred) |
+| `L` | LEGROOM |
 | `Y` | CHARGEABLE |
+| `<>` | WING (positional markers, frame wing rows) |
+| `F` | GEN FACI (general facility) |
 | `K` | GALLEY |
-| `F` | GALLEY (or other facility per the legend) |
 | `E` | EXIT |
+| `C` | COT (bassinet) |
 | `B` | BULKHEAD |
-| `H` | HANDICAP-accessible |
-| `Q` | QUIET zone |
-| `G` | GROUP-allocated |
-| `P` | PET-allowed |
-| `U` | UNACCOMPANIED MINOR |
+| `H` | HANDICAP |
+| `Q` | QUIET |
+| `G` | GROUPS |
+| `P` | PET |
+| `U` | UMNR (unaccompanied minor) |
 | `D` | DEPORTEE |
-| `UP` | UPPER DECK |
+| `UP` | UP-DECK (upper deck) |
 | `Z` | NO FILM |
 | `I` | INFANT |
 | `R` | REAR |
 | `()` | SMOKING (parenthesized seat letter) |
 
-Vertical (/V) vs horizontal (/H) display toggle confirmed.
+### Vertical format structure
 
-**Comparing to our renderer**:
-- We use `.` for AVAILABLE; Amadeus uses `<>`
-- We use `X` for RESERVED; Amadeus uses `+` for OCCUPIED, `X` for BLOCKED
-- We have no chargeable/preferred/legroom markers; Amadeus does
-- We DO emit position SCC (W/A/M); Amadeus doesn't use position
-  markers per-cell (those are just structural)
+Per-row layout in vertical mode:
 
-Amadeus's official convention is genuinely richer than ours but
-internally consistent: each character means ONE thing (no
-position-vs-status precedence rules like ours has). Our renderer's
-multi-tier precedence (position SCC > status glyph) is an
-operator-readability optimization that diverges from how Amadeus
-actually renders.
+```
+<cabin>  <row>  <L-marker>  A  B  C     D  E  F  <R-marker>  <row>  <cabin>
+```
 
-## Recommendations (revised after the 2026-06-08 dig)
+Where the markers (2-char each) can be:
+- `  ` (nothing — interior row)
+- `B ` and ` B` (bulkhead row, B before col A and after col F)
+- `< ` and ` >` (wing-section row)
+- `<E` and `E>` (wing AND exit row combined)
+
+Row 8 (`Y  8  B  L  L  L     +  +  L  B  8  Y`) shows the bulkhead +
+cabin code annotations: `Y` = Economy cabin, row 8 is bulkhead row,
+seats are L (legroom), +(occupied), L (legroom).
+
+Rows 13-15: wing-section rows (`<` and `>` markers).
+Rows 16-17: wing AND exit rows (`<E` and `E>` markers).
+
+### Comparing to our renderer
+
+| Aspect | Amadeus official | Our renderer | Status |
+|---|---|---|---|
+| AVAILABLE marker | `.` | `.` | **✅ MATCHES** |
+| OCCUPIED marker | `+` | `X` | Diverge — semantic, ours uses X |
+| BLOCKED marker | `X` | `-` | Diverge — ours uses `-` for blocked |
+| Cabin code label | Row-gutter Y/F/J (left + right) | Left-margin `ECONOMY (Y)` once per cabin | Diverge — ours is more verbose |
+| Wing markers | `<>` framing wing-section rows | Absent | Diverge — we don't model wing position |
+| Bulkhead markers | `B` left + right of seat block on bulkhead row | Absent (we used to do per-cell K, dropped in chunk 2 review) | Diverge |
+| Exit row markers | `<E` and `E>` framing exit row | `--- EXIT ROW ---` divider above | Diverge — ours is more verbose |
+| Chargeable / Legroom / Preferred | Y / L / V per seat | Absent | Defer — no seat metadata |
+| Row labels position | Both sides (mirrored) | Left side only | Diverge — ours is asymmetric |
+| Column headers | Top + bottom (mirrored) | Top only, per-cabin | Diverge |
+
+**Our convention `.` for available IS correct** for Amadeus. The
+earlier search-summary misread "AVAILABLE <>" as a single entry was
+wrong. Our renderer's choice diverges from Amadeus in OCCUPIED (we
+use `X`, they use `+`) and in cabin/wing/bulkhead annotations, but
+not in the basic available-seat semantics.
+
+## Recommendations (revised after the 2026-06-08 Playwright dig)
+
+The Amadeus correction is the headline: our `.` = AVAILABLE already
+matches official Amadeus. The Sabre divergence still stands (Sabre's
+`.` = TAKEN across all observed samples). So we're closer to parity
+than we thought, and the per-dialect glyph map is still the right
+structural fix — but the priorities shift.
 
 | # | Action | Status |
 |---|---|---|
 | 1 | Document the divergences (this doc) | ✅ Done |
-| 2 | Flip `.` (currently AVAILABLE) to mean TAKEN — universal across both Sabre samples (DL, Eurostar) | ⏳ Open. Small refactor: change STATUS_GLYPHS at the renderer. Other characters (W/A) keep their position-SCC meaning. |
-| 3 | Adopt `<>` for Amadeus AVAILABLE per the official Service Hub legend | Open — would need a per-dialect glyph map. Slightly bigger refactor than #2. |
-| 4 | Add chargeable (Y), preferred (V), legroom (L) status markers driven by additional seat metadata | Defer — needs metadata model (we don't track chargeable/preferred/legroom per seat) |
-| 5 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data we don't model |
-| 6 | Per-dialect glyph map architecture (each dialect can override STATUS_GLYPHS + POSITION_PRIORITY) | Open — the right structural change to unblock both #2 and #3 cleanly |
+| 2 | **Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY | ⏳ Open — the structural change |
+| 3 | **Sabre dialect**: flip `.` to TAKEN, AVAILABLE varies by carrier (use `*` as the generic / Eurostar-aligned char; could use seat letter for airline-specific later) | Depends on #2 |
+| 4 | **Amadeus dialect**: switch OCCUPIED `X` → `+` (smaller change since `.` is already correct); optionally add `<>` wing markers + `B` bulkhead + `<E>/<E` exit row markers | Depends on #2; less urgent than Sabre — the avail/taken semantics already match |
+| 5 | Add chargeable (Y), preferred (V), legroom (L) status markers driven by additional seat metadata | Defer — needs metadata model |
+| 6 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data |
+| 7 | Cabin-code mirroring (left + right) on Amadeus vertical | Defer — cosmetic |
+| 8 | Top + bottom column headers (mirrored) on Amadeus vertical | Defer — cosmetic |
 
-**Recommended order**:
-1. Land #6 (per-dialect glyph map) as the structural change
-2. Land #2 (flip AVAILABLE/TAKEN for Sabre) and #3 (Amadeus `<>`)
+**Revised recommended order**:
+1. Land #2 (per-dialect glyph map) as the structural change
+2. Land #3 (Sabre `.` flip — the only real semantic correctness fix)
    using the new architecture
-3. Defer the rest (chargeable/preferred/legroom + Sabre-specific
-   cosmetic lines) until we have a data model for those attributes
+3. Land #4 partially (Amadeus `X` → `+` for occupied is trivial once
+   #2 is in)
+4. Defer everything else until there's a seat-metadata model
 
 ## Cross-cutting observations
 
