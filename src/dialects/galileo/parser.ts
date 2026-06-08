@@ -128,10 +128,19 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
   // Galileo seat-map family (Pocket Guide):
-  //   SA*S<n>        seat map for segment n
-  //   SA*            refresh last seat map
-  //   SM*A<line>[<class>]   seat map from cached availability
-  const saSegMatch = /^SA\*S(\d{1,2})$/.exec(u);
+  //   SA*S<n>[;]     seat map for segment n
+  //   SA*[;]         refresh last seat map
+  //   SM*A<line>[<class>][;]  seat map from cached availability
+  //
+  // The trailing `;` suffix triggers Smartpoint's "traditional format"
+  // mode — the cryptic text response, vs Smartpoint's default
+  // graphical view. Documented in the Travelport-Asia 2-Day Smartpoint
+  // Pro training PDF p.29 (`SA*S1` = graphical, `SA*S1;` = traditional
+  // format). Since our renderer always emits the cryptic text form,
+  // the `;` is a no-op alias on our end — we accept it to match what
+  // a Smartpoint-trained operator would type when forcing the
+  // traditional view.
+  const saSegMatch = /^SA\*S(\d{1,2});?$/.exec(u);
   if (saSegMatch) {
     return {
       kind: 'seat_map',
@@ -141,10 +150,10 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
       segment: parseInt(saSegMatch[1], 10),
     };
   }
-  if (u === 'SA*') {
+  if (u === 'SA*' || u === 'SA*;') {
     return { kind: 'seat_map', raw: trimmed, timestamp: new Date(), source: 'refresh' };
   }
-  const smAvailMatch = /^SM\*A(\d{1,2})([A-Z])?$/.exec(u);
+  const smAvailMatch = /^SM\*A(\d{1,2})([A-Z])?;?$/.exec(u);
   if (smAvailMatch) {
     return {
       kind: 'seat_map',

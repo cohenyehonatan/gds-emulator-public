@@ -97,6 +97,44 @@ describe('Galileo seat map — SA / SM display family', () => {
     await host.process('A15JULJFKLAX', wa);
     expect(await host.process('SM*A99', wa)).toBe('LINE NOT IN AVAILABILITY');
   });
+
+  // Traditional-format `;` suffix (chunk 7 deferred follow-up) —
+  // Travelport-Asia 2-Day Smartpoint Pro training PDF p.29 documents
+  // `SA*S1;` as the way to force Smartpoint's cryptic "traditional
+  // format" output (vs the default graphical view). Since our renderer
+  // always emits cryptic text, `;` is a no-op alias here.
+  it('SA*S<n>; (traditional-format suffix) is byte-equal to SA*S<n>', async () => {
+    const host = makeHost();
+    async function run(entry: string): Promise<string> {
+      const wa = host.newWorkArea();
+      await host.process('SON/ZGS', wa);
+      await host.process('A15JULJFKLAX', wa);
+      await host.process('N1Y1', wa);
+      return host.process(entry, wa);
+    }
+    expect(await run('SA*S1;')).toBe(await run('SA*S1'));
+  });
+
+  it('SA*; (refresh + traditional suffix) replays the last seat map', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULJFKLAX', wa);
+    await host.process('N1Y1', wa);
+    const first = await host.process('SA*S1', wa);
+    expect(await host.process('SA*;', wa)).toBe(first);
+  });
+
+  it('SM*A<line>; (avail-line + traditional suffix) renders the same as without', async () => {
+    const host = makeHost();
+    async function run(entry: string): Promise<string> {
+      const wa = host.newWorkArea();
+      await host.process('SON/ZGS', wa);
+      await host.process('A15JULJFKLAX', wa);
+      return host.process(entry, wa);
+    }
+    expect(await run('SM*A1;')).toBe(await run('SM*A1'));
+  });
 });
 
 describe('Galileo seat-map scrolling — MD/MU/MB/MT (Mini Format Guide v2)', () => {
