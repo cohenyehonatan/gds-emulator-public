@@ -2354,11 +2354,38 @@ function handleGalileoFlightInfo(entry: FlightInfoEntry, wa: WorkArea): string {
  * + renderSeatMap pipeline. Header built by `galileoSeatMapHeader`
  * (reconstructed format — Pocket Guide doesn't pin the wording).
  */
+async function handleGalileoSeatMapLive(
+  segment: AirSegment,
+  segmentNumber: number,
+  ctx: HandlerContext,
+  wa: WorkArea,
+  searchIdentifier: string,
+  offerId: string,
+  productId: string,
+): Promise<string> {
+  const backend = ctx.backend as LiveTravelportBackend;
+  try {
+    const raw = await backend.searchSeatAvailabilities({
+      searchIdentifier,
+      offerId,
+      productId,
+    });
+    const { mapSeatAvailabilities } = await import('../../backends/travelport-mapper.js');
+    const mapped = mapSeatAvailabilities(raw);
+    if (!mapped) return 'NO SEAT MAP AVAILABLE';
+    wa.lastSeatMap = { segment: segmentNumber, map: mapped.seatMap };
+    const header = galileoSeatMapHeader(mapped.seatMap, segment);
+    return renderSeatMap(mapped.seatMap, mapped.availability, header, 'V');
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 function handleGalileoSeatMap(
   entry: import('../../protocol/entry.js').SeatMapEntry,
   wa: WorkArea,
   ctx: HandlerContext,
-): string {
+): string | Promise<string> {
   let segment: AirSegment;
   let segmentNumber: number;
 
@@ -2425,6 +2452,40 @@ function handleGalileoSeatMap(
     segmentNumber = 1;
   } else {
     return GalileoResponse.FORMAT; // unreachable
+  }
+
+  // Live discrimination: when ctx.backend is LiveTravelportBackend AND
+  // we have a searchIdentifier + offerId on the source (avail-line) or
+  // the segment's vendorRef, route to the live /seatmaps endpoint.
+  // Otherwise use the emulated synthesizer.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const searchIdentifier = wa.lastAvailability?.searchIdentifier;
+    // Pull offerId + productId from the avail-line that backed this
+    // query (avail-line source) or from the segment's vendorRef
+    // (segment source after a live sell).
+    let offerId: string | undefined;
+    let productId: string | undefined;
+    if (entry.source === 'avail-line' && wa.lastAvailability) {
+      const target = wa.lastAvailability.lines.find((l) => l.line === entry.line);
+      offerId = target?.vendorRef?.offerId;
+      productId = target?.vendorRef?.productId;
+    } else if (entry.source === 'segment') {
+      // Look up the line that matches this segment to recover its
+      // vendorRef. Fallback: first line on the cached availability.
+      const line = wa.lastAvailability?.lines.find(
+        (l) => l.carrier === segment.carrier && l.flightNumber === segment.flightNumber,
+      );
+      offerId = line?.vendorRef?.offerId;
+      productId = line?.vendorRef?.productId;
+    }
+    if (searchIdentifier && offerId && productId) {
+      return handleGalileoSeatMapLive(
+        segment, segmentNumber, ctx, wa, searchIdentifier, offerId, productId,
+      );
+    }
+    // Live backend but no vendorRef available — fall through to
+    // emulated synth + LOCAL VIEW trailer. Operators see something
+    // useful instead of a hard error.
   }
 
   const map = ctx.backend.inventory.seatMapFor(segment.carrier, segment.flightNumber);

@@ -807,3 +807,137 @@ export function mapFareDisplay(
     identifier,
   };
 }
+
+/**
+ * Map a Travelport `CatalogOfferingsAncillaryListResponse` (the seat-
+ * availability search response) to our cross-dialect SeatMap +
+ * SeatAvailabilityList[] shape.
+ *
+ * Response structure (verbatim from the v11 devkit, captured in
+ * docs/seatmap-design.md chunk 0):
+ *   CatalogOfferingsAncillaryListResponse
+ *   ├── CatalogOfferingsID[]                       (one per flight)
+ *   │   ├── Flight[] (carrier, number, equipment, dep/arr)
+ *   │   └── CatalogOffering[].ProductOptions[].Product[]
+ *   │       ├── SeatAvailability[] grouped by status
+ *   │       └── SeatingChartRef: "seatingChart_1"  (string-keyed link)
+ *   └── ReferenceList[].SeatingChart[]            (per-equipment layout)
+ *
+ * Returns undefined if the response doesn't contain a parseable
+ * seat-map block (defensive — pre-prod has been known to return
+ * Result.Error[] envelopes with HTTP 200).
+ */
+export function mapSeatAvailabilities(response: unknown): {
+  seatMap: import('../models/seat-map.js').SeatMap;
+  availability: import('../models/seat-map.js').SeatAvailabilityList[];
+} | undefined {
+  const r = response as any;
+  const env = r?.CatalogOfferingsAncillaryListResponse ?? r;
+  const offerings = arrayish(env?.CatalogOfferingsID);
+  if (offerings.length === 0) return undefined;
+
+  // Build SeatingChartRef → SeatingChart table from ReferenceList.
+  // String-keyed lookup — match by SeatingChart.id, NOT by array
+  // index. ReferenceList may contain multiple typed entries; SeatingChart
+  // entries live under @type='ReferenceListSeatingChart' but defensively
+  // we accept any entry carrying SeatingChart[].
+  const chartTable = new Map<string, any>();
+  for (const ref of arrayish(env?.ReferenceList)) {
+    for (const chart of arrayish((ref as any)?.SeatingChart)) {
+      const id = (chart as any)?.id ?? (chart as any)?.Id;
+      if (typeof id === 'string' && id.length > 0) chartTable.set(id, chart);
+    }
+  }
+
+  // First offering = first flight (v1 only displays one flight per
+  // query). Multi-flight + multi-passenger seat-selection flows are
+  // deferred — see chunk 8 doc for the per-traveler seat-mapping
+  // pattern the devkit's pre-script uses.
+  const first = offerings[0] as any;
+  const flight = arrayish(first?.Flight)[0] as any;
+  if (!flight) return undefined;
+  const carrier = String(flight?.carrier ?? '').toUpperCase();
+  const flightNumber = String(flight?.number ?? '');
+  const equipment = String(flight?.equipment ?? '');
+
+  // Find the first Product carrying SeatAvailability + SeatingChartRef.
+  let chartRef: string | undefined;
+  const availability: import('../models/seat-map.js').SeatAvailabilityList[] = [];
+  for (const offering of arrayish(first?.CatalogOffering)) {
+    for (const opts of arrayish((offering as any)?.ProductOptions)) {
+      for (const product of arrayish((opts as any)?.Product)) {
+        const ref = (product as any)?.SeatingChartRef;
+        if (typeof ref === 'string' && !chartRef) chartRef = ref;
+        for (const bucket of arrayish((product as any)?.SeatAvailability)) {
+          const status = (bucket as any)?.seatAvailabilityStatus;
+          const value = arrayish((bucket as any)?.value).map((v: unknown) => String(v));
+          if (status && value.length > 0) {
+            availability.push({ seatAvailabilityStatus: String(status), value });
+          }
+        }
+      }
+    }
+  }
+
+  // Resolve the seating chart. If the ref is missing or doesn't
+  // resolve, return an empty Cabin[] so the renderer prints "no
+  // seats" gracefully — the availability still maps cleanly.
+  const chart = chartRef ? chartTable.get(chartRef) : undefined;
+  const Cabin: import('../models/seat-map.js').Cabin[] = [];
+  for (const c of arrayish(chart?.Cabin)) {
+    Cabin.push(mapCabin(c as any));
+  }
+
+  return {
+    seatMap: { carrier, flightNumber, equipment, Cabin },
+    availability,
+  };
+}
+
+/** Convert a single Travelport `Cabin` block to our Cabin shape. */
+function mapCabin(c: any): import('../models/seat-map.js').Cabin {
+  const name = String(c?.name ?? '');
+  const Layout: import('../models/seat-map.js').CabinLayoutEntry[] = [];
+  // Layout is a mixed-shape array: row-range entries (startRow/endRow)
+  // + column-position entries (position/value). Travelport's Y33
+  // doesn't include explicit aisle markers; we infer aisleAfterColumn
+  // from position-label pairs (consecutive 'A's around an inferred
+  // aisle gap) for narrow-body; wide-body needs the structural data
+  // in the layout block. v1: keep what's there, no inference.
+  for (const e of arrayish(c?.Layout)) {
+    const startRow = (e as any)?.startRow;
+    const endRow = (e as any)?.endRow;
+    const position = arrayish((e as any)?.position).map((p) => String(p));
+    const value = (e as any)?.value;
+    Layout.push({
+      ...(typeof startRow === 'number' ? { startRow } : {}),
+      ...(typeof endRow === 'number' ? { endRow } : {}),
+      ...(position.length > 0 ? { position } : {}),
+      ...(typeof value === 'string' ? { value } : {}),
+    });
+  }
+  const Row: import('../models/seat-map.js').SeatRow[] = [];
+  for (const r of arrayish(c?.Row)) {
+    const label = String((r as any)?.label ?? '');
+    const Space: import('../models/seat-map.js').SeatSpace[] = [];
+    for (const s of arrayish((r as any)?.Space)) {
+      const location = String((s as any)?.location ?? '');
+      const Characteristic = arrayish((s as any)?.Characteristic).map((x) => String(x));
+      Space.push({ location, ...(Characteristic.length > 0 ? { Characteristic } : {}) });
+    }
+    Row.push({ label, Space });
+  }
+  // Infer aisleAfterColumn from consecutive 'A' position labels in
+  // Layout — same heuristic the chunk 2 renderer dropped, but here
+  // it's the only signal available. Documented limitation for wide-
+  // body live responses; the mapper warns when the inference is
+  // ambiguous (multiple consecutive A-position runs would be).
+  const columns = Layout.filter((e) => e.value).map((e) => e);
+  const aisleAfterColumn: string[] = [];
+  for (let i = 0; i < columns.length - 1; i++) {
+    const cur = columns[i].position?.includes('A') ?? false;
+    const next = columns[i + 1].position?.includes('A') ?? false;
+    if (cur && next) aisleAfterColumn.push(columns[i].value!);
+  }
+  return { name, Layout, Row, aisleAfterColumn };
+}

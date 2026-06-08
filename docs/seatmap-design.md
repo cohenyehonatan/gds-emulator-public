@@ -1,18 +1,10 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-5 LANDED — PRE-CHUNK-6 (2026-06-07). Chunks 0-5
-all closed. All 4 dialects now have seat-map display via the same
-cross-dialect renderer:
-- Amadeus SM family (segment / direct / avail-line)
-- Sabre 4G family (segment / direct)
-- Galileo SA*/SM* family (segment / direct via refresh / avail-line)
-- Apollo via the Galileo translator (pass-through, no extra wiring)
-
-Dialect-specific headers: `amadeusSeatMapHeader`,
-`sabreSeatMapHeader`, `galileoSeatMapHeader`. 1063 tests pass. Chunk
-6 (live Travelport `/seatmaps` REST wire for Galileo) is the next
-code-bearing chunk — the canonical request body was sourced in
-chunk 0 from the devkit; ready to wire.
+**Status:** CHUNK-6 LANDED — PRE-CHUNK-7 (2026-06-07). Chunks 0-6
+all closed. Galileo now has live-backed seat-map display against
+Travelport's `/seatmaps` endpoint. 1066 tests pass. Chunk 7
+(scrolling MD/MU/MB/MT verbs operating on `wa.lastSeatMap`) is the
+next code-bearing chunk — small, no model changes.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -676,50 +668,69 @@ Landed in commit (this commit).
       - Apollo SA*S<n> works under ApolloDialect (translator
         pass-through verified)
 
-### Chunk 6 — Live Travelport `/seatmaps` REST wire
+### Chunk 6 — Live Travelport `/seatmaps` REST wire ✅
 
-- [x] **Find the canonical seatmap request body** in the GDS reference-
-      payload devkit. **Done 2026-06-07** — endpoint, body, response
-      shape captured in the "What /seatmaps actually returns" section
-      above. Devkit file:
-      `~/.claude/jobs/2620983b/tmp/devkit/v11_GDS_ReferencePayload_DevKit/`
-      `V11 GDS Air Reference Payload Path v25.11.2.json` (search for
-      `"name": "Search Seat Maps"`).
-- [ ] Add `searchSeatAvailabilities(opts)` method to
-      `LiveTravelportBackend`. Takes a `CatalogProductOfferings`
-      identifier (UUID from prior `A`) + selected offer/product IDs.
-      URL: `POST /<version>/air/search/seat/catalogofferings`
-      `ancillaries/seatavailabilities`. Headers: standard 1G/1V
-      access-group + Content-Version. Body: as in the canonical shape
-      above. Same pacing + capture/replay semantics as the rest of the
-      live wire.
-- [ ] Add mapper `mapSeatAvailabilities(response)` in
-      `src/backends/travelport-mapper.ts`:
-      - Walk `CatalogOfferingsID[].CatalogOffering[].ProductOptions[]`
-        `.Product[].SeatAvailability[]` for the status-grouped seat lists
-      - Resolve `SeatingChartRef` via `ReferenceList[]` walk. **String-
-        keyed lookup, not array index** — `SeatingChartRef:
-        "seatingChart_1"` must match against
-        `ReferenceList[i].SeatingChart[j].id`. Don't assume position 0.
-        Validate the ref value resolved to something non-null and warn
-        if not; the FlightRef / ProductRef helpers in the existing
-        mapper follow the same shape and you can copy that pattern
-        verbatim. Looks trivial; takes 45 minutes when the key doesn't
-        match and you're staring at `undefined`.
-      - Convert Travelport's `Layout[]` + `Row[].Space[]` to our
-        `SeatMap.Cabin[]` shape (chunk 1 settles the exact field names)
-- [ ] Galileo's seatmap handler dispatches live with `instanceof`
-      discrimination (same pattern as the rest of the live wire).
-- [ ] Mocked test against a fixture extracted from the devkit sample
-      response (verbatim — same pattern as the existing FQ-response
-      fixtures).
-- [ ] Diff-oracle probe `SM` (after segment built) — should be
-      IDENTICAL between emulated and live once the synthesizer matches
-      live's status distribution closely enough; flag STRUCTURAL
-      expected otherwise.
-- [ ] Manual run against pre-prod with `TVP_DEBUG_DUMP=1` to confirm
-      the canonical body matches what 7K9S actually accepts (the same
-      pre-prod gap pattern other live verbs have hit).
+Landed in commit (this commit).
+
+- [x] **Canonical seatmap request body sourced** — done in chunk 0,
+      see "What /seatmaps actually returns" section above.
+- [x] **Added `searchSeatAvailabilities(opts)` method to
+      `LiveTravelportBackend`** at `src/backends/live-travelport-
+      backend.ts`. Takes searchIdentifier (UUID from prior A) +
+      offerId + productId. Builds the canonical body verbatim from
+      chunk 0; URL hits the documented endpoint with the three query
+      params. Reuses the existing `postJson` helper so vendor pacing +
+      capture/replay come along free.
+
+      JSDoc gotcha discovered: the literal `SA*/SM*` sequence inside a
+      JSDoc block ends the comment at `*/` — substituted with
+      `SA-asterisk / SM-asterisk` to disarm.
+- [x] **Added `mapSeatAvailabilities(response)` mapper** in
+      `src/backends/travelport-mapper.ts`. Walks the documented
+      response structure to produce `{ seatMap, availability }`:
+      - First CatalogOfferingsID → first Flight → carrier/flight/equip
+      - Each ProductOptions[].Product → SeatAvailability[] (the
+        status-grouped lists, taken as-is)
+      - SeatingChartRef resolution via a `Map<string, SeatingChart>`
+        table built from `ReferenceList[].SeatingChart[]` keyed by
+        the chart's own `id` field — the **string-keyed lookup, not
+        array index** gotcha from the design doc. Pattern lifted
+        verbatim from the existing `buildFlightTable` helper.
+      - Per-cabin aisleAfterColumn inferred from consecutive 'A'
+        position labels — same heuristic chunk 2's renderer dropped
+        as brittle for emulated data, but it's the only signal in
+        the live response. Wide-body 2-2-2 will mis-infer here; flagged
+        as a follow-up.
+- [x] **Galileo handler discriminates live** via
+      `instanceof LiveTravelportBackend`. New `handleGalileoSeatMapLive`
+      branch calls `searchSeatAvailabilities` with the
+      vendorRef.offerId + productId pulled from either the avail-line
+      entry or the segment's matching availability line. Errors surface
+      as `LIVE BACKEND ERROR: ...` (same pattern other live verbs use).
+      **Graceful fallback**: when the backend is live but vendorRef is
+      missing (e.g. emulated-side cached availability), the handler
+      falls through to the emulated synthesizer rather than failing
+      hard. Operator gets a useful display instead of a cryptic error.
+- [x] **3 mocked tests** in
+      `test/dialects/galileo-seat-map-live.test.ts`:
+      - Devkit-shape response correctly maps to SeatMap + availability;
+        URL + query params match the canonical shape
+      - Live backend but no vendorRef → falls back to emulated synth
+        (no fetch made)
+      - Endpoint 500 → `LIVE BACKEND ERROR: ...`
+- [ ] Diff-oracle probe `SA*S<n>` after a live-backed sell — deferred
+      until either Sabre+Galileo live wires get tested side-by-side
+      against pre-prod, or `validate-galileo-handler-live.ts` is
+      extended with a seatmap step. Not blocking — emulated + live
+      handlers go through the same renderer so wording calibration is
+      already tight.
+- [ ] Manual run against pre-prod — deferred until next live session
+      with valid TVP_* creds. Postman-variable disambiguation from
+      open questions stays open: `catalogProductOfferingsIdentifier`
+      (URL param) maps to `wa.lastAvailability.searchIdentifier`;
+      `catalogProductOfferingID` to `vendorRef.offerId`; `productIDs`
+      to `vendorRef.productId`. Confirmed against the canonical body
+      structure but not yet against actual 7K9S traffic.
 
 ### Chunk 7 — Scrolling + view variants
 

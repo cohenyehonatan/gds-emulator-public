@@ -554,6 +554,57 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Search seat availability for a previously-searched offer +
+   * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
+   * (SA* / SM*) and Sabre 4G display verbs.
+   *
+   * URL: POST /<v>/air/search/seat/catalogofferingsancillaries/seatavailabilities
+   * Query: catalogProductOfferingsIdentifier, catalogProductOfferingID, productIDs
+   *
+   * Body shape sourced 2026-06-07 from v11 GDS reference-payload
+   * devkit ("Search Seat Maps" entry); captured verbatim in
+   * docs/seatmap-design.md chunk 0.
+   *
+   * Response shape: CatalogOfferingsAncillaryListResponse. The mapper
+   * (mapSeatAvailabilities) walks CatalogOfferingsID[] for per-flight
+   * availability + ReferenceList[].SeatingChart for per-cabin layout.
+   */
+  async searchSeatAvailabilities(opts: {
+    searchIdentifier: string;
+    offerId: string;
+    productId: string;
+  }): Promise<unknown> {
+    const qs = new URLSearchParams({
+      catalogProductOfferingsIdentifier: opts.searchIdentifier,
+      catalogProductOfferingID: opts.offerId,
+      productIDs: opts.productId,
+    });
+    const url =
+      `${this.opts.apiBase}/air/search/seat/catalogofferingsancillaries/seatavailabilities?${qs.toString()}`;
+    const body = {
+      CatalogOfferingsQuerySeatAvailability: {
+        SeatAvailabilityOfferings: {
+          '@type': 'SeatAvailabilityOfferingsBuildFromCatalogProductOfferings',
+          BuildFromCatalogProductOfferingsRequest: {
+            '@type': 'BuildFromCatalogProductOfferingsRequest',
+            CatalogProductOfferingsIdentifier: {
+              id: 'catalogProductOfferings',
+              Identifier: { value: opts.searchIdentifier, authority: 'Travelport' },
+            },
+            CatalogProductOfferingSelection: [
+              {
+                CatalogProductOfferingIdentifier: { id: opts.offerId },
+                ProductIdentifier: [{ id: opts.productId }],
+              },
+            ],
+          },
+        },
+      },
+    };
+    return this.postJson(url, body, 'searchSeatAvailabilities');
+  }
+
+  /**
    * Create a new Travelport reservation workbench. Returns the
    * workbenchID; callers stash it on `wa.liveWorkbenchId` so subsequent
    * cryptic entries (sell of another offer, add traveler, commit) all
