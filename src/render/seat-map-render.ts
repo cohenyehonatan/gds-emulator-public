@@ -88,6 +88,28 @@ export interface SeatMapGlyphs {
   /** Optional legend override. If absent the default cross-dialect
    *  legend prints. */
   legend?: string;
+  /**
+   * When true, the renderer uses Amadeus's mirrored row format:
+   * cabin-code + row-number framing on BOTH sides of each row, top
+   * and bottom column headers per cabin, and per-row wing/bulkhead
+   * markers (`<>` / `<E E>` / `B`).
+   *
+   * Per the Amadeus AA0505 sample (Service Hub solution 794907):
+   *
+   *          A  B  C     D  E  F
+   *  Y  8 B  L  L  L     +  +  L  B 8  Y
+   *     9    L  L  L     L  L  L    9
+   *    13 <  .  V  V     V  V  .  > 13
+   *    16 <E L  L  L     L  L  L E> 16
+   *
+   * Wing-row detection is heuristic: middle 60% of each cabin's
+   * rows (per-equipment wing data isn't seeded). Bulkhead = first
+   * row of each cabin. Combined wing+exit = `<E ... E>`.
+   *
+   * Sabre + Galileo glyph maps leave this false → existing
+   * simple-row format. Default false everywhere.
+   */
+  mirroredRows?: boolean;
 }
 
 export const GALILEO_GLYPHS: SeatMapGlyphs = {
@@ -110,7 +132,8 @@ export const AMADEUS_GLYPHS: SeatMapGlyphs = {
   // convention (a chargeable seat that's also occupied still shows Y,
   // not +, because the position SCC is the more informative marker).
   positionPriority: ['E', 'L', 'V', 'Y', 'H'],
-  legend: 'LEGEND: . AVAILABLE  + OCCUPIED  X BLOCKED  E EXIT  L LEGROOM  V PREF.SEAT  Y CHARGEABLE  H HANDICAP  (Amadeus Service Hub solution 794907)',
+  legend: 'LEGEND: . AVAILABLE  + OCCUPIED  X BLOCKED  <> WING  B BULKHEAD  E EXIT  L LEGROOM  V PREF.SEAT  Y CHARGEABLE  H HANDICAP  (Amadeus Service Hub solution 794907)',
+  mirroredRows: true,
 };
 
 export const SABRE_GLYPHS: SeatMapGlyphs = {
@@ -229,6 +252,9 @@ function renderCabin(
     .map((e) => e.value!);
   const aisleAfter = cabin.aisleAfterColumn ?? [];
   if (orientation === 'H') return renderHorizontal(cabin, columns, aisleAfter, statusByLabel, glyphs, decorations);
+  if (glyphs.mirroredRows) {
+    return renderCabinMirrored(cabin, columns, aisleAfter, statusByLabel, glyphs, decorations);
+  }
 
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
@@ -251,6 +277,96 @@ function renderCabin(
     const rowLabel = row.label.padStart(3, ' ');
     lines.push(` ${' '.repeat(12)} ${rowLabel} ${seats}`);
   }
+  return lines;
+}
+
+/**
+ * Amadeus mirrored row format — per Service Hub solution 794907's
+ * AA0505 vertical sample:
+ *
+ *          A  B  C     D  E  F
+ *   Y  8 B  L  L  L     +  +  L  B 8  Y    ← first row, bulkhead, cabin code mirrored
+ *      9    L  L  L     L  L  L    9
+ *     13 <  .  V  V     V  V  .  > 13      ← wing row
+ *     16 <E L  L  L     L  L  L E> 16      ← wing + exit row
+ *          A  B  C     D  E  F
+ *
+ * Per-cabin top + bottom column headers. Each row carries:
+ *   <cabin? row leftMarker> <seats> <rightMarker row cabin?>
+ * Cabin code prints on the FIRST row of each cabin (left + right).
+ * leftMarker / rightMarker variants:
+ *   `B ` ` B`   bulkhead (first row of cabin)
+ *   `< ` ` >`   wing row (middle 60% of cabin)
+ *   `<E` `E>`   wing + exit row
+ *   `  ` `  `   interior (no marker)
+ *
+ * Wing-row heuristic: middle 60% of each cabin (per-equipment wing
+ * data isn't seeded). For a 14-row cabin, wing covers rows ~3-11.
+ */
+function renderCabinMirrored(
+  cabin: Cabin,
+  columns: string[],
+  aisleAfter: string[],
+  statusByLabel: Map<string, SeatAvailabilityStatus>,
+  glyphs: SeatMapGlyphs,
+  decorations?: Map<string, string[]>,
+): string[] {
+  const lines: string[] = [];
+  const cabinCode = cabinLetter(cabin.name);
+  const headerCols = formatRow(columns, columns, aisleAfter);
+  // Indent the column header to align with the seat cells in row lines.
+  // Row line: ` <cab> <row3>  <leftM>  <seats>` — that's 1 + 1 + 1 +
+  // 3 + 2 + 2 + 2 + 1 = 13 chars before the seats start. Header gets
+  // the same indent.
+  const headerIndent = ' '.repeat(13);
+  lines.push(`${headerIndent}${headerCols}`);
+
+  // Wing-row band: middle 60% of cabin (rows[20% .. 80%)).
+  const total = cabin.Row.length;
+  const wingStart = Math.floor(total * 0.2);
+  const wingEnd = Math.ceil(total * 0.8);
+
+  cabin.Row.forEach((row, idx) => {
+    const isBulkhead = idx === 0;
+    const isWing = idx >= wingStart && idx < wingEnd;
+    const isExit = row.Space.some((s) => s.Characteristic?.includes('E'));
+
+    let leftMarker = '  ';
+    let rightMarker = '  ';
+    if (isBulkhead) {
+      leftMarker = 'B ';
+      rightMarker = ' B';
+    } else if (isWing && isExit) {
+      leftMarker = '<E';
+      rightMarker = 'E>';
+    } else if (isWing) {
+      leftMarker = '< ';
+      rightMarker = ' >';
+    } else if (isExit) {
+      // Non-wing exit rows still get an E marker (rare in practice;
+      // wide-body exits are usually wing-adjacent, but we honour the
+      // structural E SCC even when outside the wing band).
+      leftMarker = 'E ';
+      rightMarker = ' E';
+    }
+
+    const leftCabin = idx === 0 ? cabinCode : ' ';
+    const rightCabin = idx === 0 ? cabinCode : ' ';
+
+    const seatChars = columns.map((col) => {
+      const space = row.Space.find((s) => s.location === col);
+      if (!space) return ' ';
+      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs, decorations);
+    });
+    const seats = formatRow(columns, seatChars, aisleAfter);
+    const rowLabel = row.label.padStart(2, ' ');
+
+    // Layout: <space><leftCabin><space><rowLabel><space><leftMarker><space><seats><space><rightMarker><space><rowLabel><space><rightCabin>
+    lines.push(` ${leftCabin} ${rowLabel}  ${leftMarker}  ${seats}  ${rightMarker}  ${rowLabel} ${rightCabin}`);
+  });
+
+  // Bottom column header — same indent as the top.
+  lines.push(`${headerIndent}${headerCols}`);
   return lines;
 }
 

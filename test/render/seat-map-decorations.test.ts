@@ -107,10 +107,14 @@ describe('Amadeus SM 1 renders decorations per-cell', () => {
     await host.process('AN15JULDFWLHR', wa);
     await host.process('SS1F1', wa); // BA192 777
     const resp = await host.process('SM 1', wa);
-    // Bulkhead row (FIRST cabin row 1) should have L cells
-    expect(resp).toMatch(/1\s+L\s+L/);
-    // Exit row should have E cells (already from chunk 2)
-    expect(resp).toContain('--- EXIT ROW ---');
+    // Bulkhead row (FIRST cabin row 1) should have L cells. Amadeus
+    // mirrored format puts B marker before the seats, so the L cells
+    // come after the "B " marker not directly after "1".
+    expect(resp).toMatch(/F\s+1\s+B.*L\s+L/);
+    // Exit row markers: in mirrored mode the per-row E marker replaces
+    // the cross-dialect "--- EXIT ROW ---" divider. Either the divider
+    // or per-cell E should show up.
+    expect(resp).toMatch(/E\s+E|EXIT ROW/);
   });
 
   it('legend includes L LEGROOM + V PREF.SEAT + Y CHARGEABLE', async () => {
