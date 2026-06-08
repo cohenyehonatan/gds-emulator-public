@@ -1,13 +1,18 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-4 LANDED — PRE-CHUNK-5 (2026-06-07). Chunks 0-4
-all closed. Amadeus SM family (segment / direct / avail-line) and
-Sabre 4G family (segment / direct) both wired through the same
-cross-dialect renderer; dialect-specific headers via
-`amadeusSeatMapHeader` / `sabreSeatMapHeader`. Renderer lives at
-`src/render/seat-map-render.ts` (moved from amadeus/ in chunk 4
-refactor). 1052 tests pass. Chunk 5 (Galileo seatmap parity) is
-the next code-bearing chunk.
+**Status:** CHUNK-5 LANDED — PRE-CHUNK-6 (2026-06-07). Chunks 0-5
+all closed. All 4 dialects now have seat-map display via the same
+cross-dialect renderer:
+- Amadeus SM family (segment / direct / avail-line)
+- Sabre 4G family (segment / direct)
+- Galileo SA*/SM* family (segment / direct via refresh / avail-line)
+- Apollo via the Galileo translator (pass-through, no extra wiring)
+
+Dialect-specific headers: `amadeusSeatMapHeader`,
+`sabreSeatMapHeader`, `galileoSeatMapHeader`. 1063 tests pass. Chunk
+6 (live Travelport `/seatmaps` REST wire for Galileo) is the next
+code-bearing chunk — the canonical request body was sourced in
+chunk 0 from the devkit; ready to wire.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -625,13 +630,51 @@ Landed in commit (this commit).
       - NO SEAT MAP path documented as covered cross-dialect by chunk
         1's test suite
 
-### Chunk 5 — Galileo seatmap parity
+### Chunk 5 — Galileo seatmap parity ✅
 
-- [ ] Look up Galileo's seatmap verb in Smartpoint Module 2.
-- [ ] Implement in `dialects/galileo/dispatch.ts`.
-- [ ] Apollo inherits via the translator (verify no translation needed
-      first; the SM family might pass through unchanged).
-- [ ] Tests + harness probe in `validate-galileo-diff-oracle.ts`.
+Landed in commit (this commit).
+
+- [x] **Sourced Galileo's seatmap verbs** from the Galileo Pocket
+      Guide (the Mini Guide + Smartpoint Module 2 reference seat maps
+      only as Smartpoint click-targets, not cryptic; the Pocket Guide
+      lists the cryptic verbs verbatim):
+      - `SA*S<n>` — Seat map for segment n
+      - `SA*` — Refresh the last displayed seat map
+      - `SM*A<line>[<class>]` — Seat map from a cached availability line
+      Seat-request side of the family (`S.P2.4/10A.D`, `SC*10A`, etc.)
+      is deferred to a follow-up chunk.
+- [x] **Implemented in `dialects/galileo/`** by extending the
+      cross-dialect `SeatMapEntry` shape (added `'avail-line'` and
+      `'refresh'` to the source union; added optional `line` field).
+      Galileo's parser gained three new branches for SA*/SM*; dispatch
+      gained a `handleGalileoSeatMap` function calling the same
+      `Inventory.seatMapFor` + `synthesizeAvailability` + `renderSeatMap`
+      pipeline. New `galileoSeatMapHeader` builder in the shared
+      renderer.
+
+      Galileo header format (reconstructed — Pocket Guide doesn't pin
+      the wording):
+      `<carrier><flight>/<class> <date> <citypair>  EQP <equipment>`
+- [x] **Apollo inherits via the translator** — no translation change
+      needed. SA*/SM* don't trigger any of the three Apollo→Galileo
+      rewrite patterns (`0<digit>` → `N<digit>`, `.<digit>` → `@<digit>`,
+      `A...+<carrier>` → `A.../<carrier>`), so Apollo users get the
+      same Galileo handler via the unchanged dispatch.
+- [ ] Diff-oracle probe — deferred to chunk 6 (live-REST chunk),
+      when live and emulated can be compared meaningfully.
+- [x] **11 tests in `test/dialects/galileo-seat-map.test.ts`**:
+      - SA*S<n> with no PNR → NO BOOKING FILE
+      - SA*S<n> with out-of-range segment → SEGMENT NOT IN ITINERARY
+      - SA*S<n> happy path (Galileo-style header + grid)
+      - SA*S<n> caches lastSeatMap
+      - SA* with no cached map → NO SEAT MAP DISPLAYED
+      - SA* replays the last seat map (byte-equal to original)
+      - SM*A<line> from cached availability
+      - SM*A<line><class> includes class in header
+      - SM*A<line> with no prior availability → NO AVAILABILITY
+      - SM*A<line> with out-of-range line → LINE NOT IN AVAILABILITY
+      - Apollo SA*S<n> works under ApolloDialect (translator
+        pass-through verified)
 
 ### Chunk 6 — Live Travelport `/seatmaps` REST wire
 

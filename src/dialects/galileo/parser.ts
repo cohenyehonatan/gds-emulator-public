@@ -127,6 +127,34 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
+  // Galileo seat-map family (Pocket Guide):
+  //   SA*S<n>        seat map for segment n
+  //   SA*            refresh last seat map
+  //   SM*A<line>[<class>]   seat map from cached availability
+  const saSegMatch = /^SA\*S(\d{1,2})$/.exec(u);
+  if (saSegMatch) {
+    return {
+      kind: 'seat_map',
+      raw: trimmed,
+      timestamp: new Date(),
+      source: 'segment',
+      segment: parseInt(saSegMatch[1], 10),
+    };
+  }
+  if (u === 'SA*') {
+    return { kind: 'seat_map', raw: trimmed, timestamp: new Date(), source: 'refresh' };
+  }
+  const smAvailMatch = /^SM\*A(\d{1,2})([A-Z])?$/.exec(u);
+  if (smAvailMatch) {
+    return {
+      kind: 'seat_map',
+      raw: trimmed,
+      timestamp: new Date(),
+      source: 'avail-line',
+      line: parseInt(smAvailMatch[1], 10),
+      bookingClass: smAvailMatch[2],
+    };
+  }
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
 

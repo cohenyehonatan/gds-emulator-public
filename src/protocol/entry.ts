@@ -142,17 +142,29 @@ export interface FlightInfoEntry extends BaseEntry {
 }
 
 /**
- * Seat map display (Sabre 4G family — Basic Course "Display Seat Maps"):
- *   4G<n>*                          segment-based; needs current PNR
- *   4G*<carrier><flight><class><date><citypair>   direct
+ * Seat map display — cross-dialect entry, covers:
+ *
+ * Sabre 4G family (Basic Course "Display Seat Maps"):
+ *   4G<n>*                                          source='segment'
+ *   4G*<carrier><flight><class><date><citypair>     source='direct'
+ *
+ * Galileo SA/SM family (Pocket Guide):
+ *   SA*S<n>          source='segment' (segment-based)
+ *   SA*              source='refresh' (re-display last seat map)
+ *   SM*A<line>[<class>]   source='avail-line' (from cached availability)
+ *
+ * Amadeus SM family lives in the dialect's free-form dispatch and
+ * doesn't parse to this entry — Amadeus owns its own SmRequest shape.
+ *
  * Both forms cache the displayed map on wa.lastSeatMap for chunk 7
- * scrolling. The seat-request side of the 4G family (4G<n>/<seat>-<name>
- * etc.) is a separate entry kind — deferred to a follow-up chunk.
+ * scrolling. The seat-request side of these families (4G<n>/<seat>-<name>,
+ * S.P2/10A.D, etc.) is a separate entry kind — deferred to a follow-up chunk.
  */
 export interface SeatMapEntry extends BaseEntry {
   kind: 'seat_map';
-  source: 'segment' | 'direct';
+  source: 'segment' | 'direct' | 'avail-line' | 'refresh';
   segment?: number;
+  line?: number;
   carrier?: string;
   flightNumber?: string;
   bookingClass?: string;

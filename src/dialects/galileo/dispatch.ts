@@ -85,6 +85,8 @@ import {
   renderGalileoFareDisplay,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
+import { synthesizeAvailability } from '../../models/seat-map.js';
+import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
 
@@ -226,6 +228,9 @@ export function dispatchGalileo(
 
       case 'flight_info':
         return handleGalileoFlightInfo(entry, wa);
+
+      case 'seat_map':
+        return handleGalileoSeatMap(entry, wa, ctx);
 
       case 'void':
         return handleGalileoVoid(entry, wa, ctx);
@@ -2337,6 +2342,100 @@ function handleGalileoFlightInfo(entry: FlightInfoEntry, wa: WorkArea): string {
   const line = avail.lines.find((l) => l.line === target);
   if (!line) return GalileoResponse.FORMAT;
   return renderGalileoFlightInfo(line, avail.date);
+}
+
+/**
+ * Galileo SA/SM seat-map family (Pocket Guide).
+ *   SA*S<n>          source='segment'   — display for segment n
+ *   SA*              source='refresh'   — re-display last seat map
+ *   SM*A<line>[<cls>] source='avail-line' — from cached availability
+ *
+ * Reuses the cross-dialect Inventory.seatMapFor + synthesizeAvailability
+ * + renderSeatMap pipeline. Header built by `galileoSeatMapHeader`
+ * (reconstructed format — Pocket Guide doesn't pin the wording).
+ */
+function handleGalileoSeatMap(
+  entry: import('../../protocol/entry.js').SeatMapEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): string {
+  let segment: AirSegment;
+  let segmentNumber: number;
+
+  if (entry.source === 'segment') {
+    if (wa.pnr.segments.length === 0) return GalileoResponse.NO_PNR;
+    const seg = wa.pnr.segments.find((s) => s.segmentNumber === entry.segment);
+    if (!seg) return 'SEGMENT NOT IN ITINERARY';
+    segment = seg;
+    segmentNumber = entry.segment!;
+  } else if (entry.source === 'refresh') {
+    // SA* refresh: re-display the most-recently-shown seat map. If
+    // none, fall through to NO PNR / no display per Galileo conventions.
+    if (!wa.lastSeatMap) return 'NO SEAT MAP DISPLAYED';
+    const map = wa.lastSeatMap.map;
+    const segNum = wa.lastSeatMap.segment;
+    // Try to find the corresponding PNR segment for the header; if
+    // not found (avail-line origin, since-cleared), construct a
+    // minimal stand-in from the cached map.
+    const pnrSeg = wa.pnr.segments.find((s) => s.segmentNumber === segNum);
+    if (pnrSeg) {
+      segment = pnrSeg;
+      segmentNumber = segNum;
+    } else {
+      segment = {
+        segmentNumber: segNum,
+        carrier: map.carrier,
+        flightNumber: map.flightNumber,
+        bookingClass: 'Y',
+        date: '01JAN',
+        dayOfWeek: '?',
+        dayOfWeekNum: 0,
+        origin: '???',
+        destination: '???',
+        status: StatusCode.SS,
+        seats: 1,
+        departTime: '',
+        arriveTime: '',
+      };
+      segmentNumber = segNum;
+    }
+    const locatorKey = wa.pnr.locator ?? 'PENDING';
+    const availability = synthesizeAvailability(map, locatorKey, segment.date);
+    const header = galileoSeatMapHeader(map, segment);
+    return renderSeatMap(map, availability, header, 'V');
+  } else if (entry.source === 'avail-line') {
+    if (!wa.lastAvailability) return 'NO AVAILABILITY';
+    const target = wa.lastAvailability.lines.find((l) => l.line === entry.line);
+    if (!target) return 'LINE NOT IN AVAILABILITY';
+    segment = {
+      segmentNumber: 1,
+      carrier: target.carrier,
+      flightNumber: target.flightNumber,
+      bookingClass: entry.bookingClass ?? 'Y',
+      date: target.date,
+      dayOfWeek: target.dayOfWeek,
+      dayOfWeekNum: target.dayOfWeekNum,
+      origin: target.origin,
+      destination: target.destination,
+      status: StatusCode.SS,
+      seats: 1,
+      departTime: target.departTime,
+      arriveTime: target.arriveTime,
+    };
+    segmentNumber = 1;
+  } else {
+    return GalileoResponse.FORMAT; // unreachable
+  }
+
+  const map = ctx.backend.inventory.seatMapFor(segment.carrier, segment.flightNumber);
+  if (!map) return 'NO SEAT MAP AVAILABLE';
+
+  const locatorKey = wa.pnr.locator ?? 'PENDING';
+  const availability = synthesizeAvailability(map, locatorKey, segment.date);
+  wa.lastSeatMap = { segment: segmentNumber, map };
+
+  const header = galileoSeatMapHeader(map, segment);
+  return renderSeatMap(map, availability, header, 'V');
 }
 
 /**

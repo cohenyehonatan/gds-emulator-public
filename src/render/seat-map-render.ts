@@ -213,3 +213,18 @@ export function sabreSeatMapHeader(
   const cls = segment.bookingClass || 'Y';
   return `${seatMap.flightNumber}${cls} ${segment.date} ${segment.origin}${segment.destination}\nSEATS INVENTORY DETAIL`;
 }
+
+/**
+ * Build the Galileo-style header. The Pocket Guide doesn't pin the
+ * exact wording; reconstructed from the documented entry forms +
+ * Galileo's general single-flight display conventions:
+ *   <carrier><flight>/<class> <date> <orig><dest>  EQP <equipment>
+ * Single line, all-caps tokens, space-separated.
+ */
+export function galileoSeatMapHeader(
+  seatMap: SeatMap,
+  segment: AirSegment,
+): string {
+  const cls = segment.bookingClass || 'Y';
+  return `${seatMap.carrier}${seatMap.flightNumber}/${cls} ${segment.date} ${segment.origin}${segment.destination}  EQP ${seatMap.equipment}`;
+}
