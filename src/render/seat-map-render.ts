@@ -104,8 +104,13 @@ export const AMADEUS_GLYPHS: SeatMapGlyphs = {
     NoSeat: ' ',
     Unavailable: 'X',
   },
-  positionPriority: ['E', 'H'],
-  legend: 'LEGEND: . AVAILABLE  + OCCUPIED  X BLOCKED  E EXIT  H HANDICAP  (Amadeus Service Hub solution 794907)',
+  // Position priority — order is overlay-precedence. E (exit) wins
+  // even on occupied seats; L (legroom) / V (preferred) / Y
+  // (chargeable) overlay status glyphs per the Amadeus AA0505 sample
+  // convention (a chargeable seat that's also occupied still shows Y,
+  // not +, because the position SCC is the more informative marker).
+  positionPriority: ['E', 'L', 'V', 'Y', 'H'],
+  legend: 'LEGEND: . AVAILABLE  + OCCUPIED  X BLOCKED  E EXIT  L LEGROOM  V PREF.SEAT  Y CHARGEABLE  H HANDICAP  (Amadeus Service Hub solution 794907)',
 };
 
 export const SABRE_GLYPHS: SeatMapGlyphs = {
@@ -150,9 +155,19 @@ export function renderSeatMap(
   availability: SeatAvailabilityList[],
   header: string,
   orientation: RenderOrientation = 'V',
-  opts: { rowOffset?: number; rowsPerPage?: number; showLegend?: boolean; glyphs?: SeatMapGlyphs } = {},
+  opts: {
+    rowOffset?: number;
+    rowsPerPage?: number;
+    showLegend?: boolean;
+    glyphs?: SeatMapGlyphs;
+    /** Per-seat extra characteristic codes (e.g. from
+     *  `synthesizeDecorations`). Merged with each seat's existing
+     *  Characteristic for position-priority lookup. */
+    decorations?: Map<string, string[]>;
+  } = {},
 ): string {
   const glyphs = opts.glyphs ?? GALILEO_GLYPHS;
+  const decorations = opts.decorations;
   const statusByLabel = new Map<string, SeatAvailabilityStatus>();
   for (const bucket of availability) {
     const status = bucket.seatAvailabilityStatus as SeatAvailabilityStatus;
@@ -188,7 +203,7 @@ export function renderSeatMap(
       rowsEmitted += sliceLen;
     }
     sections.push('');
-    sections.push(...renderCabin(visibleCabin, statusByLabel, orientation, glyphs));
+    sections.push(...renderCabin(visibleCabin, statusByLabel, orientation, glyphs, decorations));
   }
   const footer: string[] = [];
   if (limit !== undefined) {
@@ -207,12 +222,13 @@ function renderCabin(
   statusByLabel: Map<string, SeatAvailabilityStatus>,
   orientation: RenderOrientation,
   glyphs: SeatMapGlyphs,
+  decorations?: Map<string, string[]>,
 ): string[] {
   const columns = cabin.Layout
     .filter((e) => e.value)
     .map((e) => e.value!);
   const aisleAfter = cabin.aisleAfterColumn ?? [];
-  if (orientation === 'H') return renderHorizontal(cabin, columns, aisleAfter, statusByLabel, glyphs);
+  if (orientation === 'H') return renderHorizontal(cabin, columns, aisleAfter, statusByLabel, glyphs, decorations);
 
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
@@ -229,7 +245,7 @@ function renderCabin(
     const seatChars = columns.map((col) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return ' ';
-      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs);
+      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs, decorations);
     });
     const seats = formatRow(columns, seatChars, aisleAfter);
     const rowLabel = row.label.padStart(3, ' ');
@@ -244,6 +260,7 @@ function renderHorizontal(
   aisleAfter: string[],
   statusByLabel: Map<string, SeatAvailabilityStatus>,
   glyphs: SeatMapGlyphs,
+  decorations?: Map<string, string[]>,
 ): string[] {
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
@@ -254,7 +271,7 @@ function renderHorizontal(
     const cells = cabin.Row.map((row) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return '   ';
-      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs).padStart(3, ' ');
+      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs, decorations).padStart(3, ' ');
     });
     lines.push(` ${' '.repeat(11)} ${col}   ${cells.join(' ')}`);
     // Blank line between aisle-separated column rows for visual gap.
@@ -268,11 +285,17 @@ function renderSeat(
   space: SeatSpace,
   statusByLabel: Map<string, SeatAvailabilityStatus>,
   glyphs: SeatMapGlyphs,
+  decorations?: Map<string, string[]>,
 ): string {
-  const chars = space.Characteristic ?? [];
-  if (chars.some((c) => NO_SEAT_CHARACTERISTICS.has(c))) return ' ';
+  const baseChars = space.Characteristic ?? [];
+  if (baseChars.some((c) => NO_SEAT_CHARACTERISTICS.has(c))) return ' ';
+  // Merge per-seat decorations (Y/V/L from `synthesizeDecorations`)
+  // with the seat's structural Characteristic. Decorations are
+  // additive — they appear in the per-cell position-priority lookup
+  // alongside the structural codes.
+  const decor = decorations?.get(label) ?? [];
   for (const code of glyphs.positionPriority) {
-    if (chars.includes(code)) return code;
+    if (baseChars.includes(code) || decor.includes(code)) return code;
   }
   const status = statusByLabel.get(label);
   return status ? glyphs.statusGlyphs[status] : '?';

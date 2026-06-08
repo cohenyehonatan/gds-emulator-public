@@ -63,7 +63,7 @@ import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
-import { synthesizeAvailability } from '../../models/seat-map.js';
+import { synthesizeAvailability, synthesizeDecorations } from '../../models/seat-map.js';
 import { renderSeatMap, amadeusSeatMapHeader, AMADEUS_GLYPHS, type RenderOrientation } from '../../render/seat-map-render.js';
 
 /**
@@ -1385,6 +1385,7 @@ export class AmadeusDialect implements Dialect {
       const { map, segment, segmentNumber } = resolved;
       const locatorKey = wa.pnr.locator ?? 'PENDING';
       const availability = synthesizeAvailability(map, locatorKey, segment.date);
+      const decorations = synthesizeDecorations(map, locatorKey, segment.date);
       // Reset scroll position on a fresh SM query; cache the segment
       // so chunk 7's MD/MU/MB/MT can re-render without re-resolving.
       wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
@@ -1393,6 +1394,7 @@ export class AmadeusDialect implements Dialect {
         rowsPerPage: SM_PAGE_SIZE,
         showLegend: smReq.showLegend,
         glyphs: AMADEUS_GLYPHS,
+        decorations,
       });
     }
 
@@ -1414,11 +1416,13 @@ export class AmadeusDialect implements Dialect {
       cached.scrollRow = newOffset;
       const locatorKey = wa.pnr.locator ?? 'PENDING';
       const availability = synthesizeAvailability(cached.map, locatorKey, cached.cachedSegment.date);
+      const decorations = synthesizeDecorations(cached.map, locatorKey, cached.cachedSegment.date);
       const header = amadeusSeatMapHeader(cached.map, cached.cachedSegment, cached.segment);
       return renderSeatMap(cached.map, availability, header, 'V', {
         rowOffset: newOffset,
         rowsPerPage: SM_PAGE_SIZE,
         glyphs: AMADEUS_GLYPHS,
+        decorations,
       });
     }
 

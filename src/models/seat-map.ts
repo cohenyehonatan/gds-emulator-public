@@ -172,6 +172,59 @@ export interface SeatAvailabilityList {
 }
 
 /**
+ * Synthesize per-seat decoration characteristics — legroom (L),
+ * preferred (V), chargeable (Y) — deterministic keyed on (locator,
+ * date, seat label). Same query → same decorations.
+ *
+ * Pattern (matches the AA0505 Amadeus Service Hub sample p.14
+ * conventions):
+ * - Bulkhead row (first row of any cabin) → L (legroom)
+ * - Exit rows → L (legroom)
+ * - First 3 rows of ECONOMY → ~30% V (preferred)
+ * - Remaining seats: ~15% Y (chargeable), rest unmarked
+ *
+ * Returns a Map<seatLabel, string[]> of extra characteristic codes
+ * to merge with each seat's existing structural Characteristic at
+ * render time. Each dialect's renderer decides whether to consume
+ * them — Amadeus's per-cell glyphs include Y/V/L; Sabre/Galileo
+ * default position priorities ignore them.
+ */
+export function synthesizeDecorations(
+  seatMap: SeatMap,
+  locator: string,
+  date: string,
+): Map<string, string[]> {
+  const decorations = new Map<string, string[]>();
+  for (const cabin of seatMap.Cabin) {
+    const firstRowLabel = cabin.Row[0]?.label;
+    const isEconomy = cabin.name.toUpperCase() === 'ECONOMY';
+    const firstThreeEconomyRows = isEconomy ? cabin.Row.slice(0, 3).map((r) => r.label) : [];
+    for (const row of cabin.Row) {
+      const isBulkhead = row.label === firstRowLabel;
+      const isExit = row.Space.some((s) => s.Characteristic?.includes('E'));
+      const isFrontEconomy = firstThreeEconomyRows.includes(row.label);
+      for (const space of row.Space) {
+        const label = `${row.label}${space.location}`;
+        const extras: string[] = [];
+        if (isBulkhead || isExit) {
+          extras.push('L'); // legroom — structural by row position
+        } else {
+          const seed = djb2(`${locator}|${date}|${label}|dec`);
+          const r = seed % 1000;
+          if (isFrontEconomy && r < 300) {
+            extras.push('V'); // preferred — front of econ, 30% chance
+          } else if (r >= 850) {
+            extras.push('Y'); // chargeable — 15% chance
+          }
+        }
+        if (extras.length > 0) decorations.set(label, extras);
+      }
+    }
+  }
+  return decorations;
+}
+
+/**
  * Synthesize per-seat availability for the seat map, deterministic
  * keyed on (locator, date, seat label). Same query → same answer
  * across multiple calls; different locators → different distributions.
