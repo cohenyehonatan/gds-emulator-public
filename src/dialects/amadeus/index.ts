@@ -196,7 +196,7 @@ function parseAvailability(arg: string): { date: string; dow: { letter: string; 
   return { date: date.raw, dow: date.dow, origin: m[2], destination: m[3], afterMinutes };
 }
 
-const TITLES = new Set(['MR', 'MRS', 'MS', 'MISS', 'DR', 'PROF']);
+const TITLES = new Set(['MR', 'MRS', 'MS', 'MISS', 'DR', 'PROF', 'MSTR', 'CHD', 'INF']);
 
 function splitTitle(rawGiven: string): { given: string; title?: string } {
   const parts = rawGiven.split(/\s+/);
@@ -672,6 +672,83 @@ function parseSignInArgument(arg: string): { agent: string } | undefined {
   const match = /^(\d{1,4})([A-Z]{1,3})\/([A-Z]{1,3})$/.exec(arg);
   if (!match) return undefined;
   return { agent: match[2] };
+}
+
+/**
+ * IATA / FAA SSR codes that disqualify a passenger from an exit-row
+ * seat. The carrier's tariff may be stricter (some carriers also
+ * exclude PETC, ESAN, NSST, etc.) but these are the universally-
+ * agreed core set. Per IATA Resolution 700 + 14 CFR 121.585.
+ */
+const EXIT_ROW_INELIGIBLE_SSRS: ReadonlySet<string> = new Set([
+  'WCHR',  // wheelchair, can walk up steps
+  'WCHS',  // wheelchair, can walk to seat with assistance
+  'WCHC',  // wheelchair, completely immobile
+  'BLND',  // blind passenger
+  'DEAF',  // deaf passenger
+  'MAAS',  // meet & assist (UMNR / elderly / disabled assistance)
+  'DPNA',  // disabled passenger needing assistance
+  'UMNR',  // unaccompanied minor
+  'INFT',  // infant
+  'BSCT',  // bassinet (implies infant)
+]);
+
+/** Titles that indicate a child or infant passenger. */
+const CHILD_TITLES: ReadonlySet<string> = new Set([
+  'CHD',   // child
+  'INF',   // infant
+  'MSTR',  // master (young boy)
+]);
+
+/**
+ * Return a reason string if any passenger covered by `nameRef` is
+ * ineligible for an exit-row seat, or `undefined` if all targeted
+ * passengers are eligible.
+ *
+ * When `nameRef` is undefined, ALL passengers on the PNR are checked
+ * (ST/<seat> with no /P<n> applies to all pax). When `nameRef` is
+ * present, only that name item (and optionally the specific
+ * passenger within the item) is checked.
+ */
+function findExitRowIneligible(
+  pnr: import('../../models/pnr.js').Pnr,
+  nameRef?: { item: number; passenger?: number },
+): string | undefined {
+  // Targeted name items.
+  const itemsToCheck = nameRef
+    ? [pnr.names[nameRef.item - 1]].filter((n): n is import('../../models/name-element.js').NameItem => !!n)
+    : pnr.names;
+
+  for (const item of itemsToCheck) {
+    if (item.infant) return 'INFANT';
+    // Per-passenger title check (CHD / INF / MSTR).
+    const passengers = nameRef?.passenger != null
+      ? [item.passengers[nameRef.passenger - 1]].filter(Boolean)
+      : item.passengers;
+    for (const p of passengers) {
+      if (p?.title && CHILD_TITLES.has(p.title.toUpperCase())) {
+        return p.title.toUpperCase() === 'INF' ? 'INFANT' : 'CHILD';
+      }
+    }
+  }
+
+  // SSR check — match any ineligible SSR whose nameRef targets one
+  // of the checked passengers (or all pax if no nameRef on the SSR).
+  const targetItemNumbers = nameRef
+    ? new Set([nameRef.item])
+    : new Set(pnr.names.map((_, i) => i + 1));
+  for (const ssr of pnr.ssrs) {
+    if (!EXIT_ROW_INELIGIBLE_SSRS.has(ssr.code)) continue;
+    // SSR with no nameRef applies to all pax.
+    if (!ssr.nameRef) return `SSR ${ssr.code}`;
+    if (targetItemNumbers.has(ssr.nameRef.item)) {
+      if (nameRef?.passenger != null && ssr.nameRef.passenger != null &&
+          ssr.nameRef.passenger !== nameRef.passenger) continue;
+      return `SSR ${ssr.code}`;
+    }
+  }
+
+  return undefined;
 }
 
 export class AmadeusDialect implements Dialect {
@@ -1485,11 +1562,28 @@ export class AmadeusDialect implements Dialect {
                 break;
               }
             }
-            // Exit-row passenger-profile check is deferred (needs
-            // pax type modeling per design doc chunk 8). Currently
-            // an exit-row seat assignment to any passenger accepts
-            // silently; once pax types land, this is the spot to
-            // warn for unaccompanied minors / disabled / etc.
+            // Chunk 7 deferred #5: exit-row passenger-profile check.
+            // Per IATA / FAA emergency-exit-row eligibility rules, the
+            // following passengers MUST NOT be seated in exit rows:
+            //   - Infants (NameItem.infant = true / SSR INFT / BSCT)
+            //   - Unaccompanied minors (SSR UMNR)
+            //   - Passengers requiring mobility/medical assistance
+            //     (SSR WCHR, WCHS, WCHC, BLND, DEAF, MAAS, DPNA)
+            // The check fires only on specific-seat ST/<seat> entries
+            // that target an exit row (the seat's Characteristic
+            // array contains 'E'). Preference-only ST/<pref> entries
+            // are unaffected — the airline allocates a non-exit seat
+            // automatically when an ineligible pax holds a preference.
+            const isExitSeat = map.Cabin.some((c) =>
+              c.Row.some((r) =>
+                r.label === rowLabel &&
+                r.Space.some((s) => s.location === col && s.Characteristic?.includes('E')),
+              ),
+            );
+            if (isExitSeat) {
+              const ineligible = findExitRowIneligible(wa.pnr, nameRef);
+              if (ineligible) return `EXIT ROW RESTRICTED - ${ineligible}`;
+            }
           }
         }
       }
