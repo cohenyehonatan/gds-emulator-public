@@ -218,6 +218,46 @@ describe('Galileo SA*S<n> live — POSTs the canonical /seatmaps body', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('Result.Error[] with code 225 → SEAT MAP UNAVAILABLE - CODE SHARE FLIGHT', async () => {
+    // Travelport semantic-200 pattern: HTTP 200 with Result.Error[].
+    // extractSeatMapError peels the code and maps to a friendly string.
+    const { host } = makeLiveHost();
+    const wa = host.newWorkArea();
+    wa.lastAvailability = {
+      date: '15JUL', origin: 'DEN', destination: 'ORD',
+      searchIdentifier: 'search-uuid-123',
+      lines: [{
+        line: 1, carrier: 'UA', flightNumber: '2430',
+        classes: { Y: 9 }, origin: 'DEN', destination: 'ORD',
+        departTime: '745A', arriveTime: '1125A', equipment: '777',
+        date: '15JUL', dayOfWeek: 'W', dayOfWeekNum: 3,
+        vendorRef: { offerId: 'o1', productId: 'p7' },
+      }],
+    };
+    wa.pnr.segments.push({
+      segmentNumber: 1, carrier: 'UA', flightNumber: '2430',
+      bookingClass: 'Y', date: '15JUL', dayOfWeek: 'W', dayOfWeekNum: 3,
+      origin: 'DEN', destination: 'ORD', status: 'HK', seats: 1,
+      departTime: '745A', arriveTime: '1125A',
+    });
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            CatalogOfferingsAncillaryListResponse: {
+              Result: {
+                Error: [{ Code: '225', Message: 'Seat map unavailable on code share flight' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    const resp = await host.process('SA*S1', wa);
+    expect(resp).toBe('SEAT MAP UNAVAILABLE - CODE SHARE FLIGHT');
+  });
+
   it('returns LIVE BACKEND ERROR when the seatmap endpoint throws', async () => {
     const { host } = makeLiveHost();
     const wa = host.newWorkArea();

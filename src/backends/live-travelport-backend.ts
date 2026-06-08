@@ -449,6 +449,20 @@ export class LiveTravelportBackend implements Backend {
   }
 
   private async postJson(url: string, body: unknown, label: string): Promise<unknown> {
+    const parsed = await this.postJsonRaw(url, body, label);
+    this.assertNoSemanticErrors(parsed, label);
+    return parsed;
+  }
+
+  /**
+   * Like `postJson` but DOESN'T assert that the response is free of
+   * Result.Error[] semantic errors. Use this for verbs where a
+   * semantic-error response is a legitimate part of the protocol that
+   * the caller wants to inspect and map (e.g. seat-map endpoint
+   * returning code 26 "Seat Map Unavailable" for a carrier that
+   * doesn't support seat maps). HTTP-level errors still throw.
+   */
+  private async postJsonRaw(url: string, body: unknown, label: string): Promise<unknown> {
     const headers = await this.tripServicesHeaders();
     const res = await this.pacedFetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const text = await res.text();
@@ -457,9 +471,7 @@ export class LiveTravelportBackend implements Backend {
         `LiveTravelportBackend ${label} failed: HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`
       );
     }
-    const parsed = JSON.parse(text);
-    this.assertNoSemanticErrors(parsed, label);
-    return parsed;
+    return JSON.parse(text);
   }
 
   /** Shared GET helper with the same header/error treatment as postJson. */
@@ -601,7 +613,12 @@ export class LiveTravelportBackend implements Backend {
         },
       },
     };
-    return this.postJson(url, body, 'searchSeatAvailabilities');
+    // Use raw post — seat-map endpoint legitimately returns
+    // Result.Error[] for code-share flights, carriers without seat
+    // support, etc. The Galileo handler maps these via
+    // `extractSeatMapError` (travelport-mapper.ts) to friendly
+    // response strings rather than treating them as exceptions.
+    return this.postJsonRaw(url, body, 'searchSeatAvailabilities');
   }
 
   /**

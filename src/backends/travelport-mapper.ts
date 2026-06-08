@@ -894,6 +894,91 @@ export function mapSeatAvailabilities(response: unknown): {
   };
 }
 
+/**
+ * Extract a Travelport seat-map error from a `Result.Error[]` envelope
+ * (the HTTP-200-plus-semantic-error pattern that Travelport JSON Air
+ * v11 uses; see `references/galileo/Travelport-JSON-Air-v11-API-
+ * Spec.md`). Returns `undefined` if no errors are present, or the
+ * mapped error info if at least one error appears.
+ *
+ * The numeric error code list is from the Travelport API Developer
+ * Notes (`references/galileo/Travelport-API-Dev-Notes-Seat-Maps.pdf`
+ * p.13 + the GWS task documentation). For the v11 JSON wire, codes
+ * may use the same numerics or text-based codes — we accept both
+ * by checking both `Code` and `Message` fields.
+ */
+export interface SeatMapError {
+  /** Friendly response string suitable for surfacing to the operator. */
+  message: string;
+  /** Raw error code from the response (numeric string or text). */
+  rawCode: string;
+  /** Raw message from the response. */
+  rawMessage: string;
+}
+
+/**
+ * Map of GWS error codes / message fragments → friendly response
+ * strings. Codes verbatim from the Dev Notes p.13 + the GWS task docs.
+ * Lookup tries numeric Code first, then falls back to Message
+ * substring matching for v11 JSON responses that may use text codes.
+ */
+const GWS_SEAT_MAP_ERRORS: Record<string, string> = {
+  '11':  'INVALID BOARD/OFF POINT',
+  '26':  'SEAT MAP UNAVAILABLE',
+  '100': 'INVALID BOARD POINT',
+  '101': 'INVALID OFF POINT',
+  '102': 'INVALID DATE',
+  '104': 'INVALID CLASS CODE',
+  '107': 'INVALID AIRLINE CODE',
+  '114': 'INVALID FLIGHT NUMBER',
+  '118': 'SEAT MAP ERROR',
+  '122': 'SEATING SUSPENDED - AIRPORT CHECK-IN',
+  '197': 'NO SEATS AVAILABLE',
+  '200': 'NO SEATING THIS FLIGHT',
+  '201': 'NO SEATING THIS CLASS',
+  '225': 'SEAT MAP UNAVAILABLE - CODE SHARE FLIGHT',
+  '281': 'GENERIC SEATING ONLY',
+};
+
+/** Fragment-based fallback when the response carries a text Code or
+ *  the numeric Code isn't in our lookup. Matches on Message substring. */
+const SEAT_MAP_ERROR_FRAGMENTS: Array<{ pattern: RegExp; message: string }> = [
+  { pattern: /CODE.?SHARE/i,            message: 'SEAT MAP UNAVAILABLE - CODE SHARE FLIGHT' },
+  { pattern: /NO.{0,5}SEATING/i,        message: 'NO SEATING THIS FLIGHT' },
+  { pattern: /NO.{0,5}SEATS?.?AVAILABLE/i, message: 'NO SEATS AVAILABLE' },
+  { pattern: /SEAT.?MAP.?UNAVAILABLE/i, message: 'SEAT MAP UNAVAILABLE' },
+  { pattern: /SEATING.?SUSPENDED/i,     message: 'SEATING SUSPENDED - AIRPORT CHECK-IN' },
+  { pattern: /INVALID.{0,5}FLIGHT/i,    message: 'INVALID FLIGHT NUMBER' },
+  { pattern: /INVALID.{0,5}CLASS/i,     message: 'INVALID CLASS CODE' },
+  { pattern: /INVALID.{0,5}AIRLINE/i,   message: 'INVALID AIRLINE CODE' },
+  { pattern: /INVALID.{0,5}DATE/i,      message: 'INVALID DATE' },
+  { pattern: /INVALID.{0,5}(BOARD|OFF).?POINT/i, message: 'INVALID BOARD/OFF POINT' },
+];
+
+export function extractSeatMapError(response: unknown): SeatMapError | undefined {
+  const r = response as any;
+  const env = r?.CatalogOfferingsAncillaryListResponse ?? r;
+  const errors = arrayish(env?.Result?.Error);
+  if (errors.length === 0) return undefined;
+  const first = errors[0] as any;
+  const rawCode = String(first?.Code ?? first?.code ?? '').trim();
+  const rawMessage = String(first?.Message ?? first?.message ?? '').trim();
+  // Try numeric/code lookup first.
+  const byCode = GWS_SEAT_MAP_ERRORS[rawCode];
+  if (byCode) return { message: byCode, rawCode, rawMessage };
+  // Fall back to message-substring matching.
+  for (const { pattern, message } of SEAT_MAP_ERROR_FRAGMENTS) {
+    if (pattern.test(rawMessage)) return { message, rawCode, rawMessage };
+  }
+  // Unknown — surface the raw message verbatim so the operator sees
+  // something useful instead of an opaque code.
+  return {
+    message: rawMessage || `SEAT MAP ERROR (${rawCode || 'unknown'})`,
+    rawCode,
+    rawMessage,
+  };
+}
+
 /** Convert a single Travelport `Cabin` block to our Cabin shape. */
 function mapCabin(c: any): import('../models/seat-map.js').Cabin {
   const name = String(c?.name ?? '');

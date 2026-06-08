@@ -2370,7 +2370,13 @@ async function handleGalileoSeatMapLive(
       offerId,
       productId,
     });
-    const { mapSeatAvailabilities } = await import('../../backends/travelport-mapper.js');
+    const { mapSeatAvailabilities, extractSeatMapError } = await import('../../backends/travelport-mapper.js');
+    // Travelport JSON Air v11 returns HTTP 200 + Result.Error[] for
+    // semantic errors. Check that envelope BEFORE attempting to map
+    // the seat-map body. Same calibration pattern as chunk 1's
+    // `retrieveGalileoLive` "RECORD LOCATOR DOES NOT EXIST" fix.
+    const err = extractSeatMapError(raw);
+    if (err) return err.message;
     const mapped = mapSeatAvailabilities(raw);
     if (!mapped) return 'NO SEAT MAP AVAILABLE';
     wa.lastSeatMap = { segment: segmentNumber, map: mapped.seatMap };
