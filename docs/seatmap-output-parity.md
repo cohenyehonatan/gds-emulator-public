@@ -452,31 +452,135 @@ This confirms our renderer's overall shape (cabin display + position
 markers + status indicators + legend) is right; only the exact
 characters used in the cryptic response aren't published.
 
+## 🎯 The Travelport API Developer Notes — Galileo/Apollo data convention found
+
+Third dig, after Jonathan surfaced the URL: `support.travelport.com/
+webhelp/GWS/Content/TRANSACTIONHELP/1API_Dev_Notes/SeatMaps.pdf`
+turned out to be **the most authoritative source we've found for
+Galileo/Apollo seat-map semantics**. Saved in-tree at
+`references/galileo/Travelport-API-Dev-Notes-Seat-Maps.pdf` (Travelport
+2011, API Developer Notes v1.2).
+
+The Dev Notes document the XML response format (which the cryptic
+display renders from) verbatim. Although these are XML element
+values rather than per-cell display characters, they ARE the
+authoritative semantics, and the cryptic mode that pre-dated
+Smartpoint emits these values directly.
+
+### Status codes (verbatim from p.5)
+
+| Code | Meaning |
+|---|---|
+| `A` | Seat Available |
+| `O` | Seat Occupied |
+| `N` | Seat Does Not Exist |
+| `B` | Seat Blocked |
+
+### Display-format modes (verbatim)
+
+| Code | Meaning |
+|---|---|
+| `D` | Detailed format — every seat enumerated |
+| `O` | Occupied-only — only occupied seats listed; rest default to occupied |
+| `A` | Available-only — only available seats listed; rest default to available |
+
+### Seat attributes per EDIFACT Standards 9825 (verbatim from Dev Notes + cross-check vs `references/iata-padis-9825-seat-codes.md`)
+
+| Code | Meaning | Level |
+|---|---|---|
+| `N` | Non smoking | Per-seat |
+| `A` | Aisle | Per-seat |
+| `W` | Window | Per-seat |
+| `1` | Restricted | Per-seat |
+| `J` | Rear-facing (often returned incorrectly per the doc's "Exceptions" section) | Per-seat |
+| `K` | Bulkhead | **Row-level** |
+| `E` | Exit | **Row-level** |
+| `UP` | Upper deck (per Travelport SeatMap_7 doc — 747-400 J class) | Per-seat |
+
+### Column-label format
+
+The response carries a `<ColLabel>` element like `"ABC=DEF"` for 3-3
+narrow-body or `"AB=DEFG=JK"` for 2-4-2 wide-body. The `=` character
+marks aisle positions between column groups. Other separators may
+appear in non-aisle splits.
+
+### Travelport's own warning ("Exceptions" section, p.13, verbatim)
+
+> Inaccurate responses from the vendor are possible. In the previous
+> example, some seats have attributes of J or K. According to the
+> EDIFACT standards organization ... an attribute of J indicates a
+> rear-facing seat, and an attribute of K indicates a bulkhead seat.
+> However, a rear-facing seat on a 747 is unlikely, and a bulkhead
+> seat in the middle of a row that is not a bulkhead row is a
+> contradiction. Therefore, it is safe to conclude that some
+> carriers return seat attributes that are incorrect.
+
+> Limited responses from the vendor are possible. Some carriers seem
+> to indicate both aisle and window seats, and some carriers indicate
+> only aisle or window seats.
+
+This is genuinely useful — Travelport's official guidance is to be
+defensive about EDIFACT attributes returned by carriers. Our chunk
+6 mapper's per-cabin aisle inference (the two-pass algorithm) is
+exactly the kind of "be selective about attributes" approach
+Travelport recommends.
+
+### Comparing to our chunk 0 / chunk 1 work
+
+Our chunk 0 SCC enum (`SccCode` in `src/models/seat-map.ts`) was
+sourced from the IATA PADIS 9825 publication via the Breeze NDC
+mirror — the same EDIFACT standard the Dev Notes cite. Our enum
+covers all the codes the Dev Notes mention plus the full PADIS
+table (~115 codes), so no expansion needed.
+
+Our chunk 0 status enum (`SeatAvailabilityStatus`) was sourced from
+the Travelport JSON Air v11 Service Hub. The values are:
+`Available` / `Reserved` / `Blocked` / `NoSeat` / `Unavailable`.
+The Dev Notes from 2011 used `A` / `O` / `N` / `B` single-letter
+codes. **These are semantically equivalent**: `A→Available`,
+`O→Reserved` (Occupied = Reserved by another), `N→NoSeat`,
+`B→Blocked`. The JSON API normalized them to full words.
+
+### What this means for our renderer
+
+The Dev Notes don't show the **per-cell display character** the
+cryptic terminal renders — they show the data values the XML carries.
+The Smartpoint app turns those values into either:
+- a graphical seat-icon view (the modern default), or
+- a "traditional" cryptic text rendering (the `;` suffix mode)
+
+We still don't have the verbatim characters for the traditional
+cryptic mode for Galileo. BUT the Dev Notes confirm:
+1. Available / Occupied / Blocked / NoSeat are the four base states
+   we model (our `Unavailable` is a JSON-v11 catch-all that maps to
+   one of the four)
+2. Attributes are EDIFACT 9825 — same source we used for chunk 0
+3. Row-level vs per-seat attribute distinction (K, E are row-level)
+4. Travelport's own guidance is to "be selective about attributes"
+   — exactly what our renderer's POSITION_PRIORITY does
+
 ## Conclusion
 
-**No public Galileo seat-map sample exists** that we could find via
-12+ sources including official Travelport webhelp, agent training
-PDFs across 4 continents, and the GWS API documentation. The cryptic
-response is generated by the Smartpoint app from the GWS XML response
-and isn't documented as a fixed format anywhere public — it's
-implicitly the "traditional format" that pre-dated Smartpoint's
-graphical view, and modern Travelport documentation defaults to
-showing the graphical view instead.
+**No public verbatim cryptic-display sample for Galileo SA*S<n>
+exists** that we could find via 15+ sources after three digs.
+HOWEVER, the Travelport API Developer Notes give us the
+**authoritative data convention** (status codes, attributes, column
+label format) that the cryptic display renders from — and our
+chunk 0 work was sourced from compatible standards (IATA PADIS 9825
++ Travelport v11 JSON API), so our model is structurally aligned
+with the official Galileo/Apollo conventions.
 
-Pragmatic call (unchanged from before): keep the reconstructed
-`galileoSeatMapHeader`. If a Galileo sample ever surfaces (most
-likely via a captured live response through the JSON API mapper or
-through an agent who pastes one), align then. The Amadeus-correction
-pattern works: get the verbatim, compare, decide.
+Pragmatic call (unchanged): keep the reconstructed
+`galileoSeatMapHeader`; align per-cell character choices if a
+cryptic-mode sample ever surfaces.
 
-**The dig was worth it though** — three useful side-finds:
-- The `;` suffix for traditional-format mode (could be a future
-  follow-up: accept `SA*S<n>;` as equivalent to `SA*S<n>`)
-- The GWS numeric error code list (useful for chunk 6 live error
-  mapping)
-- Confirmation that the response shape (cabin + position markers +
-  legend) we have is structurally right even if the characters aren't
-  verbatim
+**Three dig findings worth keeping**:
+1. The `;` suffix for traditional-format mode (future follow-up:
+   accept `SA*S<n>;` as alias)
+2. The GWS numeric error code list (chunk 6 live error mapping)
+3. The Dev Notes' status code semantics (`A/O/N/B`) confirm our
+   `Available/Reserved/Blocked/NoSeat` model is aligned with the
+   official Travelport data convention
 
 ## Cross-cutting observations
 
