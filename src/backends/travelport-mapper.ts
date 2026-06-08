@@ -927,17 +927,63 @@ function mapCabin(c: any): import('../models/seat-map.js').Cabin {
     }
     Row.push({ label, Space });
   }
-  // Infer aisleAfterColumn from consecutive 'A' position labels in
-  // Layout — same heuristic the chunk 2 renderer dropped, but here
-  // it's the only signal available. Documented limitation for wide-
-  // body live responses; the mapper warns when the inference is
-  // ambiguous (multiple consecutive A-position runs would be).
-  const columns = Layout.filter((e) => e.value).map((e) => e);
-  const aisleAfterColumn: string[] = [];
+  return { name, Layout, Row, aisleAfterColumn: inferAisleAfterColumn(Layout) };
+}
+
+/**
+ * Infer `aisleAfterColumn` from a Travelport-shape `Layout[]` block.
+ * Two-pass algorithm correctly handles narrow + wide bodies:
+ *
+ * **Pass 1 — "real" letter gaps**: a gap in the column-letter sequence
+ * (e.g. B → D, skipping C) bordered by two position-`A` columns is
+ * a definitive aisle marker. Wide-body layouts (2-4-2, 2-2-2, 3-3-3
+ * intra-cabin) skip letters at aisle positions; Travelport uses this
+ * convention consistently.
+ *
+ * **Pass 2 — fallback consecutive-A**: when no real letter gaps exist
+ * (single-aisle narrow-body like 3-3, where ABCDEF has no skips),
+ * the only signal is two adjacent A-positioned columns. Used ONLY
+ * when Pass 1 found nothing — otherwise it triggers false positives
+ * for 2-2-2 layouts (where the middle pair D-E is "both A" but
+ * separated by seats, not an aisle).
+ *
+ * The chunk-0 design doc captures the test matrix:
+ *   3-3      (ABCDEF, no skip)     → C-D from Pass 2 ✓
+ *   2-4-2    (ABDEFGKL, skips C/HIJ) → B-D, G-K from Pass 1 ✓
+ *   2-2-2    (ABDEGH, skips C/F)    → B-D, E-G from Pass 1 ✓
+ *   3-3-3    (ABCDEFGHJ, skips I)   → C-D, F-G from Pass 2 ✓
+ *                                       (H-J letter gap fails Pass 1
+ *                                       because H/J aren't both A)
+ */
+function inferAisleAfterColumn(
+  Layout: import('../models/seat-map.js').CabinLayoutEntry[],
+): string[] {
+  const columns = Layout.filter((e) => e.value);
+  const result: string[] = [];
+  // Pass 1: real letter gaps (sequence skip + both A-positioned).
+  let foundRealGap = false;
   for (let i = 0; i < columns.length - 1; i++) {
-    const cur = columns[i].position?.includes('A') ?? false;
-    const next = columns[i + 1].position?.includes('A') ?? false;
-    if (cur && next) aisleAfterColumn.push(columns[i].value!);
+    if (isLetterGap(columns[i].value!, columns[i + 1].value!) && bothPositionedA(columns[i], columns[i + 1])) {
+      result.push(columns[i].value!);
+      foundRealGap = true;
+    }
   }
-  return { name, Layout, Row, aisleAfterColumn };
+  if (foundRealGap) return result;
+  // Pass 2: fall back to consecutive-A pairs.
+  for (let i = 0; i < columns.length - 1; i++) {
+    if (bothPositionedA(columns[i], columns[i + 1])) result.push(columns[i].value!);
+  }
+  return result;
+}
+
+function isLetterGap(a: string, b: string): boolean {
+  if (a.length !== 1 || b.length !== 1) return false;
+  return b.charCodeAt(0) > a.charCodeAt(0) + 1;
+}
+
+function bothPositionedA(
+  a: import('../models/seat-map.js').CabinLayoutEntry,
+  b: import('../models/seat-map.js').CabinLayoutEntry,
+): boolean {
+  return (a.position?.includes('A') ?? false) && (b.position?.includes('A') ?? false);
 }

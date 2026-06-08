@@ -696,11 +696,19 @@ Landed in commit (this commit).
         the chart's own `id` field — the **string-keyed lookup, not
         array index** gotcha from the design doc. Pattern lifted
         verbatim from the existing `buildFlightTable` helper.
-      - Per-cabin aisleAfterColumn inferred from consecutive 'A'
-        position labels — same heuristic chunk 2's renderer dropped
-        as brittle for emulated data, but it's the only signal in
-        the live response. Wide-body 2-2-2 will mis-infer here; flagged
-        as a follow-up.
+      - Per-cabin aisleAfterColumn inferred via a **two-pass
+        algorithm** that correctly handles all common cabin layouts.
+        Pass 1: "real" letter gaps in the column sequence bordered by
+        two position-`A` columns (catches 2-4-2, 2-2-2, 2-2). Pass 2
+        (only when Pass 1 found nothing): fallback to consecutive
+        position-A pairs (catches 3-3, 3-3-3). The Pass-2 fallback
+        is gated on Pass 1 being empty so it doesn't trigger false
+        positives for 2-2-2's middle pair (D-E both A but separated
+        by seats, not an aisle). 3-3-3 (ABCDEFGHJ, only I skipped)
+        correctly falls back to Pass 2 because H-J's letter gap
+        fails the "both A" test (H=M, J=W). See
+        `test/backends/seat-map-aisle-inference.test.ts` for the
+        full matrix.
 - [x] **Galileo handler discriminates live** via
       `instanceof LiveTravelportBackend`. New `handleGalileoSeatMapLive`
       branch calls `searchSeatAvailabilities` with the
