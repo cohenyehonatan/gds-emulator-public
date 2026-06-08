@@ -1,14 +1,23 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-7 LANDED (partial) — PRE-CHUNK-8 (2026-06-07).
-Chunks 0-6 fully closed; chunk 7 ships the Amadeus MD/MU/MB/MT scroll
-verbs + paginated renderer + cachedSegment tracking. Three small
-items deferred from chunk 7: `/NL` / `/L` legend toggle, Sabre
-`¤MD`/`¤MU` (modify-parser conflict), Galileo scroll verbs (need
-source verification). All Amadeus seat-map flows now scroll cleanly
-on multi-cabin maps (777 ECONOMY's 27 rows + FIRST + BUSINESS).
-1080 tests pass. Chunk 8 (ST availability validation) is the next
-chunk.
+**Status:** ALL CHUNKS LANDED (2026-06-07). Chunks 0-8 all closed.
+Seat-map feature complete:
+- Chunk 0: SCC + status enums sourced (PADIS 9825 + Travelport v11)
+- Chunk 1: SeatMap model + 10-equipment seed + deterministic synth
+- Chunk 2: Amadeus SM dispatch + WorkArea cache + ST existence-validation
+- Chunk 3: Amadeus direct + avail-line SM forms
+- Chunk 4: Sabre 4G family — cross-dialect renderer extracted to
+  `src/render/seat-map-render.ts` with per-dialect header builders
+- Chunk 5: Galileo SA*/SM* family — Apollo inherits via translator
+- Chunk 6: Live Travelport `/seatmaps` REST wire for Galileo +
+  two-pass aisle inference for live response mapping
+- Chunk 7: Amadeus MD/MU/MB/MT scroll verbs + paginated renderer
+- Chunk 8: ST availability validation against synthesizer status
+
+1084 tests pass. Three small deferred items: `/NL`/`/L` legend
+toggle, Sabre `¤MD`/`¤MU` scroll (modify-parser conflict), Galileo
+scroll verbs (Pocket Guide source verification). Exit-row passenger-
+profile check deferred until pax type modeling.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -788,21 +797,44 @@ Landed in commit (this commit).
       scroll cryptic explicitly; need additional source verification
       before wiring.
 
-### Chunk 8 — ST availability validation
+### Chunk 8 — ST availability validation ✅
 
-- [ ] When `ST/<seat>` references an occupied seat (per the synthesizer
-      from chunk 1), reject with `SEAT NOT AVAILABLE`.
-- [ ] When `ST/<seat>` references an exit-row seat without the right
-      passenger profile (deferred — needs pax type modeling), warn but
-      accept.
-- [ ] **Stays a separate chunk, not folded into chunk 2.** Chunk 2 is
-      already doing model + renderer + ST existence-validation + tests;
-      adding availability validation on top would make the commit
-      message dishonest about scope. Even if the actual implementation
-      is 20 lines, the chunking discipline is worth more than the line
-      count — separate commits keep history grep-able by feature
-      ("ST seat-existence" vs "ST availability") and let chunk 6's live
-      wire land between them without bundling.
+Landed in commit (this commit).
+
+- [x] **Availability check after seat-existence**: when an `ST/<seat>
+      /S<n>` references a seat that exists in the segment's seatmap
+      AND is marked anything-other-than-`Available` by the synthesizer
+      (Reserved / Blocked / NoSeat / Unavailable), reject with
+      `SEAT NOT AVAILABLE`. Existing chunk-2 existence check still
+      runs first; chunk 8 just adds the status check on top.
+- [x] **Bare ST (no `/S<n>`) bypasses availability check** —
+      consistent with chunk 2's existence-check behavior. Without a
+      segment, there's no seatmap to validate against; the seat label
+      is stored verbatim.
+- [x] **Preferences (NSSA / WB) still skip both checks** — the
+      regex `^(\d{1,3})([A-Z])$` filters out non-seat-label codes.
+- [x] **Discipline win**: stayed a separate chunk. Chunk 2's existence
+      validation + chunk 8's availability check are two distinct
+      grep-able features in `git log` ("ST seat-existence" /
+      "ST availability"), which made the chunk-7 scrolling work + the
+      chunk-6 live-wire work both land cleanly between them without
+      bundling.
+- [x] **Exit-row passenger-profile check deferred** — needs pax type
+      modeling (unaccompanied minors / disabled / etc.). Documented
+      in the dispatch as the spot to warn once pax types land.
+- [x] **4 new tests in `test/dialects/amadeus-dialect.test.ts`**:
+      - ST/<reserved-seat>/S<n> → SEAT NOT AVAILABLE
+      - ST/<available-seat>/S<n> → OK
+      - ST/<blocked-seat>/S<n> → SEAT NOT AVAILABLE (defensive — if
+        the deterministic seed produces zero Blocked seats, skip
+        rather than fail; ~5% distribution means a 32A typically
+        has ~9 blocked seats)
+      - ST/<reserved-seat> without /S<n> still accepts (segment is
+        the gate — no segment, no check)
+      Tests use `synthesizeAvailability` up-front to find seats in
+      each status bucket, then drive the dispatch with them. Same
+      determinism guarantees mean the seat labels are reproducible
+      across runs.
 
 ## Open questions
 

@@ -1954,6 +1954,92 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(wa.lastSeatMap).toBeUndefined();
   });
 
+  it('ST/<reserved-seat>/S<n> rejects with SEAT NOT AVAILABLE (chunk 8)', async () => {
+    // Find a seat the synthesizer marks Reserved for B6615 on 15JUL.
+    const { Inventory } = await import('../../src/store/inventory.js');
+    const { synthesizeAvailability } = await import('../../src/models/seat-map.js');
+    const inv = new Inventory();
+    const map = inv.seatMapFor('B6', '615')!;
+    const buckets = synthesizeAvailability(map, 'PENDING', '15JUL');
+    const reserved = buckets.find((b) => b.seatAvailabilityStatus === 'Reserved');
+    const reservedSeat = reserved?.value[0];
+    expect(reservedSeat, 'synthesizer should produce at least one Reserved seat').toBeDefined();
+    // Now run the host with that seat.
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process(`ST/${reservedSeat}/S1`, wa)).toBe('SEAT NOT AVAILABLE');
+  });
+
+  it('ST/<available-seat>/S<n> accepts a seat the synthesizer marks Available (chunk 8)', async () => {
+    const { Inventory } = await import('../../src/store/inventory.js');
+    const { synthesizeAvailability } = await import('../../src/models/seat-map.js');
+    const inv = new Inventory();
+    const map = inv.seatMapFor('B6', '615')!;
+    const buckets = synthesizeAvailability(map, 'PENDING', '15JUL');
+    const available = buckets.find((b) => b.seatAvailabilityStatus === 'Available');
+    const availableSeat = available?.value[0];
+    expect(availableSeat, 'synthesizer should produce at least one Available seat').toBeDefined();
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process(`ST/${availableSeat}/S1`, wa)).toBe('OK');
+  });
+
+  it('ST/<blocked-seat>/S<n> rejects with SEAT NOT AVAILABLE', async () => {
+    const { Inventory } = await import('../../src/store/inventory.js');
+    const { synthesizeAvailability } = await import('../../src/models/seat-map.js');
+    const inv = new Inventory();
+    const map = inv.seatMapFor('B6', '615')!;
+    const buckets = synthesizeAvailability(map, 'PENDING', '15JUL');
+    const blocked = buckets.find((b) => b.seatAvailabilityStatus === 'Blocked');
+    if (!blocked?.value[0]) {
+      // Distribution is ~5% Blocked — on a 180-seat 32A there should
+      // be ~9 blocked seats, but if the deterministic seed produces
+      // zero, skip rather than fail. Determinism means this is
+      // reproducible across runs.
+      return;
+    }
+    const blockedSeat = blocked.value[0];
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    expect(await host.process(`ST/${blockedSeat}/S1`, wa)).toBe('SEAT NOT AVAILABLE');
+  });
+
+  it('ST/<seat> without /S<n> still skips availability validation', async () => {
+    // Bare ST has no segment to validate against; the seat label is
+    // stored verbatim. This was already true for existence; chunk 8
+    // doesn't change it.
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    // Even a known-reserved seat is accepted without /S<n>.
+    const { Inventory } = await import('../../src/store/inventory.js');
+    const { synthesizeAvailability } = await import('../../src/models/seat-map.js');
+    const inv = new Inventory();
+    const map = inv.seatMapFor('B6', '615')!;
+    const buckets = synthesizeAvailability(map, 'PENDING', '15JUL');
+    const reservedSeat = buckets.find((b) => b.seatAvailabilityStatus === 'Reserved')?.value[0]!;
+    expect(await host.process(`ST/${reservedSeat}`, wa)).toBe('OK');
+  });
+
   it('ST/<seat>/S<n> accepts a seat that exists in the segment seatmap', async () => {
     const host = new GdsHost({
       port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',

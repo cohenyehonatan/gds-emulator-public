@@ -1426,12 +1426,12 @@ export class AmadeusDialect implements Dialect {
           return FORMAT_ERROR;
         }
       }
-      // Seat-existence validation (chunk 2 addition): when the code is
-      // a specific seat label (row + column letter) AND a segment is
-      // specified, validate the seat exists in that segment's seat
-      // map. Preferences (NSSA / WB / etc.) skip validation —
-      // anything not matching the seat-label regex passes through.
-      // Availability validation (occupied seats) is chunk 8.
+      // Seat-existence validation (chunk 2) + availability validation
+      // (chunk 8): when the code is a specific seat label (row +
+      // column letter) AND a segment is specified, validate the seat
+      // (a) exists in the segment's seat map, and (b) is currently
+      // marked Available by the synthesizer / live response.
+      // Preferences (NSSA / WB / etc.) skip both checks.
       const seatLabel = /^(\d{1,3})([A-Z])$/.exec(code);
       if (seatLabel && segment !== undefined) {
         const seg = wa.pnr.segments.find((s) => s.segmentNumber === segment);
@@ -1440,10 +1440,30 @@ export class AmadeusDialect implements Dialect {
           if (map) {
             const rowLabel = seatLabel[1];
             const col = seatLabel[2];
+            const seatLabelFull = `${rowLabel}${col}`;
             const exists = map.Cabin.some((c) =>
               c.Row.some((r) => r.label === rowLabel && r.Space.some((s) => s.location === col)),
             );
             if (!exists) return 'INVALID SEAT';
+            // Chunk 8: availability check via the synthesizer.
+            // SeatAvailabilityStatus enum: Available / Reserved /
+            // Blocked / NoSeat / Unavailable. Only `Available` accepts;
+            // any other status → SEAT NOT AVAILABLE.
+            const locatorKey = wa.pnr.locator ?? 'PENDING';
+            const availability = synthesizeAvailability(map, locatorKey, seg.date);
+            for (const bucket of availability) {
+              if (bucket.value.includes(seatLabelFull)) {
+                if (bucket.seatAvailabilityStatus !== 'Available') {
+                  return 'SEAT NOT AVAILABLE';
+                }
+                break;
+              }
+            }
+            // Exit-row passenger-profile check is deferred (needs
+            // pax type modeling per design doc chunk 8). Currently
+            // an exit-row seat assignment to any passenger accepts
+            // silently; once pax types land, this is the spot to
+            // warn for unaccompanied minors / disabled / etc.
           }
         }
       }
