@@ -89,6 +89,10 @@ const RULES: DispatchRule[] = [
   // ¤<letter> work-area switch — single letter form. Must beat isModifyEntry
   // which would otherwise reject it (¤A has nothing after the sigil to modify).
   { match: (raw) => /^¤[A-Z]$/i.test(raw), parse: parseSwitchArea },
+  // ¤MD / ¤MU Sabre seat-map scroll. Must beat isModifyEntry (which
+  // would interpret the sigil as a field-change request) and the
+  // single-letter switchArea rule above.
+  { match: (raw) => /^¤(MD|MU)$/i.test(raw), parse: parseSeatMap },
   // Field change/delete via '¤' must beat the plain field sigils below.
   { match: isModifyEntry, parse: parseModify },
   // Single-char sigils.

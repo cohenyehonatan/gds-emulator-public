@@ -18,10 +18,19 @@ import { ParseError } from '../errors.js';
 const SEGMENT = /^4G(\d{1,2})\*$/;
 // Direct: 4G* + carrier(2) + flight(1-4) + class(1) + date(DDMON) + citypair(6)
 const DIRECT = /^4G\*([A-Z0-9]{2})(\d{1,4})([A-Z])(\d{1,2}[A-Z]{3})([A-Z]{6})$/;
+// Sabre scroll: ¤MD (down) / ¤MU (up). Basic Course: "Use ¤MD or ¤MU
+// to change screens for Direct Access seat maps." Only MD + MU
+// documented; MB / MT extensions deferred.
+const SCROLL = /^¤(MD|MU)$/;
 
 export function parseSeatMap(raw: string): SeatMapEntry {
   const u = raw.toUpperCase();
   const base = { kind: 'seat_map' as const, raw, timestamp: new Date() };
+
+  const scroll = SCROLL.exec(u);
+  if (scroll) {
+    return { ...base, source: 'scroll', direction: scroll[1] === 'MD' ? 'down' : 'up' };
+  }
 
   const seg = SEGMENT.exec(u);
   if (seg) {

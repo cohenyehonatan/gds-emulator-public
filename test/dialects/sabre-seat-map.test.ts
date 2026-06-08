@@ -82,4 +82,69 @@ describe('Sabre seat map — 4G display family', () => {
     // and is shared cross-dialect; no need to retest here.
     expect(true).toBe(true);
   });
+
+  it('4G1* paginates with a ROWS X-Y OF Z footer', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SI', wa);
+    await host.process('115JULDFWLHR', wa);
+    await host.process('01F1', wa); // BA192 777
+    const resp = await host.process('4G1*', wa);
+    expect(resp).toMatch(/ROWS 1-\d+ OF \d+/);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+    expect(wa.lastSeatMap?.cachedSegment).toBeDefined();
+  });
+
+  it('¤MD scrolls down (paged forward)', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SI', wa);
+    await host.process('115JULDFWLHR', wa);
+    await host.process('01F1', wa);
+    await host.process('4G1*', wa);
+    // ¤ is keyboard-aliased from [ (workbook p.3); host.process applies
+    // the normalization before dispatch.
+    const resp = await host.process('[MD', wa);
+    expect(resp).toMatch(/ROWS \d+-\d+ OF \d+/);
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+  });
+
+  it('¤MU after ¤MD scrolls back to the top', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SI', wa);
+    await host.process('115JULDFWLHR', wa);
+    await host.process('01F1', wa);
+    await host.process('4G1*', wa);
+    await host.process('[MD', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+    await host.process('[MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('¤MD/¤MU with no cached seat map return NO SEAT MAP DISPLAYED', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SI', wa);
+    expect(await host.process('[MD', wa)).toBe('NO SEAT MAP DISPLAYED');
+    expect(await host.process('[MU', wa)).toBe('NO SEAT MAP DISPLAYED');
+  });
+
+  it('¤MD/¤MU clamp at bottom / top (no over-scroll)', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SI', wa);
+    await host.process('115JULDFWLHR', wa);
+    await host.process('01F1', wa);
+    await host.process('4G1*', wa);
+    await host.process('[MD', wa);
+    const bottom = wa.lastSeatMap?.scrollRow;
+    await host.process('[MD', wa);
+    await host.process('[MD', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(bottom); // clamped
+    await host.process('[MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+    await host.process('[MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0); // clamped at top
+  });
 });

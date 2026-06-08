@@ -162,7 +162,7 @@ export interface FlightInfoEntry extends BaseEntry {
  */
 export interface SeatMapEntry extends BaseEntry {
   kind: 'seat_map';
-  source: 'segment' | 'direct' | 'avail-line' | 'refresh';
+  source: 'segment' | 'direct' | 'avail-line' | 'refresh' | 'scroll';
   segment?: number;
   line?: number;
   carrier?: string;
@@ -171,6 +171,8 @@ export interface SeatMapEntry extends BaseEntry {
   date?: string;
   origin?: string;
   destination?: string;
+  /** Scroll direction for source='scroll' (Sabre ¤MD/¤MU). */
+  direction?: 'down' | 'up';
 }
 
 export interface CancelEntry extends BaseEntry {
