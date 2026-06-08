@@ -382,17 +382,23 @@ Three findings from the dig changed the priority list:
 | 3 | **✅ Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY + legend | ✅ Done — landed (this commit) |
 | 4 | **✅ Sabre dialect**: `*` AVAIL / `.` TAKEN / `-` BLOCK (Eurostar-aligned) | ✅ Done — landed via #3 |
 | 5 | **✅ Amadeus dialect**: `.` AVAILABLE / `+` OCCUPIED / `X` BLOCKED (Service Hub) | ✅ Done — landed via #3 |
-| 6 | Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | Defer — feature surface expansion, not correctness |
-| 7 | Add chargeable (Y), preferred (V), legroom (L) markers driven by seat metadata | Defer — needs metadata model |
-| 8 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data |
-| 9 | Amadeus mirrored cabin code labels + top+bottom column headers | Defer — cosmetic |
-| 10 | Wing-section markers (`<>`), exit-row inline markers (`<E E>`) on Amadeus vertical | Defer — needs wing-row data we don't seed |
+| 6 | **✅ Chargeable (Y) / preferred (V) / legroom (L) markers** driven by `synthesizeDecorations` | ✅ Done — landed `5984af0` |
+| 7 | **✅ GWS numeric error code mapping for live wire** | ✅ Done — landed `e4418ff` |
+| 8 | **✅ Galileo `SA*S<n>;` traditional-format alias** | ✅ Done — landed `cbe6bbc` |
+| 9 | Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | **Defer** — feature surface expansion, not correctness. Operators using them get an honest "not implemented" rather than wrong output. |
+| 10 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | **Defer** — needs additional data (ship-tail records, total seat count, preferred-seat data). Not blocking any cryptic-flow correctness. |
+| 11 | Amadeus mirrored cabin code labels + top+bottom column headers + wing markers (`<>`, `<E E>`) on vertical | **Defer** — significant renderer rewrite for cosmetic-only gain. The decoration glyphs (L/V/Y) landed in #6 already address the most-informative parts of the Amadeus sample. Mirrored cabin-code framing + per-row wing markers are visual polish that don't add semantic information beyond what the legend already conveys. |
+| 12 | Exit-row passenger-profile check | **Defer** — needs pax type modeling (UMNR / disabled / etc.), a cross-cutting feature that would need its own design doc. The seat-map renderer already shows exit rows clearly via the `--- EXIT ROW ---` divider; the missing piece is rejecting ST assignments of ineligible passengers to exit-row seats, which requires a model layer above seat maps. |
 
-**Revised recommended order**:
-1. Land #2 (Apollo `9V/` fix) — the only real correctness bug, ~50 LOC
-2. Land #3 (per-dialect glyph map) as the structural change
-3. Land #4 (Sabre `.` flip) + #5 (Amadeus glyph tweaks) on top of #3
-4. Defer the rest until a seat-metadata data model lands
+**Final status**:
+- **All 8 listed correctness fixes landed.** Per-dialect glyphs aligned
+  to published conventions (Sabre / Amadeus); Apollo cryptic corrected
+  (9V/); error-code mapping for live wire; chargeable/preferred/legroom
+  metadata; semicolon-suffix alias.
+- **4 deferreds remain**, all explicitly non-blocking for cryptic
+  correctness: Galileo filter-suffix verb expansion, Sabre ship/
+  equipment cosmetic lines, Amadeus mirrored visual polish, exit-row
+  pax-profile (separate feature).
 
 ## Galileo open question (after a second, deeper dig 2026-06-08)
 
