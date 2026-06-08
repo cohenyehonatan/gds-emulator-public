@@ -138,6 +138,24 @@ export function translateApolloToGalileo(raw: string): string {
   if (/^A/.test(s)) {
     s = s.replace(/\+([A-Z]{2,3})(?=$|[\s.])/, '/$1');
   }
+  // (4) Seat map: Apollo `9V/S<n>` → Galileo `SA*S<n>`. Confirmed via
+  // the Travelport+ GDS Format Comparison Guide ("View the seat map
+  // for segment 1" row: Apollo 9V/S1, Galileo SA*S1) and the
+  // Travelport GWS task documentation ("Terminal Equivalents: Apollo
+  // 9V/… Galileo SA*… or SM*…"). Before this commit, chunk 5 assumed
+  // Apollo passes Galileo's SA*S<n> through unchanged — Apollo
+  // operators trained on the real Apollo system would type 9V/S<n>
+  // and our parser would fail to recognize it. Now it does.
+  //
+  // Cancel: 9X/S<n> → S.S<n> per the same Rosetta. Cancel-all 9X →
+  // S.@ (we don't have S.@ wired in the Galileo handler yet so for
+  // now 9X just routes the same way — falls through to the parser's
+  // unrecognized-entry path).
+  if (/^9V\//.test(s)) {
+    // `9V/` is 3 chars; the rest already starts with `S<n>` which
+    // mirrors Galileo's `*S<n>` suffix.
+    s = 'SA*' + s.slice(3);
+  }
   return s;
 }
 

@@ -176,14 +176,48 @@ describe('Galileo seat-map scrolling — MD/MU/MB/MT (Mini Format Guide v2)', ()
   });
 });
 
-describe('Apollo seat map — SA/SM via Galileo translator (free pass-through)', () => {
-  it('SA*S<n> works under ApolloDialect with no translator change needed', async () => {
+describe('Apollo seat map — 9V/ proper Apollo cryptic + SA*/SM* Galileo-style fallback', () => {
+  it('9V/S<n> is the proper Apollo cryptic per the Comparison Guide', async () => {
+    // Verified 2026-06-08 via Travelport+ Format Comparison Guide
+    // ("View the seat map for segment 1": Apollo 9V/S1, Galileo SA*S1)
+    // + Travelport GWS task documentation ("Terminal Equivalents:
+    // Apollo 9V/… Galileo SA*… or SM*…"). Before this commit the
+    // chunk 5 implementation only accepted the Galileo verbs under
+    // ApolloDialect; real Apollo operators type 9V/S<n>.
     const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');
     const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
     const wa = host.newWorkArea();
     await host.process('SON/ZGS', wa);
     await host.process('A15JULJFKLAX', wa);
     await host.process('01Y1', wa); // Apollo sell — translator rewrites to N1Y1
+    const resp = await host.process('9V/S1', wa);
+    expect(resp).toContain('15JUL JFKLAX');
+    expect(resp).toContain('LEGEND');
+  });
+
+  it('9V/S<n> produces the same output as the equivalent SA*S<n>', async () => {
+    const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
+    async function run(entry: string): Promise<string> {
+      const wa = host.newWorkArea();
+      await host.process('SON/ZGS', wa);
+      await host.process('A15JULJFKLAX', wa);
+      await host.process('01Y1', wa);
+      return host.process(entry, wa);
+    }
+    expect(await run('9V/S1')).toBe(await run('SA*S1'));
+  });
+
+  it('SA*S<n> still works under ApolloDialect (Galileo-style fallback)', async () => {
+    // Real Apollo operators wouldn't type SA*S<n>, but no reason to
+    // reject it — the translator's seat-map rule fires only on
+    // ^9V/, so SA*S<n> passes through unchanged.
+    const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULJFKLAX', wa);
+    await host.process('01Y1', wa);
     const resp = await host.process('SA*S1', wa);
     expect(resp).toContain('15JUL JFKLAX');
     expect(resp).toContain('LEGEND');

@@ -144,7 +144,7 @@ or `SC*<seat>` characteristics. These are all "richer" but not
 correctness gaps — operators using them would get an honest "not
 implemented" rather than wrong output.
 
-## 🔴 Apollo cryptic correction (Comparison Guide + Travelport GWS)
+## ✅ Apollo cryptic correction (Comparison Guide + Travelport GWS) — FIXED
 
 The in-tree `references/galileo/Travelport-GDS-Format-Comparison-
 Guide.pdf` has a Rosetta table that I missed during chunk 5. **All
@@ -348,7 +348,7 @@ Three findings from the dig changed the priority list:
 | # | Action | Status |
 |---|---|---|
 | 1 | Document the divergences (this doc) | ✅ Done |
-| 2 | **🔴 Apollo correctness fix**: add `9V/S<n>` parsing to the translator (route to Galileo's seat-map handler) | ⏳ Open — only correctness bug. Small change in `src/dialects/apollo/` translator. |
+| 2 | **✅ Apollo correctness fix**: `9V/S<n>` parsing landed in the Apollo translator (routes to Galileo's `SA*S<n>` handler). | ✅ Done — landed in the follow-up commit after this doc. |
 | 3 | **Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY | ⏳ Open — structural change for #4 |
 | 4 | **Sabre dialect**: flip `.` to TAKEN, AVAILABLE varies by carrier (use `*` as the Eurostar-aligned char) | Depends on #3 |
 | 5 | **Amadeus dialect**: switch OCCUPIED `X` → `+`, BLOCKED `-` → `X` to align with the official Service Hub legend | Depends on #3; small once #3 is in |
