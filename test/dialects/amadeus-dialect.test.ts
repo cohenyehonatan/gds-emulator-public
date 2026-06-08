@@ -1740,6 +1740,77 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(vert).not.toBe(horiz);
   });
 
+  it('SM <n> shows the legend by default', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('SM 1', wa);
+    expect(resp).toContain('LEGEND');
+  });
+
+  it('SM <n>/NL hides the legend', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('SM 1/NL', wa);
+    expect(resp).not.toContain('LEGEND');
+  });
+
+  it('SM <n>/L explicitly shows the legend', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('SM 1/L', wa);
+    expect(resp).toContain('LEGEND');
+  });
+
+  it('SM <n>/V/NL combines orientation + no-legend suffixes', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    await host.process('SS1Y1', wa);
+    const resp = await host.process('SM 1/V/NL', wa);
+    expect(resp).not.toContain('LEGEND');
+    expect(resp).toContain('SM 1 — B6615');
+  });
+
+  it('SM <flight>/<class>/<route>/NL direct form hides legend', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    const resp = await host.process('SM B6615/Y/15JULJFKLAX/NL', wa);
+    expect(resp).not.toContain('LEGEND');
+    expect(resp).toContain('SM 1 — B6615');
+  });
+
+  it('SM/<line>/NL avail-line form hides legend', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULJFKLAX', wa);
+    const resp = await host.process('SM/1/NL', wa);
+    expect(resp).not.toContain('LEGEND');
+  });
+
   it('initial SM displays a paginated view with ROWS X-Y OF Z footer', async () => {
     const host = new GdsHost({
       port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',

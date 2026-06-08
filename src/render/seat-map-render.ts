@@ -86,7 +86,7 @@ export function renderSeatMap(
   availability: SeatAvailabilityList[],
   header: string,
   orientation: RenderOrientation = 'V',
-  opts: { rowOffset?: number; rowsPerPage?: number } = {},
+  opts: { rowOffset?: number; rowsPerPage?: number; showLegend?: boolean } = {},
 ): string {
   const statusByLabel = new Map<string, SeatAvailabilityStatus>();
   for (const bucket of availability) {
@@ -132,7 +132,9 @@ export function renderSeatMap(
     footer.push('');
     footer.push(`ROWS ${firstRow}-${lastRow} OF ${totalRows}`);
   }
-  return [header, ...sections, ...footer, '', renderLegend()].join('\n');
+  const showLegend = opts.showLegend ?? true;
+  const trailer = showLegend ? ['', renderLegend()] : [];
+  return [header, ...sections, ...footer, ...trailer].join('\n');
 }
 
 function renderCabin(

@@ -404,7 +404,7 @@ import type { SeatMap } from '../../models/seat-map.js';
  * All three carry an `orientation` (V default, H from `/H` suffix).
  */
 type SmRequest =
-  | { kind: 'segment'; segment: number; orientation: RenderOrientation }
+  | { kind: 'segment'; segment: number; orientation: RenderOrientation; showLegend: boolean }
   | {
       kind: 'direct';
       carrier: string;
@@ -414,6 +414,7 @@ type SmRequest =
       origin: string;
       destination: string;
       orientation: RenderOrientation;
+      showLegend: boolean;
     }
   | {
       kind: 'avail-line';
@@ -421,11 +422,24 @@ type SmRequest =
       subFlight?: number;
       cls?: string;
       orientation: RenderOrientation;
+      showLegend: boolean;
     };
 
 function parseSmRequest(entry: string): SmRequest | undefined {
+  // Strip an optional /NL (no-legend) or /L (legend, default) suffix
+  // before regex matching. Order of suffixes is /<V|H>/<NL|L>, but we
+  // peel them in either order — they're independent cosmetic flags.
+  let working = entry;
+  let showLegend = true;
+  if (working.endsWith('/NL')) {
+    showLegend = false;
+    working = working.slice(0, -3);
+  } else if (working.endsWith('/L')) {
+    showLegend = true;
+    working = working.slice(0, -2);
+  }
   // SM/<digits>[/<digit>][/<class>][/V|/H] — from cached availability
-  const availMatch = /^SM\/(\d{1,2})(?:\/(\d))?(?:\/([A-Z]))?(?:\/([VH]))?$/.exec(entry);
+  const availMatch = /^SM\/(\d{1,2})(?:\/(\d))?(?:\/([A-Z]))?(?:\/([VH]))?$/.exec(working);
   if (availMatch) {
     let cls: string | undefined = availMatch[3];
     let orientation = (availMatch[4] ?? 'V') as RenderOrientation;
@@ -443,11 +457,12 @@ function parseSmRequest(entry: string): SmRequest | undefined {
       subFlight: availMatch[2] ? parseInt(availMatch[2], 10) : undefined,
       cls,
       orientation,
+      showLegend,
     };
   }
   // SM <args> (space-separated)
-  if (!entry.startsWith('SM ')) return undefined;
-  const args = entry.slice(3);
+  if (!working.startsWith('SM ')) return undefined;
+  const args = working.slice(3);
   // Segment form: digits only (optionally /V or /H)
   const segMatch = /^(\d{1,2})(?:\/([VH]))?$/.exec(args);
   if (segMatch) {
@@ -455,6 +470,7 @@ function parseSmRequest(entry: string): SmRequest | undefined {
       kind: 'segment',
       segment: parseInt(segMatch[1], 10),
       orientation: (segMatch[2] ?? 'V') as RenderOrientation,
+      showLegend,
     };
   }
   // Direct form: <carrier 2 chars><flight 1-4 digits>/<class>?/[<date>?]<route 6>[/V|/H]
@@ -471,6 +487,7 @@ function parseSmRequest(entry: string): SmRequest | undefined {
       origin: directMatch[5].slice(0, 3),
       destination: directMatch[5].slice(3, 6),
       orientation: (directMatch[6] ?? 'V') as RenderOrientation,
+      showLegend,
     };
   }
   return undefined;
@@ -1372,7 +1389,10 @@ export class AmadeusDialect implements Dialect {
       // so chunk 7's MD/MU/MB/MT can re-render without re-resolving.
       wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
       const header = amadeusSeatMapHeader(map, segment, segmentNumber);
-      return renderSeatMap(map, availability, header, smReq.orientation, { rowsPerPage: SM_PAGE_SIZE });
+      return renderSeatMap(map, availability, header, smReq.orientation, {
+        rowsPerPage: SM_PAGE_SIZE,
+        showLegend: smReq.showLegend,
+      });
     }
 
     // MD / MU / MB / MT — scroll the cached seat map (chunk 7).
