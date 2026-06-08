@@ -6,17 +6,30 @@ audit; follow-up commits address divergences if needed.
 
 ## Per-dialect reference availability
 
+In-tree:
+
 | Dialect | Reference | Sample output documented? |
 |---|---|---|
 | Sabre | `references/Sabre-Basic-Reservation-Course.pdf` (Display Seat Maps section) | **YES** — verbatim DL/MD90 response |
+| Sabre | `references/Sabre-Reservation-Course-Zenon-Rev08.pdf` | No — extensive 4G verb tables, no rendered output |
+| Sabre | `references/Sabre-Quick-Reference-MiddleEast-2007.pdf` | No — 4G verb table only |
 | Galileo | `references/galileo/Galileo-Pocket-Guide.pdf` + Mini Format Guide v2 + Kuwait 2021 | No — verb forms only |
 | Travelport+ Mini Guide | `references/galileo/Travelport-Mini-Format-Guide-v2.pdf` | No — Smartpoint click-targets only |
 | Amadeus | `references/amadeus/Amadeus-Cryptic-Entries-Reference-Guide-Ed-9.2-2012.pdf` (p.39) | No — entry forms only |
 
-So Sabre is the only dialect with an actual reference output to
-compare against. Galileo + Amadeus headers are explicitly
-reconstructed in our code (`galileoSeatMapHeader`, `amadeusSeatMapHeader`
-both flagged with "reconstructed" comments).
+Found via additional dig (2026-06-08):
+
+| Dialect | Reference | Sample output documented? | Stored at |
+|---|---|---|---|
+| Sabre (Eurostar) | Eurostar 2026 Sabre guide | **YES** — Eurostar/Sabre rail convention: symbol table verbatim | `references/Sabre-Eurostar-Guide-2026.pdf` (saved 2026-06-08) |
+| Amadeus | Amadeus Service Hub (`servicehub.amadeus.com/c/portal/view-solution/794907`) | **YES** — official Amadeus seat-map symbol legend | External — copied verbatim into this doc since the page is gated behind a 403 for unauthenticated fetches |
+
+Three samples + two official symbol-table references = the strongest
+parity dataset we'll get short of running terminals. The new finds
+show that "Sabre's convention" isn't a single convention — it varies
+by carrier and product (DL/MD90 differs from Eurostar/rail). Amadeus
+has an officially-published symbol legend that we can hold our
+renderer up against.
 
 ## Sabre — verbatim reference vs our output
 
@@ -106,30 +119,124 @@ explicitly reconstructed:
 Our format is consistent across dialects (same body, dialect-
 specific header) and the legend documents the conventions used.
 
-## Recommendations
+## Sabre — Eurostar 2026 sample (rail variant)
+
+Symbol table verbatim from the Eurostar 2026 guide:
+
+| Symbol | Meaning |
+|---|---|
+| `*` | a seat that is available for selection |
+| `.` | a seat that is already taken |
+| `TTT` | location of a Table |
+| `R` | this seat is in the Reverse direction of travel |
+
+Eurostar-specific seat type codes: W=Window, A=Aisle, -T2/-T4 (Club
+2/Club 4 — seats facing each other with table), -E1 (Solo), -E2
+(Duo — airline-style with seat back tables).
+
+**Cross-Sabre convention comparison**:
+- DL/MD90 (Basic Course): letter (A B C D E) = available, `.` = taken
+- Eurostar (rail): `*` = available, `.` = taken
+- Common across both: `.` = TAKEN
+
+So `.` for TAKEN appears to be universal across Sabre samples. The
+AVAILABLE character is what varies (seat letter for airline,
+asterisk for rail).
+
+## Amadeus Service Hub symbol legend (official)
+
+The official Amadeus Service Hub documentation lists this seat-map
+symbol legend (covers chargeable + preferred seats specifically):
+
+| Symbol | Meaning |
+|---|---|
+| `<>` | AVAILABLE (with wing indicators where applicable) |
+| `+` | OCCUPIED |
+| `-` | LAST OFF (last seats to be assigned?) |
+| `X` | BLOCKED |
+| `/` | RESTRICTED |
+| `V` | PREFERRED SEAT |
+| `L` | LEGROOM (extra-legroom seat) |
+| `Y` | CHARGEABLE |
+| `K` | GALLEY |
+| `F` | GALLEY (or other facility per the legend) |
+| `E` | EXIT |
+| `B` | BULKHEAD |
+| `H` | HANDICAP-accessible |
+| `Q` | QUIET zone |
+| `G` | GROUP-allocated |
+| `P` | PET-allowed |
+| `U` | UNACCOMPANIED MINOR |
+| `D` | DEPORTEE |
+| `UP` | UPPER DECK |
+| `Z` | NO FILM |
+| `I` | INFANT |
+| `R` | REAR |
+| `()` | SMOKING (parenthesized seat letter) |
+
+Vertical (/V) vs horizontal (/H) display toggle confirmed.
+
+**Comparing to our renderer**:
+- We use `.` for AVAILABLE; Amadeus uses `<>`
+- We use `X` for RESERVED; Amadeus uses `+` for OCCUPIED, `X` for BLOCKED
+- We have no chargeable/preferred/legroom markers; Amadeus does
+- We DO emit position SCC (W/A/M); Amadeus doesn't use position
+  markers per-cell (those are just structural)
+
+Amadeus's official convention is genuinely richer than ours but
+internally consistent: each character means ONE thing (no
+position-vs-status precedence rules like ours has). Our renderer's
+multi-tier precedence (position SCC > status glyph) is an
+operator-readability optimization that diverges from how Amadeus
+actually renders.
+
+## Recommendations (revised after the 2026-06-08 dig)
 
 | # | Action | Status |
 |---|---|---|
 | 1 | Document the divergences (this doc) | ✅ Done |
-| 2 | Flip the AVAIL/TAKEN convention to match Sabre's published format (letter = available, `.` = taken) for the Sabre dialect specifically | ⏳ Open. Cross-dialect renderer would need a per-dialect glyph map; small refactor. |
-| 3 | Add ship/equipment description lines on Sabre | Defer — needs aircraft-name data we don't model |
-| 4 | Add bulkhead marker (`-BLKHD-`) and preferred (`P`) row prefix on Sabre | Defer — needs preferred-seat data + per-row bulkhead synthesis |
-| 5 | Multi-line categorical legend for Sabre | Cosmetic — defer |
+| 2 | Flip `.` (currently AVAILABLE) to mean TAKEN — universal across both Sabre samples (DL, Eurostar) | ⏳ Open. Small refactor: change STATUS_GLYPHS at the renderer. Other characters (W/A) keep their position-SCC meaning. |
+| 3 | Adopt `<>` for Amadeus AVAILABLE per the official Service Hub legend | Open — would need a per-dialect glyph map. Slightly bigger refactor than #2. |
+| 4 | Add chargeable (Y), preferred (V), legroom (L) status markers driven by additional seat metadata | Defer — needs metadata model (we don't track chargeable/preferred/legroom per seat) |
+| 5 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data we don't model |
+| 6 | Per-dialect glyph map architecture (each dialect can override STATUS_GLYPHS + POSITION_PRIORITY) | Open — the right structural change to unblock both #2 and #3 cleanly |
 
-Action #2 is the only one that fixes a real correctness issue and is
-small enough to land in one chunk. Recommended next step if seat-map
-fidelity matters for the Sabre dialect specifically.
+**Recommended order**:
+1. Land #6 (per-dialect glyph map) as the structural change
+2. Land #2 (flip AVAILABLE/TAKEN for Sabre) and #3 (Amadeus `<>`)
+   using the new architecture
+3. Defer the rest (chargeable/preferred/legroom + Sabre-specific
+   cosmetic lines) until we have a data model for those attributes
 
-## Cross-cutting observation
+## Cross-cutting observations
 
-The Sabre Basic Course's "Each airline's seat maps appear differently"
-caveat is real: the DL/MD90 example is ONE airline's convention.
-Other airlines' maps (UA, AA, LH, etc.) in Sabre would render
-differently. So even a "perfect" Sabre fix would only match the DL
-case; other airline-specific quirks would still diverge.
+**The Sabre Basic Course's "Each airline's seat maps appear differently"
+caveat is real**: DL/MD90 (letters for available) and Eurostar (`*` for
+available, `.` for taken) are both in the Sabre family but use different
+conventions. Even a "perfect" Sabre fix would only match ONE airline/
+product convention; others diverge by design. The legend on our output
+is what makes our renderer self-consistent.
 
-Decision: for v1, our cross-dialect format prioritizes consistency
-and operator-readability over verbatim airline mimicry. The
-correctness fix in action #2 is worth doing for semantic alignment
-(don't show `.` where Sabre shows AVAILABLE); the rest are cosmetic
-and probably not worth the cross-dialect renderer complexity.
+**Amadeus's published legend is internally consistent**: each character
+means ONE thing without precedence rules. Our multi-tier renderer
+(position SCC overrides status glyph) is an operator-readability
+choice but diverges from how Amadeus actually renders. Aligning the
+Amadeus dialect's renderer to use `<>` for available and drop the
+position-priority pass would be a closer match to official Amadeus
+output.
+
+**Galileo has no published sample** — our reconstructed
+`galileoSeatMapHeader` + body remains the only documented option.
+Recommendation: keep Galileo's body convention aligned with whichever
+target gets the most work (likely Amadeus, since that's the dialect
+with the official legend).
+
+## v1 decision (current state, kept until per-dialect glyph map lands)
+
+Our cross-dialect format prioritizes consistency across dialects and
+operator-readability via a self-documenting legend. The renderer's
+character choices (`.` available, `X` reserved, `-` blocked) are
+internally consistent and explicitly documented at the bottom of
+every render. An operator unfamiliar with any single GDS's
+convention can read our legend and understand the output; that's
+the right v1 trade-off until per-dialect customization lands.
