@@ -81,14 +81,26 @@ export class WorkAreaSlot {
   lastFareDisplay?: FareDisplayResult;
 
   /**
-   * Cached result of the most recent `SM <segment>` seat-map query.
-   * Holds the displayed SeatMap plus the segment number it was queried
-   * against; chunk 7's scrolling verbs (MD/MU/MB/MT) operate on this.
-   * Cleared on `reset()` and on `SM <m>` for a different segment.
-   * Per `docs/seatmap-design.md` chunk 0: SeatMap lives on WorkArea
-   * (query state) not Pnr (booking state).
+   * Cached result of the most recent seat-map query.
+   * - `segment`: segment number the map was rendered against (or 1
+   *   for direct / avail-line queries with no real PNR segment)
+   * - `map`: the SeatMap itself
+   * - `cachedSegment`: the AirSegment used to build the header; cached
+   *   so MD/MU/MB/MT scrolling can re-render without re-resolving the
+   *   source (direct queries don't have a real PNR segment to look up
+   *   on a follow-up scroll verb)
+   * - `scrollRow`: current scroll position (0 = top); chunk 7 verbs
+   *   MD/MU/MB/MT manipulate this
+   * Per design doc chunk 0: SeatMap lives on WorkArea (query state),
+   * not Pnr (booking state). Cleared on reset() and on a new SM query
+   * for a different segment.
    */
-  lastSeatMap?: { segment: number; map: import('../models/seat-map.js').SeatMap };
+  lastSeatMap?: {
+    segment: number;
+    map: import('../models/seat-map.js').SeatMap;
+    cachedSegment?: import('../models/segment.js').AirSegment;
+    scrollRow?: number;
+  };
 
   /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,

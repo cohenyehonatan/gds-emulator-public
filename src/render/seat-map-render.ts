@@ -73,24 +73,66 @@ function cabinLetter(name: string): string {
  * `SM 1 — BA192 ...`, Sabre says `192Y 15JUL DFW-LHR / SEATS
  * INVENTORY DETAIL`). Body (cabin headers, per-row seat rendering,
  * exit-row dividers, legend) is dialect-agnostic.
+ *
+ * Optional `rowOffset` + `rowsPerPage` enable pagination for
+ * chunk 7's MD/MU/MB/MT scrolling verbs. Without them (or with
+ * `rowsPerPage` omitted), the renderer emits every row — preserving
+ * the current behavior for chunks 1-6. When pagination is in effect,
+ * a `ROWS X-Y OF Z` footer prints above the legend so the operator
+ * can see their scroll position.
  */
 export function renderSeatMap(
   seatMap: SeatMap,
   availability: SeatAvailabilityList[],
   header: string,
   orientation: RenderOrientation = 'V',
+  opts: { rowOffset?: number; rowsPerPage?: number } = {},
 ): string {
   const statusByLabel = new Map<string, SeatAvailabilityStatus>();
   for (const bucket of availability) {
     const status = bucket.seatAvailabilityStatus as SeatAvailabilityStatus;
     for (const label of bucket.value) statusByLabel.set(label, status);
   }
+  const totalRows = seatMap.Cabin.reduce((sum, c) => sum + c.Row.length, 0);
+  const offset = opts.rowOffset ?? 0;
+  const limit = opts.rowsPerPage;
   const sections: string[] = [];
+  // Walk cabins in order; clip each cabin's Row[] to the visible
+  // window. Cabin header still renders so the operator sees which
+  // cabin they're in.
+  let rowsSeen = 0;
+  let rowsEmitted = 0;
   for (const cabin of seatMap.Cabin) {
+    const cabinRowCount = cabin.Row.length;
+    const cabinFirstRow = rowsSeen;
+    const cabinLastRow = rowsSeen + cabinRowCount - 1;
+    rowsSeen += cabinRowCount;
+    if (limit !== undefined) {
+      // Skip cabins entirely before the offset.
+      if (cabinLastRow < offset) continue;
+      // Skip cabins entirely after the visible window.
+      if (cabinFirstRow >= offset + limit) continue;
+    }
+    // Clip the cabin's Row[] to the visible slice within this cabin.
+    let visibleCabin = cabin;
+    if (limit !== undefined) {
+      const skipInCabin = Math.max(0, offset - cabinFirstRow);
+      const remainingBudget = (offset + limit) - cabinFirstRow - skipInCabin;
+      const sliceLen = Math.min(remainingBudget, cabinRowCount - skipInCabin);
+      visibleCabin = { ...cabin, Row: cabin.Row.slice(skipInCabin, skipInCabin + sliceLen) };
+      rowsEmitted += sliceLen;
+    }
     sections.push('');
-    sections.push(...renderCabin(cabin, statusByLabel, orientation));
+    sections.push(...renderCabin(visibleCabin, statusByLabel, orientation));
   }
-  return [header, ...sections, '', renderLegend()].join('\n');
+  const footer: string[] = [];
+  if (limit !== undefined) {
+    const firstRow = offset + 1;
+    const lastRow = Math.min(offset + (rowsEmitted || limit), totalRows);
+    footer.push('');
+    footer.push(`ROWS ${firstRow}-${lastRow} OF ${totalRows}`);
+  }
+  return [header, ...sections, ...footer, '', renderLegend()].join('\n');
 }
 
 function renderCabin(

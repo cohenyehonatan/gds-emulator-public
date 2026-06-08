@@ -1,10 +1,14 @@
 # Seat Maps — design plan and chunks
 
-**Status:** CHUNK-6 LANDED — PRE-CHUNK-7 (2026-06-07). Chunks 0-6
-all closed. Galileo now has live-backed seat-map display against
-Travelport's `/seatmaps` endpoint. 1066 tests pass. Chunk 7
-(scrolling MD/MU/MB/MT verbs operating on `wa.lastSeatMap`) is the
-next code-bearing chunk — small, no model changes.
+**Status:** CHUNK-7 LANDED (partial) — PRE-CHUNK-8 (2026-06-07).
+Chunks 0-6 fully closed; chunk 7 ships the Amadeus MD/MU/MB/MT scroll
+verbs + paginated renderer + cachedSegment tracking. Three small
+items deferred from chunk 7: `/NL` / `/L` legend toggle, Sabre
+`¤MD`/`¤MU` (modify-parser conflict), Galileo scroll verbs (need
+source verification). All Amadeus seat-map flows now scroll cleanly
+on multi-cabin maps (777 ECONOMY's 27 rows + FIRST + BUSINESS).
+1080 tests pass. Chunk 8 (ST availability validation) is the next
+chunk.
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -740,13 +744,49 @@ Landed in commit (this commit).
       to `vendorRef.productId`. Confirmed against the canonical body
       structure but not yet against actual 7K9S traffic.
 
-### Chunk 7 — Scrolling + view variants
+### Chunk 7 — Scrolling + view variants ✅ (partial)
 
-- [ ] Amadeus `SM` family supports vertical (`/V`), horizontal (`/H`),
-      hide-legend (`/NL`), show-legend (`/L`), MD/MU/MB/MT scrolling
-      while a seatmap is displayed.
-- [ ] State on WorkArea: cache the last-displayed seatmap so scrolling
-      verbs operate on it. Mirrors the availability-cache pattern.
+Landed in commit (this commit).
+
+- [x] **Amadeus MD/MU/MB/MT scroll verbs**:
+      - `MD` — Move Down (page forward by SM_PAGE_SIZE = 20 rows)
+      - `MU` — Move Up (page backward by SM_PAGE_SIZE)
+      - `MB` — Move Bottom (jump to last page)
+      - `MT` — Move Top (jump to first page)
+      Clamping at top (offset = 0) and bottom (offset = totalRows -
+      PAGE_SIZE) prevents over-scroll. QRG p.39 cites these as
+      "Use ¤MD or ¤MU to change screens for Direct Access seat maps";
+      Amadeus uses the bare verbs without the ¤ prefix.
+- [x] **WorkArea state**: `lastSeatMap` shape extended:
+      - `cachedSegment?: AirSegment` — the segment used to build the
+        header on the original SM query, cached so scroll verbs can
+        re-render without re-resolving (direct queries with no real
+        PNR segment would otherwise lose context after the SM call)
+      - `scrollRow?: number` — current scroll offset, manipulated by
+        MD/MU/MB/MT; reset to 0 on each fresh SM query
+- [x] **Renderer pagination**: `renderSeatMap` gained optional
+      `rowOffset` + `rowsPerPage` opts. When provided, only the visible
+      slice across cabins emits, and a `ROWS X-Y OF Z` footer prints
+      above the legend so the operator sees their scroll position.
+      Without the opts (chunks 1-6 calls), the renderer emits every
+      row — preserving the previous behavior.
+- [x] **8 new tests in `test/dialects/amadeus-dialect.test.ts`**
+      covering initial paginated SM display, MD advance, MD clamp at
+      bottom, MU paging + clamp at top, MB/MT jumps, scroll-with-no-
+      cached-map error, direct-form SM scroll (cachedSegment used),
+      and fresh SM resetting scroll to 0.
+- [ ] **Vertical `/V` and horizontal `/H` orientation** — already
+      landed in chunk 2; no work needed here.
+- [ ] **`/NL` hide-legend / `/L` show-legend** — deferred. Cosmetic;
+      not blocking any test or smoke flow. Easy follow-up: another
+      opt on the renderer (showLegend?: boolean) + parsing on SM.
+- [ ] **Sabre `¤MD`/`¤MU`** — deferred. Sabre uses the `¤` modify
+      sigil which conflicts with the existing modify parser; needs a
+      dedicated dispatch rule that fires only when `wa.lastSeatMap`
+      is set. Functionally identical to Amadeus once routing is sorted.
+- [ ] **Galileo scrolling verbs** — deferred. Pocket Guide didn't pin
+      scroll cryptic explicitly; need additional source verification
+      before wiring.
 
 ### Chunk 8 — ST availability validation
 

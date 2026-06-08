@@ -1740,6 +1740,129 @@ describe('Amadeus dialect — v4 chunk 8: IR (ignore and redisplay)', () => {
     expect(vert).not.toBe(horiz);
   });
 
+  it('initial SM displays a paginated view with ROWS X-Y OF Z footer', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa); // BA192 777 — 39 total rows
+    const resp = await host.process('SM 1', wa);
+    expect(resp).toMatch(/ROWS 1-\d+ OF \d+/);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MD pages down by SM_PAGE_SIZE (clamped at maxOffset)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    const resp = await host.process('MD', wa);
+    expect(resp).toMatch(/ROWS \d+-\d+ OF \d+/);
+    // 777 has 39 rows total; max offset = 39 - 20 = 19. MD from 0
+    // advances by 20 but clamps to 19.
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+  });
+
+  it('repeated MD clamps at bottom (no overflow)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    await host.process('MD', wa);
+    const first = wa.lastSeatMap?.scrollRow;
+    await host.process('MD', wa);
+    await host.process('MD', wa);
+    const after = wa.lastSeatMap?.scrollRow;
+    // Already at bottom — additional MD doesn't advance further.
+    expect(after).toBe(first);
+  });
+
+  it('MU pages up by SM_PAGE_SIZE; clamps at top', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    await host.process('MD', wa);
+    const afterDown = wa.lastSeatMap?.scrollRow ?? 0;
+    expect(afterDown).toBeGreaterThan(0);
+    await host.process('MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+    // Another MU at top — clamps.
+    await host.process('MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MB jumps to bottom; MT jumps to top', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    await host.process('MB', wa);
+    const bottomOffset = wa.lastSeatMap?.scrollRow ?? 0;
+    expect(bottomOffset).toBeGreaterThan(0);
+    await host.process('MT', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MD/MU/MB/MT with no cached seat map return NO SEAT MAP DISPLAYED', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    for (const e of ['MD', 'MU', 'MB', 'MT']) {
+      expect(await host.process(e, wa)).toBe('NO SEAT MAP DISPLAYED');
+    }
+  });
+
+  it('scroll works on direct-form SM (cachedSegment used to re-render)', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    // BA192 is the 777 in SCHEDULE — direct query, no PNR needed.
+    await host.process('SM BA192/F/15JULDFWLHR', wa);
+    expect(wa.lastSeatMap).toBeDefined();
+    expect(wa.lastSeatMap?.cachedSegment).toBeDefined();
+    const resp = await host.process('MD', wa);
+    expect(resp).toContain('ROWS');
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+  });
+
+  it('starting a fresh SM resets scroll position to 0', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',
+    });
+    const wa = host.newWorkArea();
+    await host.process('JI2345HA/GS', wa);
+    await host.process('AN15JULDFWLHR', wa);
+    await host.process('SS1Y1', wa);
+    await host.process('SM 1', wa);
+    await host.process('MB', wa); // jump to bottom
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+    await host.process('SM 1', wa); // fresh SM — should reset
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
   it('SM with no segments returns NO ITINERARY', async () => {
     const host = new GdsHost({
       port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC',

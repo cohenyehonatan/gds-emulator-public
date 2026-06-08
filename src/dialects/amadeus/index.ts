@@ -66,6 +66,13 @@ import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { synthesizeAvailability } from '../../models/seat-map.js';
 import { renderSeatMap, amadeusSeatMapHeader, type RenderOrientation } from '../../render/seat-map-render.js';
 
+/**
+ * Rows shown per page in a paginated SM render (chunk 7). Terminal
+ * displays are typically 24 lines; 20 leaves room for headers, cabin
+ * labels, exit-row dividers, footer + legend.
+ */
+const SM_PAGE_SIZE = 20;
+
 const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — amadeus dialect (v2)';
 const FORMAT_ERROR = 'FORMAT';
 const NEED_AGENT_SIGN = 'NEEDS AGENT SIGN'; // reconstructed (Amadeus QRG p.7 lists no exact error wording for this)
@@ -1361,9 +1368,36 @@ export class AmadeusDialect implements Dialect {
       const { map, segment, segmentNumber } = resolved;
       const locatorKey = wa.pnr.locator ?? 'PENDING';
       const availability = synthesizeAvailability(map, locatorKey, segment.date);
-      wa.lastSeatMap = { segment: segmentNumber, map };
+      // Reset scroll position on a fresh SM query; cache the segment
+      // so chunk 7's MD/MU/MB/MT can re-render without re-resolving.
+      wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
       const header = amadeusSeatMapHeader(map, segment, segmentNumber);
-      return renderSeatMap(map, availability, header, smReq.orientation);
+      return renderSeatMap(map, availability, header, smReq.orientation, { rowsPerPage: SM_PAGE_SIZE });
+    }
+
+    // MD / MU / MB / MT — scroll the cached seat map (chunk 7).
+    // QRG p.39: "Use ¤MD or ¤MU to change screens for Direct Access
+    // seat maps." Amadeus uses the bare verbs without the ¤ prefix;
+    // Sabre uses ¤MD/¤MU (deferred — conflicts with modify parser).
+    if (entry === 'MD' || entry === 'MU' || entry === 'MB' || entry === 'MT') {
+      if (!wa.lastSeatMap) return 'NO SEAT MAP DISPLAYED';
+      const cached = wa.lastSeatMap;
+      if (!cached.cachedSegment) return 'NO SEAT MAP DISPLAYED';
+      const totalRows = cached.map.Cabin.reduce((sum, c) => sum + c.Row.length, 0);
+      const maxOffset = Math.max(0, totalRows - SM_PAGE_SIZE);
+      let newOffset = cached.scrollRow ?? 0;
+      if (entry === 'MD') newOffset = Math.min(newOffset + SM_PAGE_SIZE, maxOffset);
+      else if (entry === 'MU') newOffset = Math.max(newOffset - SM_PAGE_SIZE, 0);
+      else if (entry === 'MB') newOffset = maxOffset;
+      else newOffset = 0; // MT
+      cached.scrollRow = newOffset;
+      const locatorKey = wa.pnr.locator ?? 'PENDING';
+      const availability = synthesizeAvailability(cached.map, locatorKey, cached.cachedSegment.date);
+      const header = amadeusSeatMapHeader(cached.map, cached.cachedSegment, cached.segment);
+      return renderSeatMap(cached.map, availability, header, 'V', {
+        rowOffset: newOffset,
+        rowsPerPage: SM_PAGE_SIZE,
+      });
     }
 
     // ST/<seat-or-pref>[/P<n>][/S<n>] — seat request. QRG p.40.
