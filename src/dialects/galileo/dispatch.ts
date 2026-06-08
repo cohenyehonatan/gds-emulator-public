@@ -2381,11 +2381,37 @@ async function handleGalileoSeatMapLive(
   }
 }
 
+/** Rows shown per page in the paginated Galileo seat-map render. */
+const GALILEO_SM_PAGE_SIZE = 20;
+
 function handleGalileoSeatMap(
   entry: import('../../protocol/entry.js').SeatMapEntry,
   wa: WorkArea,
   ctx: HandlerContext,
 ): string | Promise<string> {
+  // MD / MU / MB / MT scroll the cached seat map. Bare verbs from the
+  // Mini Format Guide; we route here for now (other display types
+  // will need their own routing when they land).
+  if (entry.source === 'scroll') {
+    const cached = wa.lastSeatMap;
+    if (!cached?.cachedSegment) return 'NO SEAT MAP DISPLAYED';
+    const cachedSegment = cached.cachedSegment;
+    const totalRows = cached.map.Cabin.reduce((sum, c) => sum + c.Row.length, 0);
+    const maxOffset = Math.max(0, totalRows - GALILEO_SM_PAGE_SIZE);
+    let newOffset = cached.scrollRow ?? 0;
+    if (entry.direction === 'down') newOffset = Math.min(newOffset + GALILEO_SM_PAGE_SIZE, maxOffset);
+    else if (entry.direction === 'up') newOffset = Math.max(newOffset - GALILEO_SM_PAGE_SIZE, 0);
+    else if (entry.direction === 'bottom') newOffset = maxOffset;
+    else newOffset = 0; // top
+    cached.scrollRow = newOffset;
+    const locatorKey = wa.pnr.locator ?? 'PENDING';
+    const availability = synthesizeAvailability(cached.map, locatorKey, cachedSegment.date);
+    const header = galileoSeatMapHeader(cached.map, cachedSegment);
+    return renderSeatMap(cached.map, availability, header, 'V', {
+      rowOffset: newOffset,
+      rowsPerPage: GALILEO_SM_PAGE_SIZE,
+    });
+  }
   let segment: AirSegment;
   let segmentNumber: number;
 
@@ -2429,7 +2455,11 @@ function handleGalileoSeatMap(
     const locatorKey = wa.pnr.locator ?? 'PENDING';
     const availability = synthesizeAvailability(map, locatorKey, segment.date);
     const header = galileoSeatMapHeader(map, segment);
-    return renderSeatMap(map, availability, header, 'V');
+    // SA* refresh preserves the existing scroll position (don't reset).
+    return renderSeatMap(map, availability, header, 'V', {
+      rowOffset: wa.lastSeatMap.scrollRow ?? 0,
+      rowsPerPage: GALILEO_SM_PAGE_SIZE,
+    });
   } else if (entry.source === 'avail-line') {
     if (!wa.lastAvailability) return 'NO AVAILABILITY';
     const target = wa.lastAvailability.lines.find((l) => l.line === entry.line);
@@ -2493,10 +2523,12 @@ function handleGalileoSeatMap(
 
   const locatorKey = wa.pnr.locator ?? 'PENDING';
   const availability = synthesizeAvailability(map, locatorKey, segment.date);
-  wa.lastSeatMap = { segment: segmentNumber, map };
+  // Cache cachedSegment + scrollRow=0 so MD/MU/MB/MT can re-render
+  // without re-resolving.
+  wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
 
   const header = galileoSeatMapHeader(map, segment);
-  return renderSeatMap(map, availability, header, 'V');
+  return renderSeatMap(map, availability, header, 'V', { rowsPerPage: GALILEO_SM_PAGE_SIZE });
 }
 
 /**

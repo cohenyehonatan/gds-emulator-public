@@ -171,8 +171,12 @@ export interface SeatMapEntry extends BaseEntry {
   date?: string;
   origin?: string;
   destination?: string;
-  /** Scroll direction for source='scroll' (Sabre ¤MD/¤MU). */
-  direction?: 'down' | 'up';
+  /**
+   * Scroll direction for source='scroll'. Sabre supports `down`/`up`
+   * (¤MD/¤MU per Basic Course). Galileo + Apollo also support
+   * `bottom`/`top` (MB/MT per Mini Format Guide v2).
+   */
+  direction?: 'down' | 'up' | 'bottom' | 'top';
 }
 
 export interface CancelEntry extends BaseEntry {

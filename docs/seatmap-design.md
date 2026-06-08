@@ -1,7 +1,7 @@
 # Seat Maps — design plan and chunks
 
-**Status:** ALL CHUNKS LANDED (2026-06-07). Chunks 0-8 all closed.
-Seat-map feature complete:
+**Status:** ALL CHUNKS LANDED. Chunks 0-8 + chunk 7's three deferred
+items now closed. Seat-map feature complete across all 4 dialects:
 - Chunk 0: SCC + status enums sourced (PADIS 9825 + Travelport v11)
 - Chunk 1: SeatMap model + 10-equipment seed + deterministic synth
 - Chunk 2: Amadeus SM dispatch + WorkArea cache + ST existence-validation
@@ -12,12 +12,14 @@ Seat-map feature complete:
 - Chunk 6: Live Travelport `/seatmaps` REST wire for Galileo +
   two-pass aisle inference for live response mapping
 - Chunk 7: Amadeus MD/MU/MB/MT scroll verbs + paginated renderer
+  + deferred items closed:
+  - `/NL`/`/L` legend toggle (`70a5c8d`)
+  - Sabre `¤MD`/`¤MU` scroll (`c28ec54`)
+  - Galileo MD/MU/MB/MT scroll (this commit)
 - Chunk 8: ST availability validation against synthesizer status
 
-1084 tests pass. Three small deferred items: `/NL`/`/L` legend
-toggle, Sabre `¤MD`/`¤MU` scroll (modify-parser conflict), Galileo
-scroll verbs (Pocket Guide source verification). Exit-row passenger-
-profile check deferred until pax type modeling.
+1101 tests pass. Only remaining deferred: exit-row passenger-profile
+check (needs pax type modeling — a separate cross-cutting feature).
 
 ROADMAP.md flags this under "remaining for future chunks: seat maps (SM
 display)" with the note "needs new seat-map data structure". This doc
@@ -784,18 +786,24 @@ Landed in commit (this commit).
       bottom, MU paging + clamp at top, MB/MT jumps, scroll-with-no-
       cached-map error, direct-form SM scroll (cachedSegment used),
       and fresh SM resetting scroll to 0.
-- [ ] **Vertical `/V` and horizontal `/H` orientation** — already
+- [x] **Vertical `/V` and horizontal `/H` orientation** — already
       landed in chunk 2; no work needed here.
-- [ ] **`/NL` hide-legend / `/L` show-legend** — deferred. Cosmetic;
-      not blocking any test or smoke flow. Easy follow-up: another
-      opt on the renderer (showLegend?: boolean) + parsing on SM.
-- [ ] **Sabre `¤MD`/`¤MU`** — deferred. Sabre uses the `¤` modify
-      sigil which conflicts with the existing modify parser; needs a
-      dedicated dispatch rule that fires only when `wa.lastSeatMap`
-      is set. Functionally identical to Amadeus once routing is sorted.
-- [ ] **Galileo scrolling verbs** — deferred. Pocket Guide didn't pin
-      scroll cryptic explicitly; need additional source verification
-      before wiring.
+- [x] **`/NL` hide-legend / `/L` show-legend** — landed `70a5c8d`.
+      Parser strips an optional `/NL` or `/L` suffix before regex
+      matching; renderer accepts `showLegend?: boolean` opt.
+- [x] **Sabre `¤MD`/`¤MU`** — landed `c28ec54`. New parser rule
+      `/^¤(MD|MU)$/i` placed BEFORE the isModifyEntry check;
+      SeatMapEntry extended with `source='scroll'` + direction; Sabre
+      handler gained pagination + scroll case.
+- [x] **Galileo scrolling verbs MD/MU/MB/MT** — landed (this commit).
+      Verbs sourced from Mini Format Guide v2 + Kuwait 2021 + Comparison
+      Guide (all three list `MD`/`MU`/`MB`/`MT` as bare verbs). Galileo
+      parser emits SeatMapEntry with source='scroll'; dispatch's
+      scroll case mirrors the Amadeus/Sabre pattern. Apollo inherits
+      via the translator (verified by test). Note: MD/MU/MB/MT are
+      general scroll verbs in Galileo (work on fare displays, avail,
+      etc.); chunk 7 follow-up scope wires them only for seat maps —
+      other display types' scroll routing is a future extension.
 
 ### Chunk 8 — ST availability validation ✅
 

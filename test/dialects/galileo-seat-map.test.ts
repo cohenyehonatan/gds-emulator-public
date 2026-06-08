@@ -99,6 +99,83 @@ describe('Galileo seat map — SA / SM display family', () => {
   });
 });
 
+describe('Galileo seat-map scrolling — MD/MU/MB/MT (Mini Format Guide v2)', () => {
+  function makeHost(): GdsHost {
+    return new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+  }
+
+  it('SA*S<n> paginates with a ROWS X-Y OF Z footer + caches cachedSegment', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULDFWLHR', wa);
+    await host.process('N1F1', wa); // BA192 777
+    const resp = await host.process('SA*S1', wa);
+    expect(resp).toMatch(/ROWS 1-\d+ OF \d+/);
+    expect(wa.lastSeatMap?.cachedSegment).toBeDefined();
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MD scrolls down', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULDFWLHR', wa);
+    await host.process('N1F1', wa);
+    await host.process('SA*S1', wa);
+    const resp = await host.process('MD', wa);
+    expect(resp).toMatch(/ROWS \d+-\d+ OF \d+/);
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+  });
+
+  it('MU after MD scrolls back to top', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULDFWLHR', wa);
+    await host.process('N1F1', wa);
+    await host.process('SA*S1', wa);
+    await host.process('MD', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+    await host.process('MU', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MB jumps to bottom; MT jumps to top', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULDFWLHR', wa);
+    await host.process('N1F1', wa);
+    await host.process('SA*S1', wa);
+    await host.process('MB', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBeGreaterThan(0);
+    await host.process('MT', wa);
+    expect(wa.lastSeatMap?.scrollRow).toBe(0);
+  });
+
+  it('MD/MU/MB/MT with no cached map return NO SEAT MAP DISPLAYED', async () => {
+    const host = makeHost();
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    for (const e of ['MD', 'MU', 'MB', 'MT']) {
+      expect(await host.process(e, wa)).toBe('NO SEAT MAP DISPLAYED');
+    }
+  });
+
+  it('Apollo MD/MU work via the Galileo translator (pass-through)', async () => {
+    const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    await host.process('A15JULDFWLHR', wa);
+    await host.process('01F1', wa);
+    await host.process('SA*S1', wa);
+    const md = await host.process('MD', wa);
+    expect(md).toMatch(/ROWS \d+-\d+ OF \d+/);
+  });
+});
+
 describe('Apollo seat map — SA/SM via Galileo translator (free pass-through)', () => {
   it('SA*S<n> works under ApolloDialect with no translator change needed', async () => {
     const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');

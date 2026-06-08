@@ -155,6 +155,24 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
       bookingClass: smAvailMatch[2],
     };
   }
+  // MD / MU / MB / MT — scroll the currently-displayed page. Mini
+  // Format Guide v2 + Kuwait 2021 + Comparison Guide all document
+  // these as bare verbs. In chunk 7 follow-up scope, only seat-map
+  // scrolling is wired; other display types (fare, avail) will route
+  // here too when added. Handler checks wa.lastSeatMap to decide.
+  const scrollMatch = /^(MD|MU|MB|MT)$/.exec(u);
+  if (scrollMatch) {
+    const dirMap: Record<string, 'down' | 'up' | 'bottom' | 'top'> = {
+      MD: 'down', MU: 'up', MB: 'bottom', MT: 'top',
+    };
+    return {
+      kind: 'seat_map',
+      raw: trimmed,
+      timestamp: new Date(),
+      source: 'scroll',
+      direction: dirMap[scrollMatch[1]],
+    };
+  }
   if (isAvailability(u)) return parseAvailability(trimmed, u);
   if (isSell(u)) return parseSell(trimmed, u);
 
