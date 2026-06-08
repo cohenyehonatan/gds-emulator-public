@@ -64,7 +64,7 @@ import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { synthesizeAvailability } from '../../models/seat-map.js';
-import { renderSeatMap, amadeusSeatMapHeader, type RenderOrientation } from '../../render/seat-map-render.js';
+import { renderSeatMap, amadeusSeatMapHeader, AMADEUS_GLYPHS, type RenderOrientation } from '../../render/seat-map-render.js';
 
 /**
  * Rows shown per page in a paginated SM render (chunk 7). Terminal
@@ -1392,6 +1392,7 @@ export class AmadeusDialect implements Dialect {
       return renderSeatMap(map, availability, header, smReq.orientation, {
         rowsPerPage: SM_PAGE_SIZE,
         showLegend: smReq.showLegend,
+        glyphs: AMADEUS_GLYPHS,
       });
     }
 
@@ -1417,6 +1418,7 @@ export class AmadeusDialect implements Dialect {
       return renderSeatMap(cached.map, availability, header, 'V', {
         rowOffset: newOffset,
         rowsPerPage: SM_PAGE_SIZE,
+        glyphs: AMADEUS_GLYPHS,
       });
     }
 

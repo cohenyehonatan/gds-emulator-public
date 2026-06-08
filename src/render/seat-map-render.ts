@@ -56,6 +56,70 @@ const NO_SEAT_CHARACTERISTICS: ReadonlySet<string> = new Set([
 
 const POSITION_PRIORITY: ReadonlyArray<string> = ['E', 'W', 'A', 'M', 'H'];
 
+/**
+ * Per-dialect glyph map. Lets each dialect override the per-cell
+ * characters the renderer emits without forking the whole renderer.
+ * See `docs/seatmap-output-parity.md` for the source convention each
+ * map aligns to (or doesn't — Galileo has no public cryptic sample,
+ * so its map is the cross-dialect default).
+ *
+ * Three presets exported below:
+ *   GALILEO_GLYPHS — cross-dialect default; `.`=avail / `X`=reserved /
+ *                    `-`=blocked / position SCC W/A/M/E/H per-cell.
+ *   AMADEUS_GLYPHS — per Service Hub solution 794907 sample:
+ *                    `.`=avail / `+`=occupied / `X`=blocked. Drops
+ *                    per-cell W/A/M (Amadeus convention doesn't show
+ *                    column-position SCCs per cell — sample shows
+ *                    L/Y/V/+/. only). Keeps E (exit) per-cell since
+ *                    Amadeus marks exit rows with E in cells.
+ *   SABRE_GLYPHS   — per Basic Course DL/MD90 + Eurostar 2026 (both
+ *                    agree . = TAKEN): `*`=avail / `.`=taken /
+ *                    `-`=blocked. Drops per-cell W/A/M (Sabre
+ *                    convention doesn't render those per cell). Keeps
+ *                    E for exit rows.
+ */
+export interface SeatMapGlyphs {
+  /** Char per status. Maps each `SeatAvailabilityStatus` to a glyph. */
+  statusGlyphs: Record<SeatAvailabilityStatus, string>;
+  /** Position-SCC priority list. Per-cell first match wins over the
+   *  status glyph. Empty array = pure status display (no per-cell
+   *  position labeling — matches Amadeus + Sabre convention). */
+  positionPriority: ReadonlyArray<string>;
+  /** Optional legend override. If absent the default cross-dialect
+   *  legend prints. */
+  legend?: string;
+}
+
+export const GALILEO_GLYPHS: SeatMapGlyphs = {
+  statusGlyphs: STATUS_GLYPHS,
+  positionPriority: POSITION_PRIORITY,
+  legend: 'LEGEND: . avail  X reserved  - blocked   W window  A aisle  M middle  K bulkhead  E exit  H handicapped',
+};
+
+export const AMADEUS_GLYPHS: SeatMapGlyphs = {
+  statusGlyphs: {
+    Available: '.',
+    Reserved: '+',
+    Blocked: 'X',
+    NoSeat: ' ',
+    Unavailable: 'X',
+  },
+  positionPriority: ['E', 'H'],
+  legend: 'LEGEND: . AVAILABLE  + OCCUPIED  X BLOCKED  E EXIT  H HANDICAP  (Amadeus Service Hub solution 794907)',
+};
+
+export const SABRE_GLYPHS: SeatMapGlyphs = {
+  statusGlyphs: {
+    Available: '*',
+    Reserved: '.',
+    Blocked: '-',
+    NoSeat: ' ',
+    Unavailable: '.',
+  },
+  positionPriority: ['E', 'H'],
+  legend: 'LEGEND: * AVAIL  . TAKEN  - BLOCK  E EXIT ROW  H HANDICAP  (Sabre Basic Course DL/MD90 + Eurostar 2026)',
+};
+
 const CABIN_LETTER: Record<string, string> = {
   FIRST: 'F',
   BUSINESS: 'J',
@@ -86,8 +150,9 @@ export function renderSeatMap(
   availability: SeatAvailabilityList[],
   header: string,
   orientation: RenderOrientation = 'V',
-  opts: { rowOffset?: number; rowsPerPage?: number; showLegend?: boolean } = {},
+  opts: { rowOffset?: number; rowsPerPage?: number; showLegend?: boolean; glyphs?: SeatMapGlyphs } = {},
 ): string {
+  const glyphs = opts.glyphs ?? GALILEO_GLYPHS;
   const statusByLabel = new Map<string, SeatAvailabilityStatus>();
   for (const bucket of availability) {
     const status = bucket.seatAvailabilityStatus as SeatAvailabilityStatus;
@@ -123,7 +188,7 @@ export function renderSeatMap(
       rowsEmitted += sliceLen;
     }
     sections.push('');
-    sections.push(...renderCabin(visibleCabin, statusByLabel, orientation));
+    sections.push(...renderCabin(visibleCabin, statusByLabel, orientation, glyphs));
   }
   const footer: string[] = [];
   if (limit !== undefined) {
@@ -133,7 +198,7 @@ export function renderSeatMap(
     footer.push(`ROWS ${firstRow}-${lastRow} OF ${totalRows}`);
   }
   const showLegend = opts.showLegend ?? true;
-  const trailer = showLegend ? ['', renderLegend()] : [];
+  const trailer = showLegend ? ['', glyphs.legend ?? renderLegend()] : [];
   return [header, ...sections, ...footer, ...trailer].join('\n');
 }
 
@@ -141,12 +206,13 @@ function renderCabin(
   cabin: Cabin,
   statusByLabel: Map<string, SeatAvailabilityStatus>,
   orientation: RenderOrientation,
+  glyphs: SeatMapGlyphs,
 ): string[] {
   const columns = cabin.Layout
     .filter((e) => e.value)
     .map((e) => e.value!);
   const aisleAfter = cabin.aisleAfterColumn ?? [];
-  if (orientation === 'H') return renderHorizontal(cabin, columns, aisleAfter, statusByLabel);
+  if (orientation === 'H') return renderHorizontal(cabin, columns, aisleAfter, statusByLabel, glyphs);
 
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
@@ -163,7 +229,7 @@ function renderCabin(
     const seatChars = columns.map((col) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return ' ';
-      return renderSeat(`${row.label}${col}`, space, statusByLabel);
+      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs);
     });
     const seats = formatRow(columns, seatChars, aisleAfter);
     const rowLabel = row.label.padStart(3, ' ');
@@ -177,6 +243,7 @@ function renderHorizontal(
   columns: string[],
   aisleAfter: string[],
   statusByLabel: Map<string, SeatAvailabilityStatus>,
+  glyphs: SeatMapGlyphs,
 ): string[] {
   const lines: string[] = [];
   const cabinLabel = `${cabin.name} (${cabinLetter(cabin.name)})`;
@@ -187,7 +254,7 @@ function renderHorizontal(
     const cells = cabin.Row.map((row) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return '   ';
-      return renderSeat(`${row.label}${col}`, space, statusByLabel).padStart(3, ' ');
+      return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs).padStart(3, ' ');
     });
     lines.push(` ${' '.repeat(11)} ${col}   ${cells.join(' ')}`);
     // Blank line between aisle-separated column rows for visual gap.
@@ -200,14 +267,15 @@ function renderSeat(
   label: string,
   space: SeatSpace,
   statusByLabel: Map<string, SeatAvailabilityStatus>,
+  glyphs: SeatMapGlyphs,
 ): string {
   const chars = space.Characteristic ?? [];
   if (chars.some((c) => NO_SEAT_CHARACTERISTICS.has(c))) return ' ';
-  for (const code of POSITION_PRIORITY) {
+  for (const code of glyphs.positionPriority) {
     if (chars.includes(code)) return code;
   }
   const status = statusByLabel.get(label);
-  return status ? STATUS_GLYPHS[status] : '?';
+  return status ? glyphs.statusGlyphs[status] : '?';
 }
 
 /**

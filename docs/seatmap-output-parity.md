@@ -332,6 +332,36 @@ wrong. Our renderer's choice diverges from Amadeus in OCCUPIED (we
 use `X`, they use `+`) and in cabin/wing/bulkhead annotations, but
 not in the basic available-seat semantics.
 
+## ✅ Per-dialect glyph map LANDED
+
+Implemented in `src/render/seat-map-render.ts`:
+- `SeatMapGlyphs` interface — each dialect can override status glyphs,
+  position-priority list, and the legend
+- `GALILEO_GLYPHS` — cross-dialect default (`.` avail / `X` reserved /
+  position SCC W/A/M per-cell). Galileo has no public cryptic sample
+  so this is the reconstructed cross-dialect format.
+- `AMADEUS_GLYPHS` — per Service Hub solution 794907: `.` AVAILABLE,
+  `+` OCCUPIED, `X` BLOCKED. Drops per-cell W/A/M (Amadeus doesn't
+  render position SCCs per cell). Keeps E for exit rows.
+- `SABRE_GLYPHS` — per Basic Course DL/MD90 + Eurostar 2026: `*`
+  AVAIL, `.` TAKEN, `-` BLOCK. Drops per-cell W/A/M. Keeps E.
+
+Each dialect's handler now imports and threads its glyph map. The
+existing test suite (1103 tests) all still pass — none asserted
+exact glyph chars, only structural pieces.
+
+8 new tests in `test/render/seat-map-glyphs.test.ts`:
+- Each preset matches the published convention it cites
+- Amadeus + Sabre drop W/A/M from per-cell position priority; both
+  keep E
+- Sabre 4G1* output contains `* AVAIL  . TAKEN` legend + `*` glyphs
+  in seat cells
+- Amadeus SM 1 output contains `. AVAILABLE  + OCCUPIED  X BLOCKED`
+  legend + `+` glyphs for occupied
+- Galileo SA*S1 output keeps `. avail  X reserved  W window` legend
+- All three dialects render different cell glyphs for the same
+  underlying seatmap (visual proof they diverge)
+
 ## Recommendations (revised after the 2026-06-08 Galileo dig)
 
 Three findings from the dig changed the priority list:
@@ -348,10 +378,10 @@ Three findings from the dig changed the priority list:
 | # | Action | Status |
 |---|---|---|
 | 1 | Document the divergences (this doc) | ✅ Done |
-| 2 | **✅ Apollo correctness fix**: `9V/S<n>` parsing landed in the Apollo translator (routes to Galileo's `SA*S<n>` handler). | ✅ Done — landed in the follow-up commit after this doc. |
-| 3 | **Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY | ⏳ Open — structural change for #4 |
-| 4 | **Sabre dialect**: flip `.` to TAKEN, AVAILABLE varies by carrier (use `*` as the Eurostar-aligned char) | Depends on #3 |
-| 5 | **Amadeus dialect**: switch OCCUPIED `X` → `+`, BLOCKED `-` → `X` to align with the official Service Hub legend | Depends on #3; small once #3 is in |
+| 2 | **✅ Apollo correctness fix**: `9V/S<n>` parsing landed in the Apollo translator (routes to Galileo's `SA*S<n>` handler). | ✅ Done — landed `07115a2`. |
+| 3 | **✅ Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY + legend | ✅ Done — landed (this commit) |
+| 4 | **✅ Sabre dialect**: `*` AVAIL / `.` TAKEN / `-` BLOCK (Eurostar-aligned) | ✅ Done — landed via #3 |
+| 5 | **✅ Amadeus dialect**: `.` AVAILABLE / `+` OCCUPIED / `X` BLOCKED (Service Hub) | ✅ Done — landed via #3 |
 | 6 | Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | Defer — feature surface expansion, not correctness |
 | 7 | Add chargeable (Y), preferred (V), legroom (L) markers driven by seat metadata | Defer — needs metadata model |
 | 8 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data |
