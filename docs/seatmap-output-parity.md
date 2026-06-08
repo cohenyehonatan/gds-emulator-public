@@ -364,18 +364,119 @@ Three findings from the dig changed the priority list:
 3. Land #4 (Sabre `.` flip) + #5 (Amadeus glyph tweaks) on top of #3
 4. Defer the rest until a seat-metadata data model lands
 
-## Galileo open question
+## Galileo open question (after a second, deeper dig 2026-06-08)
 
-We have NO actual rendered sample for Galileo SA*S<n> output. The
-verb forms are well-documented (3 sources confirm) but the response
-wording remains undocumented in any public source we could find.
-Our current `galileoSeatMapHeader` is reconstructed and consistent
-with Galileo display conventions but isn't verbatim per any sample.
+Jonathan's gut said we hadn't looked hard enough. Second pass through
+12+ sources confirms: we DIDN'T look hard enough before, but a real
+rendered Galileo sample isn't publicly published. The findings:
 
-Pragmatic: keep the reconstructed Galileo format. If a Galileo
-seat-map sample ever surfaces, align then. The Amadeus-correction
-pattern is a good template: get the live response, compare, decide
-whether to align or document the choice.
+| Source | What it gave us |
+|---|---|
+| `references/galileo/Galileo-Pocket-Guide.pdf` (in-tree) | Verb forms only |
+| `references/galileo/Travelport-Mini-Format-Guide-v2.pdf` (in-tree) | Verb forms only |
+| Galileo Pocket Guide on idocs.weebly.com | Same as in-tree |
+| galileoindonesia.com Air Transportation guide | Richer verb forms (filters, change-of-gauge), no sample |
+| Travelport Smartpoint webhelp "Displaying Seat Maps" | Click-to-graphical pattern doc; no cryptic sample |
+| Travelport webhelp formats Seats.htm | Same verb forms |
+| Travelport GWS API task docs (SeatMap_5/6/7/8) | XML schema + error codes, no rendered text sample |
+| PAM HK 1G Quick Reference Guide | Verb forms only |
+| Travelport-Asia Cuecard Galileo 2016 | Verb forms only |
+| Travelport-Asia 2-Day Smartpoint Pro | `SA*S1;` triggers "traditional format" — but only verb listed, no sample shown |
+| Travelport Kuwait Mini Format Guide June 2021 | Verb forms only |
+| Lime Management Galileo IT Guide | General selling guide, no seat-map specifics |
+| Scribd "Travelport Galileo Seat Map Guide" | Behind paywall |
+| Manualzz Smartpoint v5.1 user guide | CAPTCHA-locked |
+| Travelport eportal "Welcome to Apollo" QR | Auth-locked (Travelport agent portal) |
+| `testws.galileo.com` GWS sample data | Connection timeout |
+
+**Three real findings emerged from the dig** (beyond confirming the
+gap):
+
+### Finding 1: `SA*S1;` triggers "traditional format" in Smartpoint
+
+The Travelport-Asia 2-Day Smartpoint Professional training (p.29)
+documents two entry forms for the same seat-map verb:
+```
+SA*S1     Display seat availability map for segment 1
+SA*S1;    Display seat availability map in traditional format (In Smartpoint)
+```
+
+The plain `SA*S1` in modern Smartpoint defaults to the graphical
+view; the `;` suffix forces the legacy cryptic text response. This
+explains why the cryptic sample is so hard to find — modern
+Travelport docs default to showing the graphical UI screenshot, and
+the cryptic-text response is only emitted on demand. The actual
+characters used in that traditional format remain undocumented in
+any public source we found.
+
+### Finding 2: Galileo GWS error code list (useful for error mapping)
+
+The Travelport GWS task documentation has a numerically-coded error
+list that wasn't in our in-tree references:
+
+| Code | Meaning |
+|---|---|
+| 11 | Invalid Brd/Off Point |
+| 26 | Seat Map Unavailable |
+| 100 | Invalid BoardPoint |
+| 101 | Invalid Offpoint |
+| 102 | Invalid Date |
+| 104 | Invalid Class Code |
+| 107 | Invalid Airline Code |
+| 114 | Invalid Flight number |
+| 118 | Generic Default Error if error code not found |
+| 122 | Seating Suspended or Map Unavail - Airport Check in |
+| 197 | No Seats Available |
+| 200 | No Seating this Flight |
+| 201 | No Seating This Class |
+| 225 | Seat Map Unavailable - Code share Flight |
+| 281 | Generic Seating Only |
+
+(Available via the Galileo terminal entry `OV*STSSEATING` with
+proper authority, per the GWS docs.)
+
+These map cleanly to our error response strings — useful for
+chunk 6's live-wire error path.
+
+### Finding 3: Galileo response shape is documented even though characters aren't
+
+The Travelport Smartpoint webhelp ("Displaying Seat Maps") describes
+the response structure even without showing it verbatim:
+
+> A graphical seat map [is shown]. ... The seat maps include the
+> location of the wings, tail, cockpit, galleys and lavatories when
+> that information is provided by the carrier. ... A legend at the
+> bottom of the seat map indicates the status of each seat.
+
+This confirms our renderer's overall shape (cabin display + position
+markers + status indicators + legend) is right; only the exact
+characters used in the cryptic response aren't published.
+
+## Conclusion
+
+**No public Galileo seat-map sample exists** that we could find via
+12+ sources including official Travelport webhelp, agent training
+PDFs across 4 continents, and the GWS API documentation. The cryptic
+response is generated by the Smartpoint app from the GWS XML response
+and isn't documented as a fixed format anywhere public — it's
+implicitly the "traditional format" that pre-dated Smartpoint's
+graphical view, and modern Travelport documentation defaults to
+showing the graphical view instead.
+
+Pragmatic call (unchanged from before): keep the reconstructed
+`galileoSeatMapHeader`. If a Galileo sample ever surfaces (most
+likely via a captured live response through the JSON API mapper or
+through an agent who pastes one), align then. The Amadeus-correction
+pattern works: get the verbatim, compare, decide.
+
+**The dig was worth it though** — three useful side-finds:
+- The `;` suffix for traditional-format mode (could be a future
+  follow-up: accept `SA*S<n>;` as equivalent to `SA*S<n>`)
+- The GWS numeric error code list (useful for chunk 6 live error
+  mapping)
+- Confirmation that the response shape (cabin + position markers +
+  legend) we have is structurally right even if the characters aren't
+  verbatim
 
 ## Cross-cutting observations
 
