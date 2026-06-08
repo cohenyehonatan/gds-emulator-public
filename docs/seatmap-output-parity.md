@@ -106,18 +106,72 @@ documents OUR convention explicitly. An operator reading our legend
 ("`. avail X reserved`") gets correct semantics — they just don't
 match the DL-specific Sabre sample.
 
-## Galileo / Amadeus — no reference sample
+## Galileo — verb-rich, no rendered sample
 
-Verb forms documented, response wording is not. Our renderers are
-explicitly reconstructed:
+The 2026-06-08 Playwright dig pulled additional Galileo verb
+documentation from three online sources (galileoindonesia.com,
+support.travelport.com/webhelp/formats, support.travelport.com/
+webhelp/Smartpoint1G1V) — all yielded richer verb-form tables than
+the in-tree references but **no actual rendered seat-map sample**.
 
-- `galileoSeatMapHeader` — `<carrier><flight>/<class> <date>
-  <citypair>  EQP <equipment>` (reconstructed, flagged in code)
-- `amadeusSeatMapHeader` — `SM <n> — <carrier><flight> <date>
-  <orig>-<dest> — <equipment>` (reconstructed, flagged in code)
+New Galileo seat-map verb forms found (richer than our chunk 5
+implementation):
 
-Our format is consistent across dialects (same body, dialect-
-specific header) and the legend documents the conventions used.
+```
+SA*AZ610J20JULFCOJFK         direct: <carrier><flight><class><date><citypair>
+SA*KL598Q29JANCPTAMS/NW      direct + non-smoking-window filter
+SA*KL598Q29JANCPTAMS/15      direct + from row 15 offset
+SA*KL598Q29JANCPTAMS/NW/15   combined filter + offset
+SA*AA101Y1JUNLHRJFK/N-3      direct + non-smoking for 3 passengers
+SA*A1F                       from avail line 1, F class
+SA*A1F/20                    avail line + from row 20
+SA*A1F/NW                    avail line + non-smoking-window
+SA*A1F/NW/20                 combined
+SA*A1Y/S-2                   avail line + smoking area, 2 pax
+SA*S4                        segment 4 (we have this)
+SA*S4/15                     segment + from row 15
+SA*S4/NW                     segment + non-smoking-window
+SA*S4/NW/15                  combined
+SA*                          refresh (we have this)
+SC*10A                       specific seat characteristic (we don't have)
+SA*S1#BRU                    segment + change-of-gauge leg from BRU
+```
+
+Our chunk 5 implementation covers the three core verbs (segment,
+avail-line, refresh) but not the filter suffixes (`/NW`, `/<row>`,
+`/<class>-<count>`) or the change-of-gauge `#<airport>` qualifier
+or `SC*<seat>` characteristics. These are all "richer" but not
+correctness gaps — operators using them would get an honest "not
+implemented" rather than wrong output.
+
+## 🔴 Apollo cryptic correction (Comparison Guide + Travelport GWS)
+
+The in-tree `references/galileo/Travelport-GDS-Format-Comparison-
+Guide.pdf` has a Rosetta table that I missed during chunk 5. **All
+5 dialects use different seat-map cryptics**:
+
+| Dialect | Display by segment | Cancel seats |
+|---|---|---|
+| Galileo (1G) | `SA*S1` | `S.S1` |
+| Worldspan | `41*` | `4RX1` |
+| **Apollo (1V)** | **`9V/S1`** | **`9X/S1`** |
+| Amadeus | `SM1` | `SX/S1` |
+| Sabre | `4G1*` | `4GX1` |
+
+**Chunk 5 implementation bug**: Apollo currently inherits Galileo's
+`SA*S<n>` via the translator. But the actual Apollo cryptic for seat
+maps is `9V/S<n>`. Apollo operators trained on the real Apollo
+system would never type `SA*S1` — they'd type `9V/S1` and our
+parser would fail to recognize it.
+
+The Travelport GWS task documentation (`support.travelport.com/
+webhelp/GWS/.../task_seat_map_request.html`) confirms verbatim:
+"Terminal Equivalents: Apollo 9V/… Galileo SA*… or SM*…".
+
+Fix: add `9V/S<n>` and `9V*<...>` parsing to the Apollo translator
+so the actual Apollo cryptic works. SA*/SM* could continue to work
+as a "Galileo-style" fallback (no operator would type those into
+Apollo intentionally, but no reason to reject them).
 
 ## Sabre — Eurostar 2026 sample (rail variant)
 
@@ -278,32 +332,50 @@ wrong. Our renderer's choice diverges from Amadeus in OCCUPIED (we
 use `X`, they use `+`) and in cabin/wing/bulkhead annotations, but
 not in the basic available-seat semantics.
 
-## Recommendations (revised after the 2026-06-08 Playwright dig)
+## Recommendations (revised after the 2026-06-08 Galileo dig)
 
-The Amadeus correction is the headline: our `.` = AVAILABLE already
-matches official Amadeus. The Sabre divergence still stands (Sabre's
-`.` = TAKEN across all observed samples). So we're closer to parity
-than we thought, and the per-dialect glyph map is still the right
-structural fix — but the priorities shift.
+Three findings from the dig changed the priority list:
+
+1. **Amadeus `.` = AVAILABLE matches us** (the WebSearch summary had
+   misread the legend; Playwright pulled the actual page)
+2. **Apollo cryptic is `9V/S<n>` NOT `SA*S<n>`** — chunk 5's
+   translator-pass-through assumption was wrong per the in-tree
+   Comparison Guide + Travelport GWS task docs
+3. **Galileo's SA*/SM* family is much richer** than we knew (filters
+   for non-smoking-window, from-row offset, passenger count,
+   change-of-gauge `#<airport>`, seat-characteristic `SC*<seat>`)
 
 | # | Action | Status |
 |---|---|---|
 | 1 | Document the divergences (this doc) | ✅ Done |
-| 2 | **Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY | ⏳ Open — the structural change |
-| 3 | **Sabre dialect**: flip `.` to TAKEN, AVAILABLE varies by carrier (use `*` as the generic / Eurostar-aligned char; could use seat letter for airline-specific later) | Depends on #2 |
-| 4 | **Amadeus dialect**: switch OCCUPIED `X` → `+` (smaller change since `.` is already correct); optionally add `<>` wing markers + `B` bulkhead + `<E>/<E` exit row markers | Depends on #2; less urgent than Sabre — the avail/taken semantics already match |
-| 5 | Add chargeable (Y), preferred (V), legroom (L) status markers driven by additional seat metadata | Defer — needs metadata model |
-| 6 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data |
-| 7 | Cabin-code mirroring (left + right) on Amadeus vertical | Defer — cosmetic |
-| 8 | Top + bottom column headers (mirrored) on Amadeus vertical | Defer — cosmetic |
+| 2 | **🔴 Apollo correctness fix**: add `9V/S<n>` parsing to the translator (route to Galileo's seat-map handler) | ⏳ Open — only correctness bug. Small change in `src/dialects/apollo/` translator. |
+| 3 | **Per-dialect glyph map architecture** — each dialect can override STATUS_GLYPHS + POSITION_PRIORITY | ⏳ Open — structural change for #4 |
+| 4 | **Sabre dialect**: flip `.` to TAKEN, AVAILABLE varies by carrier (use `*` as the Eurostar-aligned char) | Depends on #3 |
+| 5 | **Amadeus dialect**: switch OCCUPIED `X` → `+`, BLOCKED `-` → `X` to align with the official Service Hub legend | Depends on #3; small once #3 is in |
+| 6 | Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | Defer — feature surface expansion, not correctness |
+| 7 | Add chargeable (Y), preferred (V), legroom (L) markers driven by seat metadata | Defer — needs metadata model |
+| 8 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | Defer — needs additional data |
+| 9 | Amadeus mirrored cabin code labels + top+bottom column headers | Defer — cosmetic |
+| 10 | Wing-section markers (`<>`), exit-row inline markers (`<E E>`) on Amadeus vertical | Defer — needs wing-row data we don't seed |
 
 **Revised recommended order**:
-1. Land #2 (per-dialect glyph map) as the structural change
-2. Land #3 (Sabre `.` flip — the only real semantic correctness fix)
-   using the new architecture
-3. Land #4 partially (Amadeus `X` → `+` for occupied is trivial once
-   #2 is in)
-4. Defer everything else until there's a seat-metadata model
+1. Land #2 (Apollo `9V/` fix) — the only real correctness bug, ~50 LOC
+2. Land #3 (per-dialect glyph map) as the structural change
+3. Land #4 (Sabre `.` flip) + #5 (Amadeus glyph tweaks) on top of #3
+4. Defer the rest until a seat-metadata data model lands
+
+## Galileo open question
+
+We have NO actual rendered sample for Galileo SA*S<n> output. The
+verb forms are well-documented (3 sources confirm) but the response
+wording remains undocumented in any public source we could find.
+Our current `galileoSeatMapHeader` is reconstructed and consistent
+with Galileo display conventions but isn't verbatim per any sample.
+
+Pragmatic: keep the reconstructed Galileo format. If a Galileo
+seat-map sample ever surfaces, align then. The Amadeus-correction
+pattern is a good template: get the live response, compare, decide
+whether to align or document the choice.
 
 ## Cross-cutting observations
 
