@@ -103,6 +103,19 @@ export class WorkAreaSlot {
   };
 
   /**
+   * Cached hotel-availability display from the last HA query (chunk
+   * 22). Drives HS<n> line-number reference. Reset alongside other
+   * display caches on reset().
+   */
+  lastHotelAvail?: {
+    city: string;
+    checkIn: string;
+    checkOut: string;
+    nights: number;
+    properties: import('../models/hotel.js').HotelProperty[];
+  };
+
+  /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
    * by SSR / remarks live wiring to reference passengers via
@@ -151,6 +164,7 @@ export class WorkAreaSlot {
     this.liveWorkbenchOfferIds = undefined;
     this.lastFareDisplay = undefined;
     this.lastSeatMap = undefined;
+    this.lastHotelAvail = undefined;
   }
 }
 
@@ -330,5 +344,11 @@ export class WorkArea {
   }
   set lastSeatMap(v: WorkAreaSlot['lastSeatMap']) {
     this.s.lastSeatMap = v;
+  }
+  get lastHotelAvail(): WorkAreaSlot['lastHotelAvail'] {
+    return this.s.lastHotelAvail;
+  }
+  set lastHotelAvail(v: WorkAreaSlot['lastHotelAvail']) {
+    this.s.lastHotelAvail = v;
   }
 }

@@ -18,6 +18,7 @@ import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import type { AddressElement } from './address.js';
+import type { HotelSegment } from './hotel.js';
 import type { SeatRequest } from './seat-request.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
@@ -53,6 +54,13 @@ export class Pnr {
    * cryptic lands.
    */
   seatRequests: SeatRequest[] = [];
+  /**
+   * Hotel segments (Amadeus HA→HS family, QRG p.97). Cross-dialect;
+   * any dialect can populate it. Mirrors AirSegment's segmentNumber
+   * so the cross-dialect PNR display can reference air + hotel
+   * uniformly.
+   */
+  hotelSegments: HotelSegment[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   /**

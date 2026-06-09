@@ -10,6 +10,8 @@ import type { AvailabilityLine } from '../models/availability-result.js';
 import type { SeatMap } from '../models/seat-map.js';
 import { parseClockToMinutes } from '../utils/validation.js';
 import { SEAT_MAP_SEED } from './seat-map-seed.js';
+import type { HotelProperty } from '../models/hotel.js';
+import { HOTEL_SEED } from './hotel-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -91,6 +93,23 @@ export class Inventory {
     const cabins = SEAT_MAP_SEED[eq];
     if (!cabins) return undefined;
     return { carrier, flightNumber, equipment: eq, Cabin: cabins };
+  }
+
+  /**
+   * Hotel properties in a city. Filterable by chain code. Sourced
+   * from the seed in HOTEL_SEED — fictional data for emulator use.
+   *
+   * Returns an empty array for unknown cities so callers can surface
+   * a "NO HOTELS FOUND" message rather than throwing.
+   */
+  hotelsIn(city: string, chain?: string): HotelProperty[] {
+    const all = HOTEL_SEED.filter((h) => h.city === city);
+    return chain ? all.filter((h) => h.chain === chain) : all;
+  }
+
+  /** Look up a single hotel property by chain + property code. */
+  hotelByCode(chain: string, property: string): HotelProperty | undefined {
+    return HOTEL_SEED.find((h) => h.chain === chain && h.property === property);
   }
 
   private seatsFor(date: string, f: ScheduledFlight): Record<string, number> {

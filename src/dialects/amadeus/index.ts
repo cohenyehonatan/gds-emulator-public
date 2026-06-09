@@ -910,6 +910,76 @@ function renderAmadeusDocument(
   return lines.join('\n');
 }
 
+/**
+ * Render the Amadeus HA hotel-availability list. One line per
+ * property: line-number + chain + name + lowest available rate.
+ * Trailer notes the date range + total properties.
+ */
+function renderHotelAvailability(
+  city: string,
+  checkIn: string,
+  checkOut: string,
+  nights: number,
+  properties: import('../../models/hotel.js').HotelProperty[],
+): string {
+  const lines: string[] = [];
+  lines.push(`** AMADEUS HOTEL AVAILABILITY ${city} ${checkIn}${checkOut !== checkIn ? '-' + checkOut : ''} ${nights}N **`);
+  properties.forEach((p, i) => {
+    const lo = p.rates.reduce((min, r) => Math.min(min, r.amount), Infinity);
+    const cur = p.rates[0]?.currency ?? '';
+    lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property}  ${p.name.padEnd(40, ' ')} FR ${lo.toFixed(0)} ${cur}`);
+  });
+  lines.push(`** ${properties.length} PROPERTIES **`);
+  return lines.join('\n');
+}
+
+/** Render a sold hotel segment confirmation block. */
+function renderHotelSegment(seg: import('../../models/hotel.js').HotelSegment): string {
+  return [
+    `OK HOTEL CONFIRMED ${seg.confirmationNumber ?? ''}`,
+    `  ${seg.segmentNumber}. ${seg.chain}${seg.property}  ${seg.name}`,
+    `     ${seg.city}  ${seg.checkIn}-${seg.checkOut}  ${seg.nights}N`,
+    `     RATE ${seg.rateCode} ${seg.ratePerNight.toFixed(2)} ${seg.currency}/NT  ${seg.rooms}RM  ${seg.status}`,
+  ].join('\n');
+}
+
+/**
+ * Deterministic 5-digit confirmation number from (chain, property,
+ * segment-index). Uses DJB2 string hash; same query → same number
+ * across runs so tests are stable.
+ */
+function hotelConfirmationFor(chain: string, property: string, idx: number): string {
+  let hash = 5381;
+  const s = `${chain}|${property}|${idx}`;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
+  }
+  return String(Math.abs(hash) % 90000 + 10000);
+}
+
+/**
+ * Estimate nights from two DDMON dates. Both are within the same
+ * year for our emulator (cross-year ranges aren't seeded). Returns
+ * 1 if dates can't be parsed (default 1-night stay).
+ */
+function computeNights(checkIn: string, checkOut: string): number {
+  if (checkIn === checkOut) return 1;
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const parse = (s: string): number | null => {
+    const m = /^(\d{1,2})([A-Z]{3})$/.exec(s);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    const mon = months.indexOf(m[2]);
+    if (mon < 0) return null;
+    return mon * 31 + day; // crude ordinal, enough for emulator
+  };
+  const a = parse(checkIn);
+  const b = parse(checkOut);
+  if (a == null || b == null) return 1;
+  const nights = b - a;
+  return nights > 0 ? nights : 1;
+}
+
 function formatTicketDate(d: Date): string {
   const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const dd = String(d.getUTCDate()).padStart(2, '0');
@@ -2105,6 +2175,103 @@ export class AmadeusDialect implements Dialect {
         paxFilter,
         segFilter,
       });
+    }
+
+    // --- v4 chunk 22: hotel availability + sell (HA / HS / HX) ---
+    // Per QRG p.101 (HOTEL AVAILABILITY) + p.105 (HOTEL SELL).
+    //
+    //   HA<city>[<date1>[-<date2>]]      all hotels in city
+    //   HA<chain><city>[<date1>[-<date2>]]   chain-filtered
+    //   HA<chain><city><property>[<date>]    single property
+    //   HS<n>[/<rate-code>]              sell from availability list
+    //   HX<n>                            cancel hotel segment
+    //
+    // Date format: DDMMM (e.g. 12MAR). Default: today + 1 night.
+    //
+    // wa.lastHotelAvail caches the displayed list so HS can reference
+    // by line number, mirroring how wa.lastAvailability works for air.
+    const haMatch = /^HA([A-Z]{2,3})([A-Z]{3})?([A-Z]{3})?(\d{1,2}[A-Z]{3})?(?:-(\d{1,2}[A-Z]{3}))?$/.exec(entry);
+    if (haMatch) {
+      // Disambiguation: HA<city> (3) vs HA<chain><city> (2+3) vs
+      // HA<chain><city><prop> (2+3+3). Use length heuristics.
+      const tok1 = haMatch[1];
+      const tok2 = haMatch[2];
+      const tok3 = haMatch[3];
+      const date1 = haMatch[4];
+      const date2 = haMatch[5];
+      let chain: string | undefined;
+      let city: string;
+      let property: string | undefined;
+      if (tok1.length === 3 && !tok2 && !tok3) {
+        // HA<city>
+        city = tok1;
+      } else if (tok1.length === 2 && tok2 && !tok3) {
+        // HA<chain><city>
+        chain = tok1;
+        city = tok2;
+      } else if (tok1.length === 2 && tok2 && tok3) {
+        // HA<chain><city><prop>
+        chain = tok1;
+        city = tok2;
+        property = tok3;
+      } else {
+        return FORMAT_ERROR;
+      }
+      const checkIn = date1 ?? '15JUL';
+      const checkOut = date2 ?? checkIn;
+      const nights = computeNights(checkIn, checkOut);
+      let props = ctx.backend.inventory.hotelsIn(city, chain);
+      if (property) props = props.filter((p) => p.property === property);
+      if (props.length === 0) return 'NO HOTELS FOUND';
+      wa.lastHotelAvail = { city, checkIn, checkOut, nights, properties: props };
+      return renderHotelAvailability(city, checkIn, checkOut, nights, props);
+    }
+
+    const hsMatch = /^HS(\d+)(?:\/([A-Z]{3,4}))?$/.exec(entry);
+    if (hsMatch) {
+      if (!wa.lastHotelAvail) return 'NO HOTEL DISPLAY';
+      const line = parseInt(hsMatch[1], 10);
+      const rateCode = hsMatch[2];
+      const prop = wa.lastHotelAvail.properties[line - 1];
+      if (!prop) return 'INVALID LINE';
+      // Pick the rate: explicit /code, else first available (RAC default).
+      const rate = rateCode
+        ? prop.rates.find((r) => r.code === rateCode)
+        : prop.rates[0];
+      if (!rate) return 'INVALID RATE CODE';
+      if (rate.available < 1) return 'NO ROOMS AVAILABLE';
+      const cached = wa.lastHotelAvail;
+      const seg: import('../../models/hotel.js').HotelSegment = {
+        segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length + 1,
+        chain: prop.chain,
+        property: prop.property,
+        name: prop.name,
+        city: prop.city,
+        checkIn: cached.checkIn,
+        checkOut: cached.checkOut,
+        nights: cached.nights,
+        rateCode: rate.code,
+        ratePerNight: rate.amount,
+        currency: rate.currency,
+        rooms: 1,
+        status: 'HK',
+        confirmationNumber: `HC${hotelConfirmationFor(prop.chain, prop.property, wa.pnr.hotelSegments.length)}`,
+      };
+      wa.pnr.hotelSegments.push(seg);
+      recordHistory(wa.pnr, `HS ${prop.chain}${prop.property} ${cached.checkIn}-${cached.checkOut}`);
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return renderHotelSegment(seg);
+    }
+
+    const hxMatch = /^HX(\d+)$/.exec(entry);
+    if (hxMatch) {
+      const segNum = parseInt(hxMatch[1], 10);
+      const idx = wa.pnr.hotelSegments.findIndex((s) => s.segmentNumber === segNum);
+      if (idx < 0) return 'SEGMENT NOT IN ITINERARY';
+      const seg = wa.pnr.hotelSegments[idx];
+      wa.pnr.hotelSegments.splice(idx, 1);
+      recordHistory(wa.pnr, `HX ${seg.chain}${seg.property} CANCELLED`);
+      return 'OK CANCELLED';
     }
 
     // --- v4 chunk 7: queue work verbs (QSTART / QN / QF / QFR / QXI) ---
