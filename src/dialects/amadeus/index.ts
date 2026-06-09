@@ -1770,34 +1770,89 @@ export class AmadeusDialect implements Dialect {
     // priceQuotes, tickets, history, createdAt — those belong to the
     // original commit and a fresh ET will create new ones.
     //
-    // Variants documented in QRG p.47 but deferred to a follow-up chunk:
-    //   RRN/6       Copy + change number of passengers
-    //   RRN/DP7     Copy + push date forward 7 days
-    //   RRN/CY      Copy + change all classes to Y
-    //   RRN/P2-5    Copy a passenger range only
-    //   RRN/S2,4    Copy specific segments only
-    if (entry === 'RRN' || entry.startsWith('RRN/')) {
+    // All variants currently supported:
+    //   RRN              full copy
+    //   RRN/<n>          change number of passengers to <n> (chunk 24)
+    //   RRN/DP<n>        push all dates forward n days (chunk 18)
+    //   RRN/DM<n>        push all dates back n days (chunk 18)
+    //   RRN/C<class>     change all booking classes (chunk 18)
+    //   RRN/S<list>      keep only listed segments (chunk 18)
+    //   RRN/SX<list>     exclude listed segments (chunk 24)
+    //   RRN/P<list>      keep only listed passengers (chunk 24)
+    //   RRN/PX<list>     exclude listed passengers (chunk 24)
+    //
+    // Lists support comma + range: `1,3-5`. RRI mirrors RRN but drops
+    // names + service elements (itinerary-only copy).
+    if (entry === 'RRN' || entry.startsWith('RRN/') || entry === 'RRI' || entry.startsWith('RRI/')) {
       if (!wa.pnr.locator) return 'NO PNR ON SCREEN';
+      const isItineraryOnly = entry === 'RRI' || entry.startsWith('RRI/');
       const cloned = wa.pnr.clone();
       cloned.locator = undefined;
       cloned.priceQuotes = [];
       cloned.tickets = [];
       cloned.history = [];
       cloned.createdAt = undefined;
+      if (isItineraryOnly) {
+        // RRI drops names + service elements; keeps only itinerary
+        // (segments + hotel + car) + the ticketing arrangement skeleton.
+        cloned.names = [];
+        cloned.phones = [];
+        cloned.ssrs = [];
+        cloned.osis = [];
+        cloned.frequentFlyers = [];
+        cloned.seatRequests = [];
+        cloned.addresses = [];
+        cloned.remarks = [];
+      }
       const originalLocator = wa.pnr.locator;
       let modifierTag = '';
-      if (entry !== 'RRN') {
-        const opt = entry.slice(4);
-        // RRN/DP<n> — push all dates forward n days
+      const prefixLen = isItineraryOnly ? 3 : 3; // both 3 chars
+      const hasOpt = entry.length > prefixLen;
+      if (hasOpt) {
+        const opt = entry.slice(prefixLen + 1); // skip the `/`
+        // RRN/<n> — change number of passengers
+        const nMatch = /^(\d+)$/.exec(opt);
+        // RRN/DP<n>, RRN/DM<n>, RRN/C<class>, RRN/S<list>
         const dpMatch = /^DP(\d+)$/.exec(opt);
-        // RRN/DM<n> — push all dates back n days
         const dmMatch = /^DM(\d+)$/.exec(opt);
-        // RRN/C<class> — change all classes to <class>
         const cMatch = /^C([A-Z])$/.exec(opt);
-        // RRN/S<segs> — copy only specified segments (parseSegmentList
-        // supports comma + range syntax)
         const sMatch = /^S([0-9,\-]+)$/.exec(opt);
-        if (dpMatch) {
+        const sxMatch = /^SX([0-9,\-]+)$/.exec(opt);
+        const pMatch = /^P([0-9,\-]+)$/.exec(opt);
+        const pxMatch = /^PX([0-9,\-]+)$/.exec(opt);
+        if (nMatch) {
+          // Numeric-only — change the pax count. If the new count
+          // exceeds existing names, we keep the names as-is and let
+          // the operator NM the extras. If it's lower, we trim from
+          // the end (most-recently-added first).
+          if (isItineraryOnly) return FORMAT_ERROR; // RRI/<n> not allowed
+          const newCount = parseInt(nMatch[1], 10);
+          if (newCount < 1) return FORMAT_ERROR;
+          const currentTotal = cloned.names.reduce((sum, n) => sum + n.count, 0);
+          if (newCount < currentTotal) {
+            // Trim from the end of the names list.
+            let remaining = newCount;
+            const keptNames: typeof cloned.names = [];
+            for (const n of cloned.names) {
+              if (remaining <= 0) break;
+              if (n.count <= remaining) {
+                keptNames.push(n);
+                remaining -= n.count;
+              } else {
+                keptNames.push({
+                  ...n,
+                  count: remaining,
+                  passengers: n.passengers.slice(0, remaining),
+                });
+                remaining = 0;
+              }
+            }
+            cloned.names = keptNames;
+          }
+          // For pax-count > current total we don't auto-add stubs;
+          // the operator follows up with NM<n><surname>/<given>.
+          modifierTag = ` ${newCount}`;
+        } else if (dpMatch) {
           const days = parseInt(dpMatch[1], 10);
           cloned.segments.forEach((s) => { s.date = pushDdmonByDays(s.date, days); });
           modifierTag = ` DP${days}`;
@@ -1815,12 +1870,36 @@ export class AmadeusDialect implements Dialect {
           cloned.segments = cloned.segments.filter((_, idx) => keep.has(idx + 1));
           cloned.renumberSegments();
           modifierTag = ` S${sMatch[1]}`;
+        } else if (sxMatch) {
+          const segs = parseSegmentList(sxMatch[1]);
+          if (!segs) return FORMAT_ERROR;
+          const drop = new Set(segs);
+          cloned.segments = cloned.segments.filter((_, idx) => !drop.has(idx + 1));
+          cloned.renumberSegments();
+          modifierTag = ` SX${sxMatch[1]}`;
+        } else if (pMatch) {
+          if (isItineraryOnly) return FORMAT_ERROR; // RRI dropped names
+          const pax = parseSegmentList(pMatch[1]);
+          if (!pax) return FORMAT_ERROR;
+          if (pax.some((n) => n > cloned.names.length)) return 'INVALID PASSENGER';
+          const keep = new Set(pax);
+          cloned.names = cloned.names.filter((_, idx) => keep.has(idx + 1));
+          modifierTag = ` P${pMatch[1]}`;
+        } else if (pxMatch) {
+          if (isItineraryOnly) return FORMAT_ERROR;
+          const pax = parseSegmentList(pxMatch[1]);
+          if (!pax) return FORMAT_ERROR;
+          if (pax.some((n) => n > cloned.names.length)) return 'INVALID PASSENGER';
+          const drop = new Set(pax);
+          cloned.names = cloned.names.filter((_, idx) => !drop.has(idx + 1));
+          modifierTag = ` PX${pxMatch[1]}`;
         } else {
           return FORMAT_ERROR;
         }
       }
       wa.pnr = cloned;
-      recordHistory(cloned, `RRN COPY FROM ${originalLocator}${modifierTag}`);
+      const verb = isItineraryOnly ? 'RRI' : 'RRN';
+      recordHistory(cloned, `${verb} COPY FROM ${originalLocator}${modifierTag}`);
       try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
       return `COPIED FROM ${originalLocator}${modifierTag}`;
     }

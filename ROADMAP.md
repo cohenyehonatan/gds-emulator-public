@@ -693,22 +693,31 @@ different upside.
         HotelProperty/HotelRate/HotelSegment model + seed (10 props
         across 4 cities × 6 chains). Inventory.hotelsIn(city, chain).
         WorkArea.lastHotelAvail caches the displayed list for HS.
-      * Chunk 23 — car availability + sell (this commit): CA<city>
+      * Chunk 23 — car availability + sell (`932cd28`): `CA<city>`
         multi-company, CA<company><city> filter, CA<city><date>-
         <date|N> range or rental-day count, /ARR-<time> arrival
         window, CS<n>[/VT-<vt>] sell, CX<n> cancel. New CarRental/
         CarSegment model + seed (18 rentals across 4 cities × 4
         companies × ACRISS SIPP vehicle codes). Inventory.carsIn
         (city, company). WorkArea.lastCarAvail. Pnr.carSegments.
+      * Chunk 24 — RRN passenger-specific variants + RRI (this commit):
+        RRN/<n> change passenger count (trims from end of name list,
+        within-NameItem aware), RRN/P<list> keep only listed passengers,
+        RRN/PX<list> exclude passengers, RRN/SX<list> exclude segments.
+        RRI mirrors RRN but drops names + phones + SSRs + OSIs + FFs +
+        seat requests + addresses + remarks (itinerary-only copy).
+        Lists support comma + range (`1,3-5`). INVALID PASSENGER on
+        out-of-range pax refs. Closes the chunk 18 carryover; the
+        RRN family now covers all QRG p.47 variants.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
       exceptions, alliance ranking, FFA/FFR mileage accrual/
       redemption (needs name-element interleaving), seat maps —
       see `docs/seatmap-design.md` for the unpacked decision tree
-      + chunk plan (it needs its own design pass before code), RRN
-      passenger-specific variants. The behavior-layer caveat (below)
-      still applies — no public source for these algorithms.
+      + chunk plan (it needs its own design pass before code). The
+      behavior-layer caveat (below) still applies — no public source
+      for these algorithms.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
