@@ -351,6 +351,16 @@ export interface PricingEntry extends BaseEntry {
   validatingCarrier?: string; // WPA<carrier> / ¥A
   currency?: string; // WPM<currency> / ¥M (label only, no conversion)
   taxMode?: 'none' | 'fees'; // WPTN (exempt all) / WPTE (exempt taxes, keep fees)
+  /** WPI<corporate ID> — negotiated-fare pricing indicator (Pricing QR
+   *  verbatim: `WPIBOE01`). Accepted + recorded; the emulated tariff
+   *  files no negotiated fares, so pricing proceeds as public. */
+  corporateId?: string;
+  /** WPAC*<account code> (Pricing QR verbatim: `WPAC*ACCTCODE1`). */
+  accountCode?: string;
+  /** WPXP / WPXR / WPXA — exclude penalty / all-restriction / advance-
+   *  purchase fares (Pricing QR verbatim). The emulated tariff files
+   *  none of these fare types, so the exclusions are no-ops. */
+  exclude?: ('penalty' | 'restrictions' | 'advance')[];
 }
 
 /**

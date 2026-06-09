@@ -180,18 +180,24 @@ Grounded in `references/Sabre-Basic-Pricing-QR.pdf`.
       validating carrier `WPALH`, currency `WPMEUR` (label only), tax exempt
       `WPTN` (all) / `WPTE` (taxes only, keep fees), combos `WP¥S1¥MEUR`.
       Folds the existing `P`/`S`/`RQ` qualifiers through the same path.
-- [ ] Negotiated / account / exclude qualifiers (`WPI`/`WPAC`/`WPXP`/`WPXR`/
-      `WPXA`/`WPPL`/`WPPV`/`WPB`/`WP¥TC`) — rejected as FORMAT; need fare-rule
-      and currency-conversion modeling we don't have.
+- [x] Negotiated / account / exclude qualifiers — `WPI<id>`, `WPAC*<code>`,
+      `WPXP`/`WPXR`/`WPXA` now parse per the Pricing QR's verbatim forms
+      and price as public (the emulated tariff files no negotiated/
+      penalty/restricted fares — acceptance is the honest behavior).
+      Still open: `WPPL`/`WPPV`/`WPB`/`WP¥TC` (not in the in-tree QR
+      extraction).
 - [x] **Stored fares (PQ records)** — `PQ` stores the last quote (one record per
       passenger type), `WPRQ` prices + stores in one entry, `*PQ` / `*PQ<n>`
       displays them. Records live on the PNR (survive commit/retrieve), up to 99.
       Grounded in `references/Sabre-Fares-and-Pricing-Course-Zenon.pdf`.
 - [x] **Fare-calculation line** in the quote + `WPDF` / `WPDF*` / `WPDF<n>`
       display (per-passenger-type construction `JFK AA LAX245.00Y14 … 490.00 END`).
-- [ ] Validating-carrier alternates, OB/baggage fees, `LAST DAY TO PURCHASE`
-      (needs fare rules), name qualifier `¥N…`, manual PQ (`PQM`), PQ delete,
-      ticketing from PQ (v3). Through-fare `X/` construction + NUC/ROE (intl).
+- [ ] Validating-carrier alternates, OB/baggage fees, manual PQ (`PQM`),
+      PQ delete. DONE since this was written: `LAST DAY TO PURCHASE`
+      renders in the WP header per the QR's verbatim layout (last-day
+      math reconstructed as departure − the fare-basis advance-purchase
+      days); name qualifier `¥N…`; ticketing from PQ (v3); through-fare
+      `X/` construction + NUC/ROE (chunks 27+30).
 
 ## v3 — Queues & ticketing
 
@@ -888,12 +894,17 @@ into four buckets.
       construction; only Amadeus has the verb surface today. Sabre
       hotel = `HOT…`/Galileo `HA`/`HOC` families per their format
       guides.
-- [ ] **Sabre v1-v3 backlog** (old checkboxes above, all small):
-      negotiated/account pricing qualifiers (`WPI`/`WPAC`/`WPXP`/
-      `WPXR`), validating-carrier alternates + OB/baggage fees +
-      LAST DAY TO PURCHASE, deferred WFR refund variants (name-
-      selected, redisplay, list-pick), segment-specific SSR format
-      pinning, spaced-vs-concatenated carrier+flight ambiguity.
+- [x] **Sabre v1-v3 backlog** (the source-pinned subset, landed):
+      `WPI`/`WPAC*`/`WPXP`/`WPXR`/`WPXA` qualifiers + the
+      `LAST DAY TO PURCHASE` WP header line — both turned out to be
+      documented verbatim in the in-tree Pricing QR (the old "needs
+      fare-rule modeling" claim was wrong about the formats, right
+      about the semantics — they parse and price as public since no
+      negotiated/penalty fares are filed). Still open, genuinely
+      source-blocked: WFR refund variants (name-selected/redisplay/
+      list-pick), segment-specific SSR format, spaced-vs-concatenated
+      carrier+flight, `WPPL`/`WPPV`/`WPB`/`WP¥TC`, OB/baggage fees,
+      validating-carrier alternates.
 
 ### New arcs
 

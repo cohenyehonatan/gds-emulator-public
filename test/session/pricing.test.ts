@@ -141,9 +141,25 @@ describe('WP pricing', async () => {
     expect(await host.process('WP*', wa)).toContain('NO PRICING');
   });
 
-  it('rejects an unsupported pricing format (until later commits)', async () => {
+  it('WPI / WPAC* / WPXP / WPXR / WPXA qualifiers parse and price (Pricing QR verbatim forms)', async () => {
+    // Formerly rejected as unsupported; the Pricing QR documents all
+    // of them. The emulated tariff files no negotiated / penalty /
+    // restricted fares, so they price as public — acceptance is the
+    // observable behavior.
     await bookRoundTrip();
-    expect(await host.process('WPXP', wa)).toBe('FORMAT'); // exclude-penalty qualifier not modeled
+    for (const entry of ['WPIBOE01', 'WPAC*ACCTCODE1', 'WPXP', 'WPXR', 'WPXA', 'WPXP¥XR']) {
+      const resp = await host.process(entry, wa);
+      expect(resp, entry).toContain('TOTAL');
+      expect(resp, entry).not.toBe('FORMAT');
+    }
+  });
+
+  it('WP header carries the QR-verbatim LAST DAY TO PURCHASE line', async () => {
+    await bookRoundTrip();
+    const resp = await host.process('WP', wa);
+    // 15JUN departure − 14 days (the `<class>14` fare-basis advance
+    // purchase) = 1JUN. The /2359 time suffix is the QR layout.
+    expect(resp).toContain('15JUN DEPARTURE DATE-----LAST DAY TO PURCHASE 1JUN/2359');
   });
 
   it('WPA overrides the validating carrier; WPM sets the currency label', async () => {

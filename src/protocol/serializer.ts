@@ -468,11 +468,27 @@ export function renderSwitchAreaResponse(sig: PnrSignature, area: string): strin
  * a BASE FARE / TAXES / TOTAL row per passenger type, the tax breakdown,
  * fare-basis line, and validating carrier.
  */
+/** DDMON minus N days, month-aware (31-day months — emulator-fine). */
+function ddmonMinusDays(date: string, n: number): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
+  if (!m) return date;
+  let day = parseInt(m[1], 10) - n;
+  let mon = months.indexOf(m[2]);
+  while (day < 1) { day += 31; mon = (mon + 11) % 12; }
+  return `${day}${months[mon]}`;
+}
+
 export function renderFareQuote(fq: FareQuote): string {
   const money = (n: number) => n.toFixed(2);
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const out: string[] = [];
-  out.push(`${fq.departureDate} DEPARTURE DATE`);
+  // Pricing QR verbatim header layout:
+  //   `12OCT DEPARTURE DATE-----LAST DAY TO PURCHASE 24JAN/2359`
+  // The last-day value is RECONSTRUCTED math: departure minus the
+  // 14-day advance purchase implied by our `<class>14` fare basis
+  // (the QR shows the line, not the rule that produces the date).
+  out.push(`${fq.departureDate} DEPARTURE DATE-----LAST DAY TO PURCHASE ${ddmonMinusDays(fq.departureDate, 14)}/2359`);
   out.push('      BASE FARE     TAXES          TOTAL');
 
   let grandBase = 0;

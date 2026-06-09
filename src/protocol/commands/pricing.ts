@@ -16,7 +16,10 @@
  *   TN / TE    exempt all taxes+fees / exempt taxes keep fees
  *   RQ         store a PQ record
  *
- * TODO (ROADMAP): negotiated/account/exclude qualifiers (WPI/WPAC/WPXP/WPXR/
+ * Negotiated/account/exclude qualifiers (WPI/WPAC/WPXP/WPXR/WPXA) are
+ * parsed per the Pricing QR verbatim forms; the emulated tariff files
+ * no negotiated/penalty/restricted fares so they price as public.
+ * (Formerly a TODO citing missing sources — the QR documents them.
  * WPXA/WPPL/WPPV/WPB/WP¥TC) — they need fare-rule modeling we don't have.
  */
 
@@ -68,7 +71,9 @@ export function parsePricing(raw: string): PricingEntry {
 
 type Qualifiers = Pick<
   PricingEntry,
-  'passengerTypes' | 'segments' | 'nameRef' | 'validatingCarrier' | 'currency' | 'taxMode' | 'store'
+  | 'passengerTypes' | 'segments' | 'nameRef' | 'validatingCarrier'
+  | 'currency' | 'taxMode' | 'store'
+  | 'corporateId' | 'accountCode' | 'exclude'
 >;
 
 /** Parse qualifiers from the verb remainder: first inline, rest ¥-separated. */
@@ -77,6 +82,25 @@ function parseQualifiers(rest: string, raw: string): Qualifiers {
   if (rest.length === 0) return q;
   const body = rest.startsWith('¥') ? rest.slice(1) : rest;
   for (const token of body.split('¥').filter(Boolean)) {
+    const upper = token.toUpperCase();
+    // Multi-char qualifiers first — `AC*<code>` must win over the
+    // single-char `A` validating-carrier case, `X<P|R|A>` over an
+    // unsupported-key throw. Pricing QR p.2 verbatim forms:
+    //   WPI<corporate ID>   WPAC*<account code>   WPXP / WPXR / WPXA
+    if (upper.startsWith('AC*')) {
+      if (upper.length <= 3) throw new ParseError(`Pricing: no account code in "${raw}"`);
+      q.accountCode = upper.slice(3);
+      continue;
+    }
+    if (upper === 'XP' || upper === 'XR' || upper === 'XA') {
+      q.exclude = q.exclude ?? [];
+      q.exclude.push(upper === 'XP' ? 'penalty' : upper === 'XR' ? 'restrictions' : 'advance');
+      continue;
+    }
+    if (upper.startsWith('I') && upper.length > 1) {
+      q.corporateId = upper.slice(1);
+      continue;
+    }
     const key = token[0].toUpperCase();
     const val = token.slice(1);
     switch (key) {
