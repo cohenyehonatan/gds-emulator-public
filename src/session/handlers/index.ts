@@ -46,6 +46,7 @@ import {
 } from './accounting-handler.js';
 import { handleTicketDocumentDisplay } from './ticket-display-handler.js';
 import { handleVoid } from './void-handler.js';
+import { handleSeatRequest } from './seat-request-handler.js';
 
 export type { HandlerContext };
 
@@ -91,6 +92,8 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleFlightInfo(entry, wa, ctx);
       case 'seat_map':
         return handleSeatMap(entry, wa, ctx);
+      case 'seat_request':
+        return handleSeatRequest(entry, wa, ctx);
       case 'divide':
         return handleDivide(entry, wa);
       case 'file':

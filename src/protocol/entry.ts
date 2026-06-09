@@ -210,6 +210,31 @@ export interface SeatMapEntry extends BaseEntry {
   };
 }
 
+/**
+ * Advance seat request — Galileo `S.` family (Pocket Guide H/ASR;
+ * wired in W.2 so Worldspan's `4R` sigil + Apollo can translate to
+ * it). Stores onto the cross-dialect `pnr.seatRequests` model the
+ * Amadeus ST family already populates.
+ *
+ *   S.10A          specific seat, all pax / all segments
+ *   S.NW           preference code (non-smoking window)
+ *   S.S2/10A       segment-specific
+ *   S.P1/10A       passenger-specific
+ *   S.S2P1/10A     both
+ *   S.@            cancel all seat requests
+ *   S.S2@          cancel for segment 2
+ */
+export interface SeatRequestEntry extends BaseEntry {
+  kind: 'seat_request';
+  action: 'add' | 'cancel';
+  /** Seat label (10A) or preference code (NW/NA/SA/SW/W/A/G) — absent on cancels. */
+  code?: string;
+  segment?: number;
+  nameRef?: { item: number; passenger?: number };
+  /** True for the bare `S.@` cancel-all form. */
+  cancelAll?: boolean;
+}
+
 export interface CancelEntry extends BaseEntry {
   kind: 'cancel';
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
@@ -566,6 +591,7 @@ export type ParsedEntry =
   | FrequentFlyerEntry
   | FlightInfoEntry
   | SeatMapEntry
+  | SeatRequestEntry
   | CancelEntry
   | SegmentStatusEntry
   | PassiveCancelEntry

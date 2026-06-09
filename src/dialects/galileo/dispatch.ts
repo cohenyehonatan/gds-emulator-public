@@ -86,6 +86,7 @@ import {
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
+import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
 import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
@@ -231,6 +232,12 @@ export function dispatchGalileo(
 
       case 'seat_map':
         return handleGalileoSeatMap(entry, wa, ctx);
+
+      case 'seat_request':
+        // Cross-dialect handler — same store the Amadeus ST family
+        // writes (pnr.seatRequests). Reached by Galileo S., Apollo
+        // (unchanged passthrough), and Worldspan 4R via translation.
+        return handleSeatRequest(entry, wa, ctx);
 
       case 'void':
         return handleGalileoVoid(entry, wa, ctx);

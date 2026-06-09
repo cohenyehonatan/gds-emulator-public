@@ -127,6 +127,40 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
+  // Galileo advance seat request family — `S.` (Pocket Guide H/ASR).
+  // Wired in W.2 so Worldspan's 4R sigil + Apollo route here too.
+  //   S.@            cancel all seat requests
+  //   S.S<n>@        cancel for segment n
+  //   S.<code>       add: seat label (10A) or pref (NW/NA/SA/SW/W/A/G)
+  //   S.S<n>/<code>  segment-specific add
+  //   S.P<n>/<code>  passenger-specific add
+  //   S.S<n>P<n>/<code>  both
+  if (u.startsWith('S.')) {
+    const body = u.slice(2);
+    if (body === '@') {
+      return { kind: 'seat_request', raw: trimmed, timestamp: new Date(), action: 'cancel', cancelAll: true };
+    }
+    const cancelSeg = /^S(\d{1,2})@$/.exec(body);
+    if (cancelSeg) {
+      return {
+        kind: 'seat_request', raw: trimmed, timestamp: new Date(),
+        action: 'cancel', segment: parseInt(cancelSeg[1], 10),
+      };
+    }
+    const add = /^(?:S(\d{1,2}))?(?:P(\d{1,2})(?:\.(\d{1,2}))?)?\/?([A-Z0-9]{1,4})$/.exec(body);
+    if (add && add[4]) {
+      return {
+        kind: 'seat_request', raw: trimmed, timestamp: new Date(),
+        action: 'add',
+        code: add[4],
+        segment: add[1] ? parseInt(add[1], 10) : undefined,
+        nameRef: add[2]
+          ? { item: parseInt(add[2], 10), passenger: add[3] ? parseInt(add[3], 10) : undefined }
+          : undefined,
+      };
+    }
+  }
+
   // Galileo seat-map family (Pocket Guide + galileoindonesia.com guide):
   //   SA*S<n>[;]                          seat map for segment n
   //   SA*S<n>/<row>[;]                    + from-row offset

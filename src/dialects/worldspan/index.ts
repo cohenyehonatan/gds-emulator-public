@@ -137,10 +137,24 @@ export function translateWorldspanToGalileo(raw: string): string {
   if (ssrAll) return `SI.${ssrAll[1]}`;
 
   // Seats (sigil '4'): 4<line>*<class> seat map from availability →
-  // SM*A<line><class>; 4RX cancel-all → S.@ (not yet wired in the
-  // Galileo handler — passes through to its honest not-implemented).
+  // SM*A<line><class>.
   const seatMap = /^4(\d{1,2})\*([A-Z])$/.exec(s);
   if (seatMap) return `SM*A${seatMap[1]}${seatMap[2]}`;
+
+  // 4R seat-request family → Galileo S. (wired in W.2). The three
+  // verbatim Comparison Guide rows plus the structural cancel forms:
+  //   4RA$W       → S.NW    non-smoking window
+  //   4RA$5A      → S.SA    smoking aisle
+  //   4RS6$9A     → S.S6P1/9A   seat by segment + passenger
+  //   4RX-6       → S.S6@   cancel seats for segment 6
+  //   4RX         → S.@     cancel all seats
+  if (s === '4RA$W') return 'S.NW';
+  if (s === '4RA$5A') return 'S.SA';
+  const seatReq = /^4RS(\d{1,2})\$(\d{1,3}[A-Z])$/.exec(s);
+  if (seatReq) return `S.S${seatReq[1]}P1/${seatReq[2]}`;
+  const seatCancelSeg = /^4RX-(\d{1,2})$/.exec(s);
+  if (seatCancelSeg) return `S.S${seatCancelSeg[1]}@`;
+  if (s === '4RX') return 'S.@';
 
   return s;
 }
