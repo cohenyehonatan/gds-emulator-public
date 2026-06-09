@@ -1040,11 +1040,56 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
-    if (entry === 'TKOK' || entry.startsWith('TKTL')) {
-      // Amadeus QRG p.40-ish: TKOK = "ticket now"; TKTL<date> = "ticket
-      // by date". Both satisfy the ticketing field requirement.
+    // --- v4 chunk 20: ticketing-arrangement element family ---
+    // QRG p.153 (PNR ELEMENTS / Ticketing Arrangement). The TK
+    // family covers seven action codes plus optional qualifiers:
+    //   TKOK                  tickets issued, no queue placement
+    //   TKTL<date>[/<office>] time-limit (must be ticketed by date)
+    //   TKDO<date>[/<office>] domestic itinerary
+    //   TKIN<date>[/<office>] international itinerary
+    //   TKMA<date>[/<office>] tickets to be mailed
+    //   TKSS                  self-service device (no date)
+    //   TKXL<date>[/<office>] cancel itinerary if not ticketed by date
+    // Qualifier suffixes (any prefix can carry these, per QRG p.153):
+    //   /<office>             office ID like PARAF0245
+    //   /<HHMM>               specific hour
+    //   /P<n>                 passenger association
+    //   /S<n>[-<m>]           segment association
+    //   /C<n>                 alternative queue category
+    //   /-<freeflow text>     free text remarks
+    const tkMatch = /^TK(OK|TL|DO|IN|MA|SS|XL)(.*)$/.exec(entry);
+    if (tkMatch) {
+      const action = tkMatch[1];
+      const tail = tkMatch[2];
+      // TKOK and TKSS take no date but may carry /P/S/C qualifiers.
+      // The other prefixes (TL/DO/IN/MA/XL) usually require a date
+      // (DDMON), but TKTL accepts a `/<time>/<office>` non-Amadeus-
+      // office variant with no date per QRG p.153 line "Ticketing
+      // time limit, non-Amadeus office  TKTL/1800/ROMAZ".
+      if (action !== 'OK' && action !== 'SS') {
+        const isDateForm = /^\d{1,2}[A-Z]{3}/.test(tail);
+        const isNonAmadeusOfficeForm = action === 'TL' && /^\/\d{3,4}\//.test(tail);
+        if (!isDateForm && !isNonAmadeusOfficeForm) return FORMAT_ERROR;
+      }
+      // Optional /P /S /C qualifier validation. Reject if /P or /S
+      // refers to a non-existent passenger / segment.
+      const pMatch = /\/P(\d+)/.exec(tail);
+      if (pMatch && parseInt(pMatch[1], 10) > wa.pnr.names.length) {
+        return 'INVALID PASSENGER';
+      }
+      const sMatch = /\/S(\d+)(?:-(\d+))?/.exec(tail);
+      if (sMatch) {
+        const lo = parseInt(sMatch[1], 10);
+        const hi = sMatch[2] ? parseInt(sMatch[2], 10) : lo;
+        if (lo < 1 || hi > wa.pnr.segments.length || lo > hi) {
+          return 'INVALID SEGMENT';
+        }
+      }
+      const oldTk = wa.pnr.ticketing;
       wa.pnr.ticketing = entry;
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      if (oldTk) recordHistory(wa.pnr, `TK ${oldTk} → ${entry}`);
+      else recordHistory(wa.pnr, `TK ${entry}`);
       return 'OK';
     }
 
