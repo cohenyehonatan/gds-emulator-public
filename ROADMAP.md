@@ -889,11 +889,13 @@ into four buckets.
       stay: they flag Sabre reconstructed strings, which the Galileo
       diff-oracle does NOT validate — they're the standard
       reconstructed-string annotation, not stale.
-- [ ] **Sabre/Galileo hotel + car cryptic** — the Inventory seeds,
-      models, and WorkArea cache slots are cross-dialect by
-      construction; only Amadeus has the verb surface today. Sabre
-      hotel = `HOT…`/Galileo `HA`/`HOC` families per their format
-      guides.
+- [x] **Galileo/Apollo/Worldspan hotel + car cryptic** (landed) —
+      Galileo HOA/HOI/HOC + CAL/CAI with display-context N-sells
+      (N1A2D3 hotel, N1A4 car), Apollo via passthrough, Worldspan
+      HL/HA/CRA/CR0 via translation; all verb forms verbatim from
+      the Comparison Guide's 5-way tables. SABRE hotel/car (HOT/CF
+      column) remains open — its column in the guide is the
+      sparsest and the in-tree Sabre QRs don't cover hotel/car.
 - [x] **Sabre v1-v3 backlog** (the source-pinned subset, landed):
       `WPI`/`WPAC*`/`WPXP`/`WPXR`/`WPXA` qualifiers + the
       `LAST DAY TO PURCHASE` WP header line — both turned out to be
@@ -931,8 +933,12 @@ into four buckets.
 - [ ] **v4 BHS integration** — the aviation-suite tie-in (see the v4
       section above): check-in retrieves a PNR by locator before
       generating PECTAB; `AgentTerminal` is the intended seam.
-- [ ] **CRT-over-TCP** — the server pushing `wa.state()` updates so
-      the remote terminal gets the full CRT frame, not just line mode.
+- [x] **CRT-over-TCP** (landed) — a `.CRT` hello opts the connection
+      into a state-trailer protocol: every response carries
+      `\x1F<state>\x1F<agent>` which the TCP REPL strips for display
+      and uses for the CRT status bar. Backward compatible (plain
+      line-mode clients never send the hello and see no change);
+      falls back to line mode on non-TTY stdout or an old server.
 
 ### Externally blocked (tracked, not actionable)
 

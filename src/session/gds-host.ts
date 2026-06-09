@@ -108,11 +108,23 @@ export class GdsHost {
     this.workAreas.set(conn, wa);
     this.logger.info(`Terminal connected: ${conn.getRemoteAddress()}`);
 
+    // CRT-over-TCP (v6): a client that sends the `.CRT` hello opts
+    // into the state-trailer protocol — every subsequent response
+    // carries `\x1F<state>\x1F<agent>` so the remote terminal can
+    // render the CRT status bar without a second round-trip. Plain
+    // line-mode clients never send the hello and see no change.
+    let crtMode = false;
+
     conn.onMessage(async (raw: string) => {
+      if (raw === '.CRT') {
+        crtMode = true;
+        conn.send(`CRT OK\x1F${wa.state()}\x1F${wa.agent ?? ''}`);
+        return;
+      }
       this.logger.protocol('send', 'ENTRY', raw);
       const response = await this.process(raw, wa);
       this.logger.protocol('receive', 'RESP', response.split('\n')[0]);
-      conn.send(response);
+      conn.send(crtMode ? `${response}\x1F${wa.state()}\x1F${wa.agent ?? ''}` : response);
     });
 
     conn.onDisconnect(() => this.logger.info('Terminal disconnected'));

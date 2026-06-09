@@ -157,6 +157,88 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     process.exit(1);
   }
   console.log(`Connected to GDS host at ${opts.host}:${opts.port}.`);
+
+  // CRT-over-TCP (v6): opt into the server's state-trailer protocol
+  // with the `.CRT` hello. Every response then carries
+  // `\x1F<state>\x1F<agent>` which we strip for display and use for
+  // the CRT status bar. Falls back to plain line-mode when the hello
+  // isn't acknowledged (older server) or stdout isn't a TTY.
+  let crt = false;
+  try {
+    const hello = await terminal.enter('.CRT');
+    crt = hello.startsWith('CRT OK') && process.stdout.isTTY === true;
+  } catch {
+    crt = false;
+  }
+
+  const splitTrailer = (response: string): { body: string; state: string; agent: string } => {
+    const parts = response.split('\x1F');
+    return {
+      body: parts[0],
+      state: parts[1] ?? '?',
+      agent: parts[2] && parts[2].length > 0 ? parts[2] : '----',
+    };
+  };
+
+  if (crt) {
+    const out = process.stdout;
+    const screen = new CrtScreen(out, 'REMOTE GDS (TCP)');
+    screen.enter();
+    screen.print('── BACKEND: REMOTE (TCP, CRT mode) ──');
+    screen.print('  Server owns the dialect, work area, and PNR state;');
+    screen.print('  the status bar reflects the remote work-area state.');
+    screen.print('');
+
+    const rl = readline.createInterface({ input: process.stdin, output: out, prompt: '› ' });
+    let lastState = '?';
+    let lastAgent = '----';
+    const redraw = () => {
+      screen.render(`AAA ${lastAgent}   [${lastState}]`);
+      readline.cursorTo(out, screen.inputCol() - 1, screen.inputRow() - 1);
+      rl.prompt(true);
+    };
+    redraw();
+
+    if (process.stdin.isTTY) {
+      readline.emitKeypressEvents(process.stdin);
+      process.stdin.on('keypress', () => {
+        setImmediate(() => screen.redrawRightBorder());
+      });
+    }
+
+    rl.on('line', async (line) => {
+      const entry = line.trim();
+      if (isQuit(entry)) {
+        rl.close();
+        return;
+      }
+      if (entry.length > 0) {
+        screen.printEntry(entry);
+        try {
+          const { body, state, agent } = splitTrailer(await terminal.enter(entry));
+          lastState = state;
+          lastAgent = agent;
+          screen.print(body);
+        } catch (err) {
+          screen.print(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        screen.print('');
+      }
+      redraw();
+    });
+
+    out.on('resize', redraw);
+
+    return new Promise<void>((resolve) => {
+      rl.on('close', () => {
+        screen.leave();
+        terminal.disconnect();
+        console.log('Session ended.');
+        resolve();
+      });
+    });
+  }
+
   console.log('── BACKEND: REMOTE (TCP) ──');
   console.log('  Entries forward to the server over the socket; responses');
   console.log('  return verbatim. Server owns the dialect, work area, and PNR state.');
@@ -175,7 +257,9 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     if (entry.length > 0) {
       try {
         const response = await terminal.enter(entry);
-        console.log(response);
+        // Tolerate a state trailer if the hello succeeded but TTY
+        // detection forced line-mode — strip it for clean output.
+        console.log(crt || !response.includes('\x1F') ? response : response.split('\x1F')[0]);
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }

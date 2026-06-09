@@ -84,3 +84,52 @@ describe('TCP end-to-end (host + terminal over the wire)', () => {
     expect(true).toBe(true);
   });
 });
+
+describe('CRT-over-TCP state-trailer protocol (v6)', () => {
+  let host: GdsHost;
+  let terminal: AgentTerminal;
+
+  afterEach(async () => {
+    terminal?.disconnect();
+    await host?.stop();
+  });
+
+  it('.CRT hello opts in; responses carry \\x1F<state>\\x1F<agent> trailers', async () => {
+    host = new GdsHost({ port: 0, logLevel: 'error', pcc: 'A0UC' });
+    await host.start();
+    terminal = new AgentTerminal({ host: '127.0.0.1', port: host.getPort(), logLevel: 'error' });
+    await terminal.connect();
+
+    const hello = await terminal.enter('.CRT');
+    expect(hello.startsWith('CRT OK')).toBe(true);
+    expect(hello.split('\x1F')[1]).toBe('SIGNED_OFF');
+
+    const signIn = await terminal.enter('SI*');
+    const parts = signIn.split('\x1F');
+    expect(parts[0]).toContain('A0UC');       // the normal response body
+    expect(parts[1]).toBe('EMPTY');           // state advanced after sign-in
+  });
+
+  it('agent appears in the trailer after sign-in carries one', async () => {
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S' });
+    await host.start();
+    terminal = new AgentTerminal({ host: '127.0.0.1', port: host.getPort(), logLevel: 'error' });
+    await terminal.connect();
+
+    await terminal.enter('.CRT');
+    const resp = await terminal.enter('SON/ZGS');
+    const parts = resp.split('\x1F');
+    expect(parts[0]).toContain('GS SIGNED ON');
+    expect(parts[2]).toBe('GS'); // agent in the trailer
+  });
+
+  it('clients that never send the hello see clean responses (no trailer)', async () => {
+    host = new GdsHost({ port: 0, logLevel: 'error', pcc: 'A0UC' });
+    await host.start();
+    terminal = new AgentTerminal({ host: '127.0.0.1', port: host.getPort(), logLevel: 'error' });
+    await terminal.connect();
+
+    const resp = await terminal.enter('SI*');
+    expect(resp).not.toContain('\x1F');
+  });
+});
