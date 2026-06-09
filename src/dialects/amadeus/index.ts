@@ -61,6 +61,7 @@ import { generateRecordLocator } from '../../models/record-locator.js';
 import type { AirSegment } from '../../models/segment.js';
 import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
+import { ticketNumber } from '../../models/ticket.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { synthesizeAvailability, synthesizeDecorations } from '../../models/seat-map.js';
@@ -672,6 +673,155 @@ function parseSignInArgument(arg: string): { agent: string } | undefined {
   const match = /^(\d{1,4})([A-Z]{1,3})\/([A-Z]{1,3})$/.exec(arg);
   if (!match) return undefined;
   return { agent: match[2] };
+}
+
+/**
+ * Issue Amadeus e-tickets — one per seat-occupying passenger. Reuses
+ * the shared TicketRecord model + airlineNumericCode/ticketNumber
+ * helpers that Sabre's W¥ also uses, so a downstream `*T`-style
+ * display works identically across dialects.
+ *
+ * Issuance pulls fare blocks from the priced quote in the order the
+ * Sabre handler does (FQ → priceQuotes[0]) and assigns each passenger
+ * to one fare block via positional pairing. Multi-PQ ordering / multi-
+ * carrier mixes / segment-specific fares are out of scope for chunk 19;
+ * we use the first available quote.
+ */
+function issueAmadeusTickets(
+  pnr: Pnr,
+  ctx: HandlerContext,
+  ticketType: 'TE' | 'TK',
+): import('../../models/ticket.js').TicketRecord[] {
+  const tickets: import('../../models/ticket.js').TicketRecord[] = [];
+  const fq = pnr.priceQuotes[0];
+  const passengers = pnr.names.filter((n) => !n.infant);
+  // Fare-block expansion: one entry per passenger seat in priceQuotes[0].
+  const fares: { base: number; taxTotal: number; total: number }[] = [];
+  for (const pp of fq.passengers ?? []) {
+    for (let i = 0; i < pp.count; i++) {
+      fares.push({ base: pp.base, taxTotal: pp.taxTotal, total: pp.total });
+    }
+  }
+  const zero = { base: 0, taxTotal: 0, total: 0 };
+  const intlSet = new Set(['JFK', 'LAX', 'SFO', 'LHR', 'CDG', 'FRA', 'AMS', 'NRT', 'HKG', 'SIN']); // narrow heuristic
+  const tariff: 'D' | 'I' = pnr.segments.some(
+    (s) => intlSet.has(s.origin) || intlSet.has(s.destination),
+  ) ? 'I' : 'D';
+  const validating = fq.validatingCarrier ?? pnr.segments[0]?.carrier ?? 'YY';
+  let fareIdx = 0;
+  for (const item of passengers) {
+    for (let p = 0; p < item.count; p++) {
+      const pax = item.passengers[p];
+      const surname = item.surname;
+      const initial = pax?.firstName?.[0] ?? '?';
+      const fare = fares[fareIdx++] ?? fares[fares.length - 1] ?? zero;
+      tickets.push({
+        number: ticketNumber(validating, ctx.backend.nextTicketSerial()),
+        type: ticketType,
+        stock: 'AT',
+        passenger: `${surname}/${initial}`,
+        pcc: ctx.pcc,
+        agent: undefined,
+        issuedAt: new Date(),
+        tariff,
+        validatingCarrier: validating,
+        base: fare.base,
+        taxTotal: fare.taxTotal,
+        total: fare.total,
+        status: 'OPEN',
+      });
+    }
+  }
+  return tickets;
+}
+
+/**
+ * Render the TTP "OK ETKT" success response with a brief per-ticket
+ * summary. Format reconstructed from QRG conventions — the QRG p.211
+ * documents the entry but not the verbatim response wording. Each
+ * line shows the issued ticket number + passenger + total.
+ */
+function renderAmadeusTicketIssuance(
+  tickets: import('../../models/ticket.js').TicketRecord[],
+): string {
+  if (tickets.length === 0) return 'OK ETKT';
+  const lines = ['OK ETKT'];
+  for (const t of tickets) {
+    lines.push(`  TKT ${t.number}  ${t.passenger}  ${t.total.toFixed(2)} ${t.validatingCarrier}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render the TWD electronic-ticket-record display. Per QRG p.211-212:
+ * one block per ticket showing the TKT number + status of each coupon.
+ * Format reconstructed from QRG conventions:
+ *
+ *   TKT-<airline>-<ticket-number>  <status>
+ *   FROM  TO    CPN  STATUS  FARE
+ *   JFK   LAX   1    OPEN    198.00
+ *   ...
+ *   NAME: <passenger>
+ *   ISSUED: <date>  PCC: <pcc>
+ */
+function renderAmadeusTwd(
+  tickets: import('../../models/ticket.js').TicketRecord[],
+  pnr: Pnr,
+  singleLine?: number,
+): string {
+  const blocks: string[] = [];
+  tickets.forEach((t, idx) => {
+    const lineNo = singleLine ?? idx + 1;
+    const lines: string[] = [];
+    lines.push(`TKT-${t.validatingCarrier}-${t.number}  ${t.status ?? 'OPEN'}`);
+    lines.push(`PAX: ${t.passenger}`);
+    lines.push(`ISSUED ${formatTicketDate(t.issuedAt)}  PCC ${t.pcc}`);
+    lines.push(`FARE ${t.base.toFixed(2)}  TAX ${t.taxTotal.toFixed(2)}  TOTAL ${t.total.toFixed(2)}`);
+    // Per-segment coupon summary.
+    pnr.segments.forEach((s, sIdx) => {
+      lines.push(`  ${sIdx + 1}. ${s.carrier}${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin}-${s.destination}  CPN${sIdx + 1}: OPEN`);
+    });
+    blocks.push(`-- L${lineNo} --\n${lines.join('\n')}`);
+  });
+  return blocks.join('\n\n');
+}
+
+/**
+ * Compact TWD list view (TWDRL). One line per ticket showing line
+ * number + ticket number + passenger + status.
+ */
+function renderAmadeusTwdList(
+  tickets: import('../../models/ticket.js').TicketRecord[],
+): string {
+  return tickets
+    .map((t, i) => `${i + 1}. ${t.validatingCarrier} ${t.number}  ${t.passenger}  ${t.status ?? 'OPEN'}`)
+    .join('\n');
+}
+
+/**
+ * TWH electronic-ticket-record history display (QRG p.212). Reconstructed
+ * format: one section per ticket with issue + status events.
+ */
+function renderAmadeusTwh(
+  tickets: import('../../models/ticket.js').TicketRecord[],
+): string {
+  const blocks: string[] = [];
+  for (const t of tickets) {
+    blocks.push(
+      `TKT-${t.validatingCarrier}-${t.number}`,
+      `  ISSUE ${formatTicketDate(t.issuedAt)}  ${t.pcc}`,
+      `  STATUS ${t.status ?? 'OPEN'}`,
+    );
+  }
+  return blocks.join('\n');
+}
+
+function formatTicketDate(d: Date): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mon = months[d.getUTCMonth()];
+  const yy = String(d.getUTCFullYear()).slice(2);
+  return `${dd}${mon}${yy}`;
 }
 
 /**
@@ -1693,6 +1843,63 @@ export class AmadeusDialect implements Dialect {
       return wa.pnr.priceQuotes
         .map((fq, i) => renderAmadeusFareQuote(fq, i + 1))
         .join('\n\n');
+    }
+
+    // --- v4 chunk 19: e-ticket issuance (TTP) + display (TWD) ---
+    // Per Amadeus QRG p.211 (Amadeus Electronic Ticketing chapter).
+    //
+    // TTP        issue tickets for displayed PNR (default = electronic)
+    // TTP/ET     force electronic
+    // TTP/PT     force paper (airline + US market only — same TKT
+    //            wording either way in our renderer; the type field
+    //            differs (TE vs TK))
+    // TTP/S<n>-<m>  issue for specific segment range (validated only)
+    //
+    // TWD        display ET records on retrieved PNR
+    // TWD/L<n>   specific ticket line
+    // TWD/<n>    specific line from list (same shape)
+    // TWH        display ET record history (uses pnr.history-style)
+    if (entry === 'TTP' || entry.startsWith('TTP/')) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      if (wa.pnr.priceQuotes.length === 0) return 'NO PRICE QUOTE';
+      if (wa.pnr.tickets.length > 0) return 'TICKETS ALREADY ISSUED';
+      const ticketType: 'TE' | 'TK' = entry.includes('/PT') ? 'TK' : 'TE';
+      // Optional /S<n>-<m> segment validation. The selected range is
+      // recorded indirectly (we don't track per-segment ticketing yet)
+      // but invalid segments reject.
+      const segMatch = /\/S(\d+)(?:-(\d+))?/.exec(entry);
+      if (segMatch) {
+        const lo = parseInt(segMatch[1], 10);
+        const hi = segMatch[2] ? parseInt(segMatch[2], 10) : lo;
+        if (lo < 1 || hi > wa.pnr.segments.length || lo > hi) return 'INVALID SEGMENT';
+      }
+      const tickets = issueAmadeusTickets(wa.pnr, ctx, ticketType);
+      wa.pnr.tickets.push(...tickets);
+      recordHistory(wa.pnr, `TTP ${tickets.length} TKT(S) ISSUED`);
+      return renderAmadeusTicketIssuance(tickets);
+    }
+
+    if (entry === 'TWD' || entry.startsWith('TWD/') || entry === 'TWDRT' || entry === 'TWDRL' || entry === 'TWH') {
+      if (wa.pnr.tickets.length === 0) return 'NO ET RECORD';
+      // TWD/L<n> and TWD/<n> both select a specific line.
+      const lineMatch = /^TWD\/(?:L)?(\d+)$/.exec(entry);
+      if (lineMatch) {
+        const n = parseInt(lineMatch[1], 10);
+        const ticket = wa.pnr.tickets[n - 1];
+        if (!ticket) return 'NO ET RECORD';
+        return renderAmadeusTwd([ticket], wa.pnr, n);
+      }
+      // TWDRL — redisplay the list (compact).
+      if (entry === 'TWDRL') {
+        return renderAmadeusTwdList(wa.pnr.tickets);
+      }
+      // TWH — history-style summary (each ticket + status events).
+      if (entry === 'TWH') {
+        return renderAmadeusTwh(wa.pnr.tickets);
+      }
+      // TWD / TWDRT — display all from retrieved PNR.
+      return renderAmadeusTwd(wa.pnr.tickets, wa.pnr);
     }
 
     // --- v4 chunk 7: queue work verbs (QSTART / QN / QF / QFR / QXI) ---

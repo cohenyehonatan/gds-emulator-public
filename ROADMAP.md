@@ -663,6 +663,15 @@ different upside.
         forward, `RRN/DM<n>` push back, `RRN/C<class>` class change,
         `RRN/S<segs>` segment filter. `pushDdmonByDays` helper handles
         month/year rollover via JS Date setUTCDate.
+      * Chunk 19 — e-ticket issuance + display (`a95d1fd`... + this):
+        `TTP` issues tickets (one per seat-occupying pax, drawing from
+        priceQuotes[0]); `TTP/ET` electronic, `TTP/PT` paper,
+        `TTP/S<n>[-<m>]` segment validation; `TWD`/`TWDRT` displays
+        ET records, `TWD/L<n>` (or bare `TWD/<n>`) specific line,
+        `TWDRL` compact list, `TWH` history-style. Reuses the cross-
+        dialect `TicketRecord` model + `ticketNumber()` helper so
+        Sabre's `*T` family and Amadeus's `TWD` family share the
+        underlying ticket store.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific
