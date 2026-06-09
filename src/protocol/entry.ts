@@ -177,6 +177,37 @@ export interface SeatMapEntry extends BaseEntry {
    * `bottom`/`top` (MB/MT per Mini Format Guide v2).
    */
   direction?: 'down' | 'up' | 'bottom' | 'top';
+  /**
+   * Specific seat label for the SC*<seat> verb (Galileo). Drives a
+   * "characteristics for one seat" lookup, not a cabin render. When
+   * present, source is 'direct' and other fields are unused.
+   */
+  seatLabel?: string;
+  /**
+   * Galileo SA* filter suffixes (chunk 7 deferred #9). Per
+   * galileoindonesia.com Air Transportation guide:
+   *   /NW, /SW, /NA, /SA, /N, /S, /W, /A   smoking/position filters
+   *   /<row>                                from-row offset (e.g. /15)
+   *   /<class>-<n>                          for N passengers (e.g. /F-3)
+   *   #<airport>                            change-of-gauge leg
+   *
+   * Filters are accepted on the parser side and propagated to the
+   * handler/renderer. The smoking/position filters and the pax-count
+   * filter have no semantic effect in our emulator (we don't model
+   * smoking; pax-count constraints belong to availability allocation,
+   * not display). The `fromRow` filter does have effect — it drives
+   * the renderer's `rowOffset` opt.
+   */
+  filters?: {
+    /** Smoking/position filter tokens, normalized to uppercase. */
+    preference?: 'NW' | 'NA' | 'SW' | 'SA' | 'N' | 'S' | 'W' | 'A';
+    /** From-row offset — render begins at this row label. */
+    fromRow?: number;
+    /** Pax count for the request (e.g. `/F-3` → 3 passengers in F). */
+    paxCount?: number;
+    /** Change-of-gauge origin airport (e.g. `#BRU`). */
+    cogOrigin?: string;
+  };
 }
 
 export interface CancelEntry extends BaseEntry {

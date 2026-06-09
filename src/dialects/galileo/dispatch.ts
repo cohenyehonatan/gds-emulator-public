@@ -85,7 +85,7 @@ import {
   renderGalileoFareDisplay,
 } from './serializer.js';
 import { GalileoResponse } from './responses.js';
-import { synthesizeAvailability } from '../../models/seat-map.js';
+import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
 import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
@@ -2395,6 +2395,21 @@ function handleGalileoSeatMap(
   wa: WorkArea,
   ctx: HandlerContext,
 ): string | Promise<string> {
+  // SC*<seat> — display IATA PADIS 9825 codes for one seat in the
+  // cached seat map. Per the galileoindonesia.com guide.
+  if (entry.source === 'direct' && entry.seatLabel) {
+    const cached = wa.lastSeatMap;
+    if (!cached) return 'NO SEAT MAP DISPLAYED';
+    const seatLabel = entry.seatLabel;
+    const m = /^(\d+)([A-Z])$/.exec(seatLabel);
+    if (!m) return 'INVALID SEAT';
+    const [, rowLabel, col] = m;
+    const space = cached.map.Cabin
+      .flatMap((c) => c.Row.filter((r) => r.label === rowLabel))
+      .flatMap((r) => r.Space.filter((s) => s.location === col))[0];
+    if (!space) return 'SEAT NOT FOUND';
+    return renderSeatCharacteristics(seatLabel, space);
+  }
   // MD / MU / MB / MT scroll the cached seat map. Bare verbs from the
   // Mini Format Guide; we route here for now (other display types
   // will need their own routing when they land).
@@ -2534,7 +2549,64 @@ function handleGalileoSeatMap(
   wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
 
   const header = galileoSeatMapHeader(map, segment);
-  return renderSeatMap(map, availability, header, 'V', { rowsPerPage: GALILEO_SM_PAGE_SIZE });
+  // Filter suffixes: /<row> drives renderer rowOffset. The other
+  // filters (preference, paxCount, cogOrigin) have no semantic effect
+  // in our emulator — we accept them syntactically but don't filter
+  // the rendered cabin. We resolve `fromRow` to an offset by walking
+  // the cabin Row list to find the index whose label matches.
+  const fromRow = entry.filters?.fromRow;
+  const rowOffset = fromRow !== undefined ? rowOffsetForLabel(map, fromRow) : undefined;
+  return renderSeatMap(map, availability, header, 'V', {
+    rowsPerPage: GALILEO_SM_PAGE_SIZE,
+    rowOffset,
+  });
+}
+
+/**
+ * Render the IATA PADIS 9825 characteristic codes for a single seat,
+ * with human-readable labels from SCC_LABELS where available. Used by
+ * the SC*<seat> verb.
+ *
+ * Sample output:
+ *   SEAT 10A CHARACTERISTICS
+ *   W   Window seat
+ *   L   Leg space seat
+ *
+ * If a code has no SCC_LABELS entry, the code prints alone — operators
+ * can cross-reference the IATA reference manually.
+ */
+function renderSeatCharacteristics(label: string, space: import('../../models/seat-map.js').SeatSpace): string {
+  const codes = space.Characteristic ?? [];
+  const lines = [`SEAT ${label} CHARACTERISTICS`];
+  if (codes.length === 0) {
+    lines.push('NO CHARACTERISTICS RECORDED');
+  } else {
+    for (const code of codes) {
+      const label = SCC_LABELS[code as keyof typeof SCC_LABELS];
+      lines.push(`${code.padEnd(3, ' ')} ${label ?? '(unlabelled)'}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Resolve a row label (a numeric like 15) to its 0-based index within
+ * the seat map's combined cabin row list. Returns 0 if the label
+ * isn't found (so the render starts from the top — a sensible default
+ * when the operator requests a row that's outside the cabin range).
+ */
+function rowOffsetForLabel(
+  map: import('../../models/seat-map.js').SeatMap,
+  fromRow: number,
+): number {
+  let offset = 0;
+  for (const cabin of map.Cabin) {
+    for (const row of cabin.Row) {
+      if (parseInt(row.label, 10) === fromRow) return offset;
+      offset++;
+    }
+  }
+  return 0;
 }
 
 /**

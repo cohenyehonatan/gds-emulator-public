@@ -385,7 +385,7 @@ Three findings from the dig changed the priority list:
 | 6 | **✅ Chargeable (Y) / preferred (V) / legroom (L) markers** driven by `synthesizeDecorations` | ✅ Done — landed `5984af0` |
 | 7 | **✅ GWS numeric error code mapping for live wire** | ✅ Done — landed `e4418ff` |
 | 8 | **✅ Galileo `SA*S<n>;` traditional-format alias** | ✅ Done — landed `cbe6bbc` |
-| 9 | Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | **Defer** — feature surface expansion, not correctness. Operators using them get an honest "not implemented" rather than wrong output. |
+| 9 | **✅ Galileo SA* filter suffixes** (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | ✅ Done — landed (this commit). `/<row>` drives renderer rowOffset (real effect); preference / paxCount / cogOrigin parsed but no semantic effect; `SC*<seat>` displays PADIS 9825 codes. |
 | 10 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | **Defer** — needs additional data (ship-tail records, total seat count, preferred-seat data). Not blocking any cryptic-flow correctness. |
 | 11 | **✅ Amadeus mirrored cabin code labels + top+bottom column headers + wing markers (`<>`, `<E E>`) on vertical** | ✅ Done — landed `591ba5c` |
 | 12 | **✅ Exit-row passenger-profile check** (IATA + 14 CFR 121.585 eligibility on Amadeus ST) | ✅ Done — landed (this commit) |

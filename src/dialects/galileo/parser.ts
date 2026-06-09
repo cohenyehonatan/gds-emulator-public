@@ -127,42 +127,76 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
-  // Galileo seat-map family (Pocket Guide):
-  //   SA*S<n>[;]     seat map for segment n
-  //   SA*[;]         refresh last seat map
-  //   SM*A<line>[<class>][;]  seat map from cached availability
+  // Galileo seat-map family (Pocket Guide + galileoindonesia.com guide):
+  //   SA*S<n>[;]                          seat map for segment n
+  //   SA*S<n>/<row>[;]                    + from-row offset
+  //   SA*S<n>/<pref>[/<row>][;]           + preference + offset
+  //   SA*S<n>#<airport>[;]                + change-of-gauge leg
+  //   SA*S<n>/<class>-<count>[;]          + pax count
+  //   SA*[;]                              refresh last seat map
+  //   SM*A<line>[<class>][;]              seat map from cached availability
+  //   SM*A<line>[<class>]/<pref>[;]       + preference
+  //   SM*A<line>[<class>]/<class>-<n>[;]  + pax count
   //
   // The trailing `;` suffix triggers Smartpoint's "traditional format"
-  // mode — the cryptic text response, vs Smartpoint's default
-  // graphical view. Documented in the Travelport-Asia 2-Day Smartpoint
-  // Pro training PDF p.29 (`SA*S1` = graphical, `SA*S1;` = traditional
-  // format). Since our renderer always emits the cryptic text form,
-  // the `;` is a no-op alias on our end — we accept it to match what
-  // a Smartpoint-trained operator would type when forcing the
-  // traditional view.
-  const saSegMatch = /^SA\*S(\d{1,2});?$/.exec(u);
+  // mode — documented in the Travelport-Asia 2-Day Smartpoint Pro
+  // training PDF p.29 (`SA*S1` = graphical, `SA*S1;` = traditional
+  // format). Since our renderer always emits cryptic text the `;` is
+  // a no-op alias.
+  //
+  // The /<pref> suffix accepts NW/NA/SW/SA/N/S/W/A (non-smoking-window
+  // / smoking-aisle / etc.). Smoking/position filters have no semantic
+  // effect in our emulator (we don't model smoking). The /<row> suffix
+  // does — it drives the renderer's rowOffset. The /<class>-<n> pax-
+  // count and #<airport> change-of-gauge filters are also accepted and
+  // surface in the entry, but have no effect on the rendered output.
+  const saSegMatch = /^SA\*S(\d{1,2})(.*?);?$/.exec(u);
   if (saSegMatch) {
-    return {
-      kind: 'seat_map',
-      raw: trimmed,
-      timestamp: new Date(),
-      source: 'segment',
-      segment: parseInt(saSegMatch[1], 10),
-    };
+    const filters = parseSeatMapFilters(saSegMatch[2]);
+    if (filters !== null) {
+      return {
+        kind: 'seat_map',
+        raw: trimmed,
+        timestamp: new Date(),
+        source: 'segment',
+        segment: parseInt(saSegMatch[1], 10),
+        filters: filters.empty ? undefined : filters.value,
+      };
+    }
+    // Unrecognized suffix — fall through; no other rule will match
+    // `SA*S<n>` so we'll exit the parser at the end with an unknown
+    // entry per Galileo's existing fall-through convention.
   }
   if (u === 'SA*' || u === 'SA*;') {
     return { kind: 'seat_map', raw: trimmed, timestamp: new Date(), source: 'refresh' };
   }
-  const smAvailMatch = /^SM\*A(\d{1,2})([A-Z])?;?$/.exec(u);
-  if (smAvailMatch) {
+  // SC*<seat> — display specific seat characteristic. Per the
+  // galileoindonesia.com guide: `SC*10A` shows the IATA PADIS 9825
+  // codes (W=window, etc.) for one seat. Source='direct' + seatLabel.
+  const scMatch = /^SC\*(\d{1,3}[A-Z]);?$/.exec(u);
+  if (scMatch) {
     return {
       kind: 'seat_map',
       raw: trimmed,
       timestamp: new Date(),
-      source: 'avail-line',
-      line: parseInt(smAvailMatch[1], 10),
-      bookingClass: smAvailMatch[2],
+      source: 'direct',
+      seatLabel: scMatch[1],
     };
+  }
+  const smAvailMatch = /^SM\*A(\d{1,2})([A-Z])?(.*?);?$/.exec(u);
+  if (smAvailMatch) {
+    const filters = parseSeatMapFilters(smAvailMatch[3]);
+    if (filters !== null) {
+      return {
+        kind: 'seat_map',
+        raw: trimmed,
+        timestamp: new Date(),
+        source: 'avail-line',
+        line: parseInt(smAvailMatch[1], 10),
+        bookingClass: smAvailMatch[2],
+        filters: filters.empty ? undefined : filters.value,
+      };
+    }
   }
   // MD / MU / MB / MT — scroll the currently-displayed page. Mini
   // Format Guide v2 + Kuwait 2021 + Comparison Guide all document
@@ -1310,6 +1344,60 @@ function parseQueueAccess(raw: string, u: string): QueueEntry {
  * elements, not name element 2. The handler resolves the index to an
  * item+passenger ref when populating DivideEntry.refs.
  */
+/**
+ * Parse the optional Galileo SA-asterisk / SM-asterisk filter suffix
+ * tail. Tail starts
+ * after the SA*S<n> / SM*A<line>[<class>] core; everything else is
+ * filters. Returns an object with `empty: true` when no filters apply,
+ * or `value: <SeatMapFilters>` when at least one parsed. Returns
+ * `null` on unrecognized syntax (caller treats as not-a-seat-map).
+ *
+ * Suffix grammar (any order, slash-separated, plus optional #<airport>):
+ *   /<pref>     NW | NA | SW | SA | N | S | W | A
+ *   /<row>      bare digits = from-row offset
+ *   /<class>-<n>  e.g. F-3, Y-2 — pax count
+ *   #<airport>  e.g. #BRU — change-of-gauge leg
+ *
+ * Tested forms (per galileoindonesia.com guide):
+ *   SA*S4              no filters
+ *   SA*S4/15           fromRow 15
+ *   SA*S4/NW           pref NW
+ *   SA*S4/NW/15        pref NW + fromRow 15
+ *   SA*S4#BRU          cogOrigin BRU
+ *   SA*A1F/NW          (SM-form) pref NW
+ *   SA*A1Y/S-2         pref S + paxCount 2 (class Y already in body)
+ *   SA*AA101Y1JUNLHRJFK/N-3   pref N + paxCount 3
+ */
+type SeatMapFilters = NonNullable<import('../../protocol/entry.js').SeatMapEntry['filters']>;
+function parseSeatMapFilters(tail: string): { empty: true } | { empty: false; value: SeatMapFilters } | null {
+  if (!tail) return { empty: true };
+  let rest = tail;
+  const filters: SeatMapFilters = {};
+  // Peel off change-of-gauge marker first (anywhere in the tail).
+  const cogMatch = /#([A-Z]{3})/.exec(rest);
+  if (cogMatch) {
+    filters.cogOrigin = cogMatch[1];
+    rest = rest.slice(0, cogMatch.index) + rest.slice(cogMatch.index + cogMatch[0].length);
+  }
+  // Remaining tail is slash-separated tokens (or empty).
+  if (rest && !rest.startsWith('/')) return null; // expected leading `/`
+  const tokens = rest ? rest.slice(1).split('/').filter((t) => t.length > 0) : [];
+  for (const tok of tokens) {
+    if (/^\d+$/.test(tok)) {
+      filters.fromRow = parseInt(tok, 10);
+    } else if (/^(NW|NA|SW|SA|N|S|W|A)$/.test(tok)) {
+      filters.preference = tok as SeatMapFilters['preference'];
+    } else if (/^[A-Z]-\d+$/.test(tok)) {
+      filters.paxCount = parseInt(tok.split('-')[1], 10);
+    } else {
+      return null; // unrecognized suffix token
+    }
+  }
+  const anySet = filters.preference || filters.fromRow !== undefined ||
+                 filters.paxCount !== undefined || filters.cogOrigin;
+  return anySet ? { empty: false, value: filters } : { empty: true };
+}
+
 function parseDivide(raw: string, u: string): DivideEntry {
   const m = /^DP(\d+)$/.exec(u);
   if (!m) throw new ParseError(`Galileo DP: expected DP<n> in "${raw}"`);
