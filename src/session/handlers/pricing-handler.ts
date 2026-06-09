@@ -19,6 +19,7 @@ import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { Inventory } from '../../store/inventory.js';
 import { fareFor, round2, BOOKING_CLASSES, classMultiplier } from '../../store/tariff.js';
 import { truncateNuc, currencyOfCommencement, formatRoe } from '../../models/nuc.js';
+import { constructThroughFare } from '../../models/fare-construction.js';
 import { Response } from '../../dialects/sabre/responses.js';
 import { renderFareQuote, renderBargain, renderFareCalc } from '../../protocol/serializer.js';
 import { SessionEvent } from '../session-state.js';
@@ -29,6 +30,9 @@ interface Leg {
   origin: string;
   destination: string;
   bookingClass: string;
+  /** Departure date token (DDMON) — drives stopover-vs-connection
+   *  inference in through-fare construction (chunk 30). */
+  date?: string;
 }
 
 export interface Rebook {
@@ -51,13 +55,75 @@ function discountFor(type: string): number {
   return 1.0; // ADT and everything else
 }
 
+/**
+ * Split legs into fare components: consecutive legs chain into one
+ * component while each leg departs where the previous arrived; the
+ * chain breaks on a gap (surface sector) or when it returns to the
+ * component origin (a round trip prices as two components).
+ */
+function componentsFor(legs: Leg[]): Leg[][] {
+  const components: Leg[][] = [];
+  let current: Leg[] = [];
+  for (const l of legs) {
+    if (current.length > 0) {
+      const prev = current[current.length - 1];
+      const chains = prev.destination === l.origin;
+      const returns = l.destination === current[0].origin;
+      if (!chains || returns) {
+        components.push(current);
+        current = [];
+      }
+    }
+    current.push(l);
+  }
+  if (current.length > 0) components.push(current);
+  return components;
+}
+
+/**
+ * Through-fare construction for one multi-leg component (chunk 30,
+ * steps 4-9 — see src/models/fare-construction.ts). Stopover-vs-
+ * connection: the intermediate point is a stopover when the next
+ * leg departs on a different date token (>24h approximation).
+ * Class for the through-fare lookups: the first leg's booking class
+ * (documented simplification — real construction reprices per the
+ * through fare basis). Returns null when construction can't apply;
+ * the caller falls back to per-leg sum, which for our per-leg
+ * tariff is the broken-fare combination.
+ */
+function componentThroughFare(component: Leg[]): ReturnType<typeof constructThroughFare> {
+  if (component.length < 2) return null;
+  const cls = component[0].bookingClass;
+  return constructThroughFare(
+    component.map((l, i) => ({
+      origin: l.origin,
+      destination: l.destination,
+      stopoverAfter:
+        i < component.length - 1 &&
+        component[i + 1].date != null &&
+        l.date != null &&
+        component[i + 1].date !== l.date,
+    })),
+    (o, d) => fareFor(o, d, cls).base,
+  );
+}
+
 function legBase(legs: Leg[]): { base: number; fareBasis: string[] } {
   let base = 0;
   const fareBasis: string[] = [];
-  for (const l of legs) {
-    const f = fareFor(l.origin, l.destination, l.bookingClass);
-    base += f.base;
-    fareBasis.push(f.fareBasis);
+  for (const component of componentsFor(legs)) {
+    const through = componentThroughFare(component);
+    if (through) {
+      base += through.base;
+      // One fare basis per component for a through fare.
+      fareBasis.push(fareFor(component[0].origin, component[component.length - 1].destination, component[0].bookingClass).fareBasis);
+    } else {
+      for (const l of component) {
+        const f = fareFor(l.origin, l.destination, l.bookingClass);
+        base += f.base;
+        fareBasis.push(f.fareBasis);
+      }
+    }
   }
   return { base: round2(base), fareBasis };
 }
@@ -94,29 +160,54 @@ function fareCalcFor(legs: Leg[], type: string): string {
   const isIntl = legs.some(
     (l) => NUC_INTL_AIRPORTS.has(l.origin) || NUC_INTL_AIRPORTS.has(l.destination),
   );
-  if (!isIntl) {
-    let total = 0;
-    let line = legs[0].origin;
-    for (const l of legs) {
-      const f = fareFor(l.origin, l.destination, l.bookingClass);
-      const amt = round2(f.base * disc);
-      total += amt;
-      line += ` ${l.carrier} ${l.destination}${amt.toFixed(2)}${f.fareBasis}`;
-    }
-    return `${line} ${round2(total).toFixed(2)} END`;
-  }
-  // International: legs in NUC, trailer with NUC total + ROE.
-  const currency = currencyOfCommencement(legs[0].origin);
-  let nucTotal = 0;
+  // Chunk 30: build per-component. A through-fare component renders
+  // in the IATA connection style — `X/` marks a connection (transfer)
+  // point, no marker = stopover, the `5M`-style EMS tag precedes the
+  // amount, and one amount covers the whole component:
+  //   "JFK AA X/ORD AA SFO250.00Y14"
+  // Fallback (single-leg or unconstructable) components keep the
+  // per-leg amount style.
+  let total = 0;
   let line = legs[0].origin;
-  for (const l of legs) {
-    const f = fareFor(l.origin, l.destination, l.bookingClass);
-    // Tariff amounts are USD; USD→NUC at IROE 1.0, then truncate.
-    const nuc = truncateNuc(f.base * disc);
-    nucTotal = truncateNuc(nucTotal + nuc);
-    line += ` ${l.carrier} ${l.destination}${nuc.toFixed(2)}${f.fareBasis}`;
+  const amountOf = (usd: number): number =>
+    isIntl ? truncateNuc(usd * disc) : round2(usd * disc);
+  for (const component of componentsFor(legs)) {
+    const through = componentThroughFare(component);
+    if (through) {
+      const amt = amountOf(through.base);
+      total = isIntl ? truncateNuc(total + amt) : total + amt;
+      const cls = component[0].bookingClass;
+      const basis = fareFor(component[0].origin, component[component.length - 1].destination, cls).fareBasis;
+      for (let i = 0; i < component.length; i++) {
+        const l = component[i];
+        const isFinal = i === component.length - 1;
+        const marker = !isFinal && !nextIsStopover(component, i) ? 'X/' : '';
+        line += ` ${l.carrier} ${marker}${l.destination}`;
+        if (isFinal) line += `${through.emsTag}${amt.toFixed(2)}${basis}`;
+      }
+    } else {
+      for (const l of component) {
+        const f = fareFor(l.origin, l.destination, l.bookingClass);
+        const amt = amountOf(f.base);
+        total = isIntl ? truncateNuc(total + amt) : total + amt;
+        line += ` ${l.carrier} ${l.destination}${amt.toFixed(2)}${f.fareBasis}`;
+      }
+    }
   }
-  return `${line} NUC${nucTotal.toFixed(2)} END ROE${formatRoe(currency)}`;
+  if (!isIntl) return `${line} ${round2(total).toFixed(2)} END`;
+  const currency = currencyOfCommencement(legs[0].origin);
+  return `${line} NUC${total.toFixed(2)} END ROE${formatRoe(currency)}`;
+}
+
+/** Is the point after leg `i` of the component a stopover (date
+ *  changes before the next leg)? Mirrors componentThroughFare. */
+function nextIsStopover(component: Leg[], i: number): boolean {
+  return (
+    i < component.length - 1 &&
+    component[i + 1].date != null &&
+    component[i].date != null &&
+    component[i + 1].date !== component[i].date
+  );
 }
 
 type TaxMode = 'none' | 'fees' | undefined;
@@ -164,6 +255,7 @@ const toLeg = (s: AirSegment): Leg => ({
   origin: s.origin,
   destination: s.destination,
   bookingClass: s.bookingClass,
+  date: s.date,
 });
 
 export interface PriceOptions {

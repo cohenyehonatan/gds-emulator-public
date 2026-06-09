@@ -774,14 +774,31 @@ different upside.
         but the EU-mandated neutral display is the documented,
         legally-specified behavior a compliant CRS shows.
 
-      Remaining for future chunks: mileage system + HIP + BHC (now
-      DOCUMENTED — Travelport CAT17 webhelp + the in-tree Colbourne
-      Unit 33 PDF give the 14-step sequence, EMS bracket table, HIP
-      three-comparison procedure, and backhaul formula verbatim;
-      needs a synthetic TPM/MPM seed), real IROE table + real OAG MCT
-      data (licensed). After two digs, only the commercial alliance
-      ranking and paid datasets remain genuinely out of reach — see
-      `docs/behavior-layer-research-2026-06-09.md`.
+      * Chunk 30 — mileage system + HIP + BHC, landed in three
+        commits (30.1 `0282765`, 30.2 `1a832ef`, 30.3 this commit):
+        steps 4-9 of the documented IATA one-way construction.
+        30.1 `src/models/mileage.ts` — TPM seed (13 sectors ≈ great-
+        circle miles), MPM = 1.20 × direct TPM (rule-of-thumb; real
+        table licensed), the verbatim EMS bracket table with 5-decimal
+        truncation, mileageCheck(). 30.2 `src/models/fare-
+        construction.ts` — constructThroughFare(): HIP three
+        comparison sets (stopover points only per CAT17's connections
+        exemption), comparisons in base-fare space, EMS applied to
+        the governing fare, BHC backhaul minimum OWM = HI + (HI−LO);
+        tariff-agnostic via a FareLookup param. 30.3 wiring —
+        priceItinerary splits legs into fare components (chains break
+        on gaps or return-to-origin), multi-leg components price as
+        constructed through fares with leg-sum fallback (unseeded
+        TPM / over-25M = the broken-fare combination); stopover-vs-
+        connection inferred from segment date change; fare-calc line
+        gains the IATA connection style (`JFK AA X/ORD AA
+        SFO250.00Y14`) with X/ transfer markers + EMS tag.
+
+      Remaining: real IROE table + real OAG MCT data (licensed),
+      commercial alliance ranking (unpublished). The behavior layer
+      is otherwise closed — all 14 steps of the documented fare-
+      construction sequence are implemented or explicitly documented
+      as skipped (SR specified routings, EMA — no public data).
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
