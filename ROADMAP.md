@@ -760,14 +760,28 @@ different upside.
         current schedule) fall back to the flat 45, so existing
         availability behavior is unchanged.
 
-      Remaining for future chunks: HIP algorithm (concept documented,
-      decision tree not public), alliance ranking (genuinely opaque),
-      real IROE table + real OAG MCT data (licensed) — see
-      `docs/behavior-layer-research-2026-06-09.md`. All format-
-      faithfully-implementable behavior-layer items are now landed
-      (FFA/FFR chunk 25, MCT layering chunk 26, NUC rounding chunk
-      27, MCT wiring chunk 28); what remains requires either paid
-      data or algorithms with no public source.
+      * Chunk 29 — EU neutral display ranking (this commit): the
+        second 2026-06-09 dig found that Regulation (EC) No 80/2009
+        (CRS Code of Conduct) Annex I point 7 specifies the neutral
+        principal-display ranking verbatim: (i) non-stops by
+        departure time, (ii) all other options by elapsed journey
+        time, carrier-identity-blind. Availability sort updated:
+        nonstops already complied; connections now rank by elapsed
+        journey time (with midnight-crossing arithmetic) instead of
+        first-leg departure. The JFK-SFO via-DEN routing (5h00)
+        correctly outranks via-ORD (5h45) despite departing later.
+        The commercial alliance-preferenced ranking remains opaque —
+        but the EU-mandated neutral display is the documented,
+        legally-specified behavior a compliant CRS shows.
+
+      Remaining for future chunks: mileage system + HIP + BHC (now
+      DOCUMENTED — Travelport CAT17 webhelp + the in-tree Colbourne
+      Unit 33 PDF give the 14-step sequence, EMS bracket table, HIP
+      three-comparison procedure, and backhaul formula verbatim;
+      needs a synthetic TPM/MPM seed), real IROE table + real OAG MCT
+      data (licensed). After two digs, only the commercial alliance
+      ranking and paid datasets remain genuinely out of reach — see
+      `docs/behavior-layer-research-2026-06-09.md`.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in

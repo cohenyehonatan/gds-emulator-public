@@ -30,8 +30,11 @@ describe('connections', async () => {
     await host.process('115JUNJFKSFO', wa);
     const resp = await host.process('01Y1*', wa);
     expect(wa.pnr.segments).toHaveLength(2);
-    expect(wa.pnr.segments[0].destination).toBe('ORD');
-    expect(wa.pnr.segments[1].origin).toBe('ORD');
+    // Chunk 29: connections rank by elapsed journey time per EU Reg
+    // 80/2009 Annex I 7(ii). The DEN routing (UA500+UA550, 5h00
+    // elapsed) beats ORD (AA300+AA350, 5h45), so line 1 is via DEN.
+    expect(wa.pnr.segments[0].destination).toBe('DEN');
+    expect(wa.pnr.segments[1].origin).toBe('DEN');
     expect(wa.pnr.segments[1].destination).toBe('SFO');
     expect(wa.pnr.segments.every((s) => s.status === 'SS')).toBe(true);
     expect(resp.split('\n')).toHaveLength(2); // both legs echoed

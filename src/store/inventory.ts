@@ -205,6 +205,14 @@ export class Inventory {
     const carrierOk = (f: ScheduledFlight) =>
       opts.carriers == null || opts.carriers.includes(f.carrier);
 
+    // Display ranking per Regulation (EC) No 80/2009 Annex I point 7
+    // (the EU CRS Code of Conduct's neutral principal display — see
+    // docs/behavior-layer-research-2026-06-09.md):
+    //   (i)  non-stop travel options ranked by departure time
+    //   (ii) all other travel options ranked by elapsed journey time
+    // Ranking must not be based on any factor relating to carrier
+    // identity — the sort keys below are time-only by construction.
+
     // Nonstops. A connecting-city request suppresses them (connections only).
     const nonstops =
       opts.connectingCity != null
@@ -213,15 +221,24 @@ export class Inventory {
             .filter((f) => hasClass(f) && afterOk(f) && carrierOk(f))
             .sort((a, b) => this.depMin(a) - this.depMin(b));
 
+    // Elapsed journey time of a connection: last-leg arrival minus
+    // first-leg departure, +24h when the journey crosses midnight
+    // (clock arithmetic on minute-of-day values).
+    const elapsed = (legs: ScheduledFlight[]): number => {
+      const span = this.arrMin(legs[legs.length - 1]) - this.depMin(legs[0]);
+      return span >= 0 ? span : span + 24 * 60;
+    };
+
     // Connections — online on a preferred carrier (every leg must qualify).
     // Skipped entirely for a direct-only ("/D") request; filtered to a hub when
-    // a connecting city is specified.
+    // a connecting city is specified. Ranked by elapsed journey time
+    // per Annex I point 7(ii); departure time breaks ties.
     const connections = opts.directOnly
       ? []
       : this.connectionsFor(origin, destination)
           .filter((legs) => afterOk(legs[0]) && legs.every((l) => hasClass(l) && carrierOk(l)))
           .filter((legs) => opts.connectingCity == null || legs[0].destination === opts.connectingCity)
-          .sort((x, y) => this.depMin(x[0]) - this.depMin(y[0]));
+          .sort((x, y) => elapsed(x) - elapsed(y) || this.depMin(x[0]) - this.depMin(y[0]));
 
     const lines: AvailabilityLine[] = [];
     const toLine = (f: ScheduledFlight, group?: number, legIndex?: number): AvailabilityLine => ({
