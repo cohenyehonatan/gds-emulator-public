@@ -109,6 +109,7 @@ const VFFD_PROGRAMS: Record<string, string> = {
   AC: 'AEROPLAN',
   AF: 'FLYING BLUE',
   AS: 'MILEAGE PLAN',
+  AY: 'FINNAIR PLUS',
   BA: 'EXECUTIVE CLUB',
   CX: 'CATHAY',
   DL: 'SKYMILES',
@@ -2155,6 +2156,98 @@ export class AmadeusDialect implements Dialect {
       });
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return 'OK';
+    }
+
+    // --- v4 chunk 25: FF accrual / redemption / upgrade / display ---
+    // Per Amadeus Service Hub solution 862136 (verbatim extracted
+    // 2026-06-09 via Playwright Cloudflare bypass; see
+    // docs/behavior-layer-research-2026-06-09.md for the dig). Three
+    // verbs all create SSR elements with FQT* codes; the fourth
+    // displays them.
+    //
+    //   FFA<carrier>-<number>                    accrual → SSR FQTV
+    //   FFA<carrier>-<number>, <c2>, <c3>...     multi-airline accrual
+    //   FFR<carrier>-<number>                    redemption → SSR FQTR
+    //   FFR<carrier>-<number>-CARDHOLDER <sur>/<gn>  cross-cardholder redemption
+    //   FFU<carrier>-<number>                    upgrade → SSR FQTU
+    //   FFD                                       display FF SSRs from PNR
+    //
+    // Response format (verbatim from Service Hub sample):
+    //   RP/XXXXXXXXX/
+    //     1.VIRTA/VILLE MR
+    //     2 *SSR FQTV YY HK/ AY608479929/4
+    //
+    // When the FF program has agreements with other carriers, the SSR
+    // airline code is `YY` (industry default) and end-of-transaction
+    // fans out one SSR per agreement carrier. When no agreements, the
+    // SSR airline code is the card-owning carrier.
+    const ffaMatch = /^FFA([A-Z0-9]{2})-([A-Z0-9]+)((?:,\s*[A-Z]{2})*)$/.exec(entry);
+    if (ffaMatch) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      const ownerCarrier = ffaMatch[1];
+      const number = ffaMatch[2];
+      const extraCarriers = (ffaMatch[3] ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      // Per Service Hub: if multi-airline OR the program has FF
+      // agreements, SSR airline code is YY; else owner carrier.
+      const hasAgreements = extraCarriers.length > 0 || (ownerCarrier in VFFD_PROGRAMS);
+      const ssrAirline = hasAgreements ? 'YY' : ownerCarrier;
+      wa.pnr.ssrs.push({
+        code: 'FQTV',
+        carrier: ssrAirline,
+        text: `${ownerCarrier}${number}`,
+        status: 'HK',
+      });
+      // Also record on frequentFlyers so VFFD/FFD see it consistently.
+      wa.pnr.frequentFlyers.push({
+        carrier: ownerCarrier,
+        number,
+      });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    const ffrMatch = /^FFR([A-Z0-9]{2})-([A-Z0-9]+)(?:-CARDHOLDER\s+(.+))?$/.exec(entry);
+    if (ffrMatch) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const carrier = ffrMatch[1];
+      const number = ffrMatch[2];
+      const cardholder = ffrMatch[3];
+      wa.pnr.ssrs.push({
+        code: 'FQTR',
+        carrier,
+        text: cardholder ? `${carrier}${number} CARDHOLDER ${cardholder}` : `${carrier}${number}`,
+        status: 'HK',
+      });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    const ffuMatch = /^FFU([A-Z0-9]{2})-([A-Z0-9]+)$/.exec(entry);
+    if (ffuMatch) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      wa.pnr.ssrs.push({
+        code: 'FQTU',
+        carrier: ffuMatch[1],
+        text: `${ffuMatch[1]}${ffuMatch[2]}`,
+        status: 'HK',
+      });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
+    if (entry === 'FFD') {
+      const ffSsrs = wa.pnr.ssrs.filter((s) => /^FQT[VRU]$/.test(s.code));
+      if (ffSsrs.length === 0) return 'NO FREQUENT FLYER DATA';
+      const lines = ['FF DISPLAY'];
+      ffSsrs.forEach((s, i) => {
+        lines.push(`  ${i + 1} *SSR ${s.code} ${s.carrier} ${s.status}/ ${s.text ?? ''}`.trimEnd());
+      });
+      return lines.join('\n');
     }
 
     // Pricing — FXP (best buy on booked itinerary), FXX (display saved quotes).

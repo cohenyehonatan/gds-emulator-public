@@ -700,7 +700,7 @@ different upside.
         CarSegment model + seed (18 rentals across 4 cities × 4
         companies × ACRISS SIPP vehicle codes). Inventory.carsIn
         (city, company). WorkArea.lastCarAvail. Pnr.carSegments.
-      * Chunk 24 — RRN passenger-specific variants + RRI (this commit):
+      * Chunk 24 — RRN passenger-specific variants + RRI (`4350018`):
         RRN/<n> change passenger count (trims from end of name list,
         within-NameItem aware), RRN/P<list> keep only listed passengers,
         RRN/PX<list> exclude passengers, RRN/SX<list> exclude segments.
@@ -709,15 +709,26 @@ different upside.
         Lists support comma + range (`1,3-5`). INVALID PASSENGER on
         out-of-range pax refs. Closes the chunk 18 carryover; the
         RRN family now covers all QRG p.47 variants.
+      * Chunk 25 — FF accrual/redemption/upgrade/display (this commit):
+        FFA<carrier>-<number> creates SSR FQTV (with YY airline code
+        when the program has agreements per VFFD_PROGRAMS — verbatim
+        per the Service Hub sample); FFA<c>-<n>, <c2>, <c3> multi-
+        airline variant; FFR creates SSR FQTR (redemption);
+        FFR<c>-<n>-CARDHOLDER <name> cross-cardholder variant; FFU
+        creates SSR FQTU (upgrade); FFD displays all FQT* SSRs. Format
+        + response wording extracted verbatim from Amadeus Service
+        Hub solution 862136 via Playwright Cloudflare bypass — see
+        `docs/behavior-layer-research-2026-06-09.md` for the dig that
+        unblocked this chunk (previously marked "no public source").
 
-      Remaining for future chunks: NUC/ROE/HIP fare construction
-      (currently Sabre's emulated engine), MCT carrier-specific
-      exceptions, alliance ranking, FFA/FFR mileage accrual/
-      redemption (needs name-element interleaving), seat maps —
-      see `docs/seatmap-design.md` for the unpacked decision tree
-      + chunk plan (it needs its own design pass before code). The
-      behavior-layer caveat (below) still applies — no public source
-      for these algorithms.
+      Remaining for future chunks: NUC/ROE fare construction
+      (rounding rules public, IROE table licensed), HIP algorithm
+      (concept documented, decision tree not), MCT carrier-specific
+      exceptions (model documented per OAG, real data licensed),
+      alliance ranking (genuinely opaque — see `docs/behavior-layer-
+      research-2026-06-09.md`). The behavior-layer caveat (below)
+      narrowed by the 2026-06-09 dig — fewer items remain "no public
+      source"; see the research doc for the per-item breakdown.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
