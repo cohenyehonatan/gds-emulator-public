@@ -857,6 +857,67 @@ different upside.
       placeholder creds when TVP_REPLAY is set, so verifier scripts
       run from a recording without shell-env setup.
 
+## v6 — Available arcs (surveyed 2026-06-09)
+
+State of the union after v4 chunk 30: the Sabre v1-v3 core, the
+seat-map arc (12/12 parity fixes), the v4 Amadeus surface (30
+chunks, ~150 verbs), the hotel/car domains, and the behavior layer
+(NUC/EMS/HIP/BHC/MCT/EU-ranking) are all landed. What remains falls
+into four buckets.
+
+### Real gaps, closable now
+
+- [ ] **Hotel/car segments in PNR displays** — chunks 22/23 added
+      `pnr.hotelSegments`/`carSegments` but `RT`, `*R`, and the ER
+      echo don't render them: an operator who sells a hotel then
+      displays the PNR sees no hotel. The most operator-visible
+      inconsistency left. (Next up.)
+- [ ] **Stale-TODO sweep** — `commands/sell.ts` still carries
+      "TODO: connection sells 01K1*" (landed; connections.test.ts
+      exercises it); `protocol/serializer.ts` has several
+      "TODO: confirm wording" markers that the live diff-oracle has
+      since validated as IDENTICAL. Cheap hygiene commit.
+- [ ] **Sabre/Galileo hotel + car cryptic** — the Inventory seeds,
+      models, and WorkArea cache slots are cross-dialect by
+      construction; only Amadeus has the verb surface today. Sabre
+      hotel = `HOT…`/Galileo `HA`/`HOC` families per their format
+      guides.
+- [ ] **Sabre v1-v3 backlog** (old checkboxes above, all small):
+      negotiated/account pricing qualifiers (`WPI`/`WPAC`/`WPXP`/
+      `WPXR`), validating-carrier alternates + OB/baggage fees +
+      LAST DAY TO PURCHASE, deferred WFR refund variants (name-
+      selected, redisplay, list-pick), segment-specific SSR format
+      pinning, spaced-vs-concatenated carrier+flight ambiguity.
+
+### New arcs
+
+- [ ] **Rail domain** — Amadeus AccesRail (9B) is QRG-documented and
+      uses standard air transactions; `docs/non-air-domain-pattern.md`
+      makes this a ~1-commit chunk.
+- [ ] **Worldspan dialect** — the GDS Format Comparison Guide carries
+      the full Worldspan Rosetta column (`41*` seat maps, `4RA` SSRs,
+      `4G1*`-analog sells); co-buildable from an existing dialect the
+      way Apollo was co-built from Galileo. Fifth tenant.
+- [ ] **v4 BHS integration** — the aviation-suite tie-in (see the v4
+      section above): check-in retrieves a PNR by locator before
+      generating PECTAB; `AgentTerminal` is the intended seam.
+- [ ] **CRT-over-TCP** — the server pushing `wa.state()` updates so
+      the remote terminal gets the full CRT frame, not just line mode.
+
+### Externally blocked (tracked, not actionable)
+
+- [ ] **Production Travelport tenant** — the five silently-broken
+      live behaviors (see "Production tenant access" above).
+- [ ] **Licensed datasets** — real IROE table (IATA subscription),
+      real OAG MCT records (OAG license). Synthetic stand-ins are
+      flagged at their definitions.
+- [ ] **Commercial alliance ranking** — unpublished; we implement
+      the EU Reg 80/2009 neutral display instead (chunk 29).
+- [ ] **Amadeus verbatim screen layouts** — the B-grade gap;
+      partially recoverable page-by-page from public Service Hub
+      solutions (the FFA/FFR + seat-map pattern). Worth a dedicated
+      scrape pass if more response wording is wanted.
+
 ## Infra / DX
 
 - [x] **`start:terminal:tcp`** (`65cccaa`) — drives a remote `GdsHost`
