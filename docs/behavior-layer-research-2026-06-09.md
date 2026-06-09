@@ -253,16 +253,109 @@ infrastructure:
 - FFU → push SSR{code: 'FQTU', carrier, text: <number>}
 - FFD → render the FQTV/FQTR/FQTU SSRs in the standard PNR format
 
-## Summary table
+## Second dig (2026-06-09, later session) — HIP + display ranking
+
+The first dig left HIP and alliance ranking marked 🔴 opaque. A
+second pass overturned both:
+
+### HIP algorithm — 🟢 NOW DOCUMENTED
+
+**Travelport CAT17 webhelp** (`support.travelport.com/webhelp/
+FaresAndPricing/Content/Cat17%20-%20HIP.htm`, extracted verbatim)
+documents the production HIP semantics:
+
+- Class-hierarchy comparison: "P class fare with P class fare; If no
+  P fare, compare with F fare" (and down through J/C → Y)
+- Comparison direction: "The comparison shall be made in the same
+  direction as the fare component. When using half round trip fares
+  the comparison shall be made using half round trip fares."
+- "THE HIGHER INTERMEDIATE POINT RULE DOES NOT APPLY FOR CONNECTIONS"
+  — only stopover points are HIP candidates (post-ISI-elimination)
+- Exclusions during comparison: "any Stopover Charges, Q surcharges
+  or Mileage Increases must be excluded"
+- After determination: "any applicable mileage increases applicable
+  to the through fare will be applied to the HIP fare"
+- ATPCO Cat 17 override semantics (byte 290: X = no HIP check,
+  B = do HIP check; default when unfiled = check)
+- Geographic exceptions (India→N.America via Europe, Turkey, West
+  Africa, Israel — all-ticketed-points variants)
+
+**Colbourne College Unit 33 lecture PDF** (saved in-tree at
+`references/fares/Colbourne-College-Airfares-Ticketing-Unit33.pdf`;
+third-party IATA-derived training material, same bar as the Zenon
+PDFs) gives the full **14-step one-way fare construction sequence**:
+
+  1. FCP — establish fare construction/break points
+  2. NUC — take the OW NUC origin→destination per global indicator
+  3. SR — if Specified Routing applies, skip mileage, NUC = AF
+  4. MPM — establish max permitted mileage (per global indicator)
+  5. TPM — sum ticketed-point mileages, compare to MPM
+  6. EMA — deduct Extra Mileage Allowance if any
+  7. EMS — if over, divide TPM by MPM (5 decimals) and surcharge:
+
+     | TPM/MPM over | up to | surcharge |
+     |---|---|---|
+     | 1.00000 | 1.05000 | 5% (5M, ×1.05) |
+     | 1.05000 | 1.10000 | 10% (10M, ×1.10) |
+     | 1.10000 | 1.15000 | 15% (15M, ×1.15) |
+     | 1.15000 | 1.20000 | 20% (20M, ×1.20) |
+     | 1.20000 | 1.25000 | 25% (25M, ×1.25) |
+     | — | over 1.25000 | break the fare (use combination) |
+
+  8. HIP — check three comparison sets:
+     (1) unit origin → each intermediate stopover point
+     (2) intermediate stopover point → another
+     (3) intermediate stopover point → unit destination
+  9. BHC — backhaul check when origin→stopover fare > origin→
+     destination fare: OWM = HI + (HI − LO)
+  10. Stopover/transfer charges (converted to NUC at IROE)
+  11. Q surcharges (converted to NUC at IROE)
+  12. Total NUCs
+  13. IROE — multiply by rate of country of commencement
+  14. LCF — round per the currency's rounding unit
+
+This composes exactly with chunk 27's NUC module (steps 13-14 are
+implemented; steps 4-9 are now implementable with synthetic TPM/MPM
+seed data).
+
+### Display ranking — 🟢 EU-mandated neutral ranking IS public law
+
+**Regulation (EC) No 80/2009** (CRS Code of Conduct), Annex I —
+full text on EUR-Lex. The *commercial* alliance-preferenced ranking
+remains opaque, but the EU mandates a NEUTRAL principal display that
+every CRS operating in the EU must implement, with verbatim ranking
+criteria:
+
+  (i) non-stop travel options ranked by departure time
+  (ii) all other travel options ranked by elapsed journey time
+
+Plus: ranking "shall not be based on any factor directly or
+indirectly relating to carrier identity"; no travel option featured
+more than once (limited code-share exceptions); best-ranked train /
+air-rail service on the first screen when offered for the city pair.
+
+For an emulator, the neutral display is the RIGHT thing to implement
+— it's what a compliant CRS shows by default, it's legally specified,
+and it sidesteps the unpublishable commercial ranking entirely. Our
+current availability sort (nonstops by departure time, then
+connections) is already close; making elapsed-journey-time the
+explicit connection sort key + documenting the Annex I citation
+closes it.
+
+## Summary table (updated after the second dig)
 
 | Item | Public-source status | Implementable now? |
 |---|---|---|
-| NUC/ROE rounding | 🟡 partial | Yes (rounding rules + synthetic IROE) |
-| HIP algorithm | 🔴 opaque | No (algorithm not public) |
-| MCT exception layering | 🟢 model documented | Yes (small seed dataset) |
+| NUC/ROE rounding | 🟢 documented | ✅ chunk 27 |
+| HIP algorithm | 🟢 documented (CAT17 + Unit 33) | Yes — needs synthetic TPM/MPM seed |
+| MPM/EMS mileage system | 🟢 bracket table verbatim | Yes — same seed |
+| BHC backhaul check | 🟢 formula verbatim | Yes |
+| MCT exception layering | 🟢 model documented | ✅ chunks 26+28 |
 | Real OAG MCT data | 🟡 licensed only | No (paid API) |
-| Alliance ranking algorithm | 🔴 opaque | No (no public algorithm) |
-| FFA/FFR/FFU/FFD | 🟢 fully documented | Yes (chunk 25, this commit) |
+| Real IROE table | 🟡 licensed only | No (IATA subscription) |
+| EU neutral display ranking | 🟢 Annex I verbatim | Yes — small sort change |
+| Alliance commercial ranking | 🔴 opaque | No — but the EU neutral display is the documented alternative |
+| FFA/FFR/FFU/FFD | 🟢 fully documented | ✅ chunk 25 |
 
 ## ROADMAP.md update
 
