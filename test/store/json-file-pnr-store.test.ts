@@ -123,3 +123,48 @@ describe('JsonFilePnrStore', () => {
 
 // vi.spyOn(console, 'warn')
 import { vi } from 'vitest';
+
+describe('auxiliary segments round-trip (v6 gap #1)', () => {
+  it('hotelSegments + carSegments survive write → fresh-store read', () => {
+    const file = join(tmp, 'aux.json');
+    const store = new JsonFilePnrStore(file);
+    const p = makePnr();
+    p.hotelSegments = [{
+      segmentNumber: 2, chain: 'HI', property: 'LON', name: 'TEST HOTEL',
+      city: 'LON', checkIn: '12MAR', checkOut: '15MAR', nights: 3,
+      rateCode: 'RAC', ratePerNight: 199, currency: 'GBP', rooms: 1,
+      status: 'HK', confirmationNumber: 'HC12345',
+    }];
+    p.carSegments = [{
+      segmentNumber: 3, company: 'ZE', companyName: 'HERTZ',
+      vehicleType: 'ECMN', category: 'ECONOMY MANUAL', rateCode: 'BST',
+      city: 'LON', pickup: '12MAR', dropoff: '15MAR', days: 3,
+      amount: 35, currency: 'GBP', status: 'HK', confirmationNumber: 'CC9999',
+    }];
+    const locator = store.commit(p);
+    const reread = new JsonFilePnrStore(file);
+    const got = reread.get(locator)!;
+    expect(got.hotelSegments).toHaveLength(1);
+    expect(got.hotelSegments[0].confirmationNumber).toBe('HC12345');
+    expect(got.carSegments).toHaveLength(1);
+    expect(got.carSegments[0].vehicleType).toBe('ECMN');
+  });
+
+  it('legacy records without the fields hydrate to empty arrays', () => {
+    const file = join(tmp, 'legacy.json');
+    const store = new JsonFilePnrStore(file);
+    const locator = store.commit(makePnr());
+    // Strip the new fields from the persisted JSON to simulate a
+    // pre-chunk-22 file.
+    const raw = JSON.parse(readFileSync(file, 'utf8'));
+    for (const rec of Object.values(raw) as Record<string, unknown>[]) {
+      delete rec.hotelSegments;
+      delete rec.carSegments;
+    }
+    writeFileSync(file, JSON.stringify(raw));
+    const reread = new JsonFilePnrStore(file);
+    const got = reread.get(locator)!;
+    expect(got.hotelSegments).toEqual([]);
+    expect(got.carSegments).toEqual([]);
+  });
+});

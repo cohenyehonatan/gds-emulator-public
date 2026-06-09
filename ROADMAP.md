@@ -867,11 +867,14 @@ into four buckets.
 
 ### Real gaps, closable now
 
-- [ ] **Hotel/car segments in PNR displays** — chunks 22/23 added
-      `pnr.hotelSegments`/`carSegments` but `RT`, `*R`, and the ER
-      echo don't render them: an operator who sells a hotel then
-      displays the PNR sees no hotel. The most operator-visible
-      inconsistency left. (Next up.)
+- [x] **Hotel/car segments in PNR displays** (landed) — the PNR
+      itinerary now interleaves air + HHL (hotel) + CCR (car) lines
+      by segmentNumber in renderAmadeusItinerary (used by RT<locator>,
+      the build display, and RTI). Also closed the adjacent gaps the
+      survey found: Pnr.clone() deep-copies both arrays (RRN/SP now
+      carry them), hasContent() counts them (hotel-only PNR is
+      dirty), and JsonFilePnrStore round-trips them (legacy files
+      hydrate to empty arrays).
 - [ ] **Stale-TODO sweep** — `commands/sell.ts` still carries
       "TODO: connection sells 01K1*" (landed; connections.test.ts
       exercises it); `protocol/serializer.ts` has several

@@ -127,6 +127,8 @@ export class Pnr {
     p.frequentFlyers = this.frequentFlyers.map((x) => ({ ...x }));
     p.addresses = this.addresses.map((x) => ({ ...x }));
     p.seatRequests = this.seatRequests.map((x) => ({ ...x }));
+    p.hotelSegments = this.hotelSegments.map((x) => ({ ...x }));
+    p.carSegments = this.carSegments.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
@@ -150,6 +152,8 @@ export class Pnr {
       this.osis.length > 0 ||
       this.remarks.length > 0 ||
       this.frequentFlyers.length > 0 ||
+      this.hotelSegments.length > 0 ||
+      this.carSegments.length > 0 ||
       this.ticketing !== undefined ||
       this.optionField !== undefined ||
       this.receivedFrom !== undefined

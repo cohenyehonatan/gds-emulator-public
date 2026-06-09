@@ -586,16 +586,41 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
       lines.push(`  ${seq}. ${n.surname}/${pax.firstName}${title}`);
     });
   });
-  pnr.segments.forEach((s) => {
-    lines.push(`  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`);
-  });
+  const itin = renderAmadeusItinerary(pnr);
+  if (itin) lines.push(itin);
   return lines.join('\n');
 }
 
-/** Render the itinerary block (segments only). */
+/**
+ * Render the itinerary block — air + hotel (HHL) + car (CCR) segments
+ * interleaved by segmentNumber, the way Amadeus shows auxiliary
+ * segments inline in the PNR. Line shapes follow the Amadeus
+ * auxiliary-segment conventions (`HHL` = hotel, `CCR` = car, per the
+ * QRG's hotel/car chapters); exact response wording reconstructed.
+ */
 function renderAmadeusItinerary(pnr: Pnr): string {
-  return pnr.segments
-    .map((s) => `  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`)
+  const lines: { n: number; text: string }[] = [];
+  for (const s of pnr.segments) {
+    lines.push({
+      n: s.segmentNumber,
+      text: `  ${s.segmentNumber}. ${s.carrier} ${s.flightNumber} ${s.bookingClass} ${s.date} ${s.origin} ${s.destination} ${s.status}${s.seats}`,
+    });
+  }
+  for (const h of pnr.hotelSegments) {
+    lines.push({
+      n: h.segmentNumber,
+      text: `  ${h.segmentNumber}. HHL ${h.chain} ${h.status} ${h.city} ${h.checkIn}-${h.checkOut} ${h.rooms}RM ${h.name} ${h.rateCode} ${h.ratePerNight.toFixed(2)}${h.currency} ${h.confirmationNumber ?? ''}`.trimEnd(),
+    });
+  }
+  for (const c of pnr.carSegments) {
+    lines.push({
+      n: c.segmentNumber,
+      text: `  ${c.segmentNumber}. CCR ${c.company} ${c.status} ${c.city} ${c.pickup}-${c.dropoff} ${c.vehicleType} ${c.rateCode} ${c.amount.toFixed(2)}${c.currency}/DY ${c.confirmationNumber ?? ''}`.trimEnd(),
+    });
+  }
+  return lines
+    .sort((a, b) => a.n - b.n)
+    .map((l) => l.text)
     .join('\n');
 }
 
