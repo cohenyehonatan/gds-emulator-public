@@ -734,14 +734,27 @@ different upside.
         model with carrier context + source tag. Auto-connect builder
         still uses the flat 45 (per-leg carrier context at build time
         is a future wiring).
+      * Chunk 27 — NUC arithmetic + international fare-calc format
+        (this commit): `src/models/nuc.ts` implements the Travelport-
+        documented rules verbatim (NUC truncates to 2 decimals, never
+        rounds; local currency HX round-up / NX round-nearest — the
+        doc's two worked examples, 1234.30 EUR→1235 and 120.80
+        USD→121, are tests). Synthetic IROE table for USD/EUR/GBP/CHF
+        (USD=1.0 is real — NUC is dollar-pegged by construction;
+        others flagged synthetic). fareCalcFor now emits the IATA
+        international construction format for itineraries touching
+        non-USD airports: leg amounts in NUC + `NUC<total> END
+        ROE<rate>` trailer. Domestic itineraries keep the legacy
+        local-currency line, so existing fare-calc asserts hold.
 
-      Remaining for future chunks: NUC/ROE fare construction
-      (rounding rules public, IROE table licensed), HIP algorithm
-      (concept documented, decision tree not), alliance ranking
-      (genuinely opaque — see `docs/behavior-layer-research-
-      2026-06-09.md`). The behavior-layer caveat (below) narrowed by
-      the 2026-06-09 dig — fewer items remain "no public source";
-      see the research doc for the per-item breakdown.
+      Remaining for future chunks: HIP algorithm (concept documented,
+      decision tree not public), alliance ranking (genuinely opaque),
+      real IROE table + real OAG MCT data (licensed) — see
+      `docs/behavior-layer-research-2026-06-09.md`. All format-
+      faithfully-implementable behavior-layer items are now landed
+      (FFA/FFR chunk 25, MCT layering chunk 26, NUC rounding chunk
+      27); what remains requires either paid data or algorithms with
+      no public source.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in

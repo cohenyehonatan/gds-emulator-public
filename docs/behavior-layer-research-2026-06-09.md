@@ -275,8 +275,8 @@ remain genuinely opaque are:
 5. Alliance ranking algorithm (industry trade secret + commercial
    carrier-paid display position)
 
-The four items that ARE chunkable format-faithfully:
-1. FFA/FFR/FFU/FFD — chunk 25 (this commit)
-2. NUC rounding rules + synthetic IROE table — future chunk
-3. MCT exception layering with seed data — future chunk
+The four items that ARE chunkable format-faithfully — all landed:
+1. FFA/FFR/FFU/FFD — ✅ chunk 25
+2. NUC rounding rules + synthetic IROE table — ✅ chunk 27
+3. MCT exception layering with seed data — ✅ chunk 26
 4. VFFD already implemented (chunk 17)

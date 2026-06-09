@@ -18,6 +18,7 @@ import type { AirSegment } from '../../models/segment.js';
 import type { FareQuote, PassengerFare } from '../../models/fare.js';
 import type { Inventory } from '../../store/inventory.js';
 import { fareFor, round2, BOOKING_CLASSES, classMultiplier } from '../../store/tariff.js';
+import { truncateNuc, currencyOfCommencement, formatRoe } from '../../models/nuc.js';
 import { Response } from '../../dialects/sabre/responses.js';
 import { renderFareQuote, renderBargain, renderFareCalc } from '../../protocol/serializer.js';
 import { SessionEvent } from '../session-state.js';
@@ -61,18 +62,61 @@ function legBase(legs: Leg[]): { base: number; fareBasis: string[] } {
   return { base: round2(base), fareBasis };
 }
 
-/** Fare-construction line for a passenger type: "JFK AA LAX245.00Y14 … 490.00 END". */
+/**
+ * Airports outside the US dollar area — an itinerary touching any of
+ * these prices in the international NUC format. (Same membership idea
+ * as ticket-handler's INTL_AIRPORTS; kept separate because this one
+ * is currency-driven, that one is tariff-D/I-driven.)
+ */
+const NUC_INTL_AIRPORTS = new Set([
+  'LHR', 'LGW', 'LCY', 'MAN', 'CDG', 'FRA', 'AMS', 'MAD', 'FCO',
+  'DUB', 'ZRH', 'GVA', 'NRT', 'HND', 'SYD', 'YYZ', 'MEX',
+]);
+
+/**
+ * Fare-construction line for a passenger type.
+ *
+ * Domestic (all-US) itineraries keep the local-currency format:
+ *   "JFK AA LAX245.00Y14 DL JFK245.00Y14 490.00 END"
+ *
+ * International itineraries use the IATA NUC construction format
+ * (chunk 27 — NUC rules per the Travelport fares-and-pricing doc,
+ * see src/models/nuc.ts):
+ *   "DFW AA LHR870.00Y14 NUC870.00 END ROE1.00"
+ * Leg amounts are NUC (truncated to 2 decimals, never rounded); the
+ * trailer carries the NUC total + the IROE of the country of
+ * commencement. Tariff amounts are USD, so NUC = USD ÷ IROE(USD=1.0)
+ * for US-origin trips; non-US origins convert through the origin
+ * currency's synthetic IROE.
+ */
 function fareCalcFor(legs: Leg[], type: string): string {
   const disc = discountFor(type);
-  let total = 0;
+  const isIntl = legs.some(
+    (l) => NUC_INTL_AIRPORTS.has(l.origin) || NUC_INTL_AIRPORTS.has(l.destination),
+  );
+  if (!isIntl) {
+    let total = 0;
+    let line = legs[0].origin;
+    for (const l of legs) {
+      const f = fareFor(l.origin, l.destination, l.bookingClass);
+      const amt = round2(f.base * disc);
+      total += amt;
+      line += ` ${l.carrier} ${l.destination}${amt.toFixed(2)}${f.fareBasis}`;
+    }
+    return `${line} ${round2(total).toFixed(2)} END`;
+  }
+  // International: legs in NUC, trailer with NUC total + ROE.
+  const currency = currencyOfCommencement(legs[0].origin);
+  let nucTotal = 0;
   let line = legs[0].origin;
   for (const l of legs) {
     const f = fareFor(l.origin, l.destination, l.bookingClass);
-    const amt = round2(f.base * disc);
-    total += amt;
-    line += ` ${l.carrier} ${l.destination}${amt.toFixed(2)}${f.fareBasis}`;
+    // Tariff amounts are USD; USD→NUC at IROE 1.0, then truncate.
+    const nuc = truncateNuc(f.base * disc);
+    nucTotal = truncateNuc(nucTotal + nuc);
+    line += ` ${l.carrier} ${l.destination}${nuc.toFixed(2)}${f.fareBasis}`;
   }
-  return `${line} ${round2(total).toFixed(2)} END`;
+  return `${line} NUC${nucTotal.toFixed(2)} END ROE${formatRoe(currency)}`;
 }
 
 type TaxMode = 'none' | 'fees' | undefined;
