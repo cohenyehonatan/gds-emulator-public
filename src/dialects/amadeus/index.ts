@@ -816,6 +816,100 @@ function renderAmadeusTwh(
   return blocks.join('\n');
 }
 
+/**
+ * Render an Amadeus invoice or itinerary document. Format reconstructed
+ * from QRG p.221 + p.225 conventions — the QRG documents what the
+ * print verbs produce (passenger billing details / segments / fares /
+ * tickets) but not the verbatim layout, so the structure here is
+ * format-faithful to documented field naming.
+ *
+ * Variants:
+ *   - kind 'invoice'  → header + passenger billing + fares + tickets
+ *   - kind 'itinerary'→ header + segments (no fares)
+ *   - extended       → adds tax breakdown + FOP + ticket numbers
+ *   - joint          → one document with all selected pax (vs per-pax)
+ *   - paxFilter / segFilter → restrict the output
+ */
+function renderAmadeusDocument(
+  pnr: Pnr,
+  opts: {
+    kind: 'invoice' | 'itinerary';
+    extended: boolean;
+    joint: boolean;
+    paxFilter?: number[];
+    segFilter?: number[];
+  },
+): string {
+  const docTitle = opts.kind === 'invoice'
+    ? (opts.extended ? 'INVOICE (EXTENDED)' : 'INVOICE')
+    : (opts.extended ? 'ITINERARY (EXTENDED)' : 'ITINERARY');
+  const dateStr = formatTicketDate(new Date(2026, 5, 9));
+  const lines: string[] = [];
+  lines.push(`*** AMADEUS ${docTitle} ***`);
+  lines.push(`DATE: ${dateStr}  PCC: ${pnr.locator ?? 'PENDING'}`);
+  lines.push('');
+
+  const allPax = opts.paxFilter ? pnr.names.filter((_, i) => opts.paxFilter!.includes(i + 1)) : pnr.names;
+  const allSegs = opts.segFilter ? pnr.segments.filter((s) => opts.segFilter!.includes(s.segmentNumber)) : pnr.segments;
+
+  // Joint = one block for all pax; non-joint = one block per pax.
+  const paxGroups = opts.joint ? [allPax] : allPax.map((p) => [p]);
+
+  for (const group of paxGroups) {
+    if (paxGroups.length > 1) lines.push('---');
+    // Passenger block.
+    lines.push('PASSENGER(S):');
+    for (const item of group) {
+      const names = item.passengers
+        .map((p) => `${p.firstName}${p.title ? ' ' + p.title : ''}`)
+        .join(', ');
+      lines.push(`  ${item.surname}: ${names}${item.infant ? ' (INFANT)' : ''}`);
+    }
+    // Segments block.
+    lines.push('');
+    lines.push('SEGMENTS:');
+    for (const seg of allSegs) {
+      lines.push(`  ${seg.segmentNumber}. ${seg.carrier}${seg.flightNumber} ${seg.bookingClass} ${seg.date} ${seg.origin}-${seg.destination}  ${seg.departTime}-${seg.arriveTime}  ${seg.status}`);
+    }
+    // Fares block (invoice only).
+    if (opts.kind === 'invoice') {
+      lines.push('');
+      lines.push('FARES:');
+      if (pnr.priceQuotes.length === 0) {
+        lines.push('  (no priced quotes — run FXP)');
+      } else {
+        for (const fq of pnr.priceQuotes) {
+          for (const pp of fq.passengers ?? []) {
+            lines.push(`  ${pp.passengerType} x${pp.count}  ${pp.base.toFixed(2)}  TAX ${pp.taxTotal.toFixed(2)}  TOTAL ${pp.total.toFixed(2)} ${fq.currency}`);
+          }
+          // Extended invoice shows the per-tax breakdown from the
+          // FareQuote's first passenger block (each PassengerFare
+          // carries its own TaxItem[] in our model).
+          if (opts.extended && fq.passengers[0]?.taxes?.length) {
+            lines.push('  TAX BREAKDOWN:');
+            for (const tax of fq.passengers[0].taxes) {
+              lines.push(`    ${tax.code} ${tax.amount.toFixed(2)}`);
+            }
+          }
+        }
+      }
+    }
+    // Tickets block (extended invoice + extended itinerary).
+    if (opts.extended && pnr.tickets.length > 0) {
+      lines.push('');
+      lines.push('TICKETS:');
+      for (const t of pnr.tickets) {
+        lines.push(`  ${t.validatingCarrier} ${t.number}  ${t.passenger}  ${t.status ?? 'OPEN'}  ${t.total.toFixed(2)}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Trailer.
+  lines.push(`*** END ${docTitle} ***`);
+  return lines.join('\n');
+}
+
 function formatTicketDate(d: Date): string {
   const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const dd = String(d.getUTCDate()).padStart(2, '0');
@@ -1945,6 +2039,72 @@ export class AmadeusDialect implements Dialect {
       }
       // TWD / TWDRT — display all from retrieved PNR.
       return renderAmadeusTwd(wa.pnr.tickets, wa.pnr);
+    }
+
+    // --- v4 chunk 21: document output (INV / INE / IBP / IEP) ---
+    // Per QRG p.221 (Amadeus Invoice) + p.225 (Amadeus Itinerary).
+    //
+    // Invoice family — billing details + fares + tickets:
+    //   INVD            display individual basic invoice
+    //   INV             print individual basic invoice
+    //   INED            display individual extended invoice
+    //   INE             print individual extended invoice
+    //   INVDJ / INVJ    joint (one for all passengers) basic
+    //   INEDJ / INEJ    joint extended
+    //
+    // Itinerary family — passenger + segments, no fares:
+    //   IBD             display basic itinerary
+    //   IBP             print basic itinerary
+    //   IED             display extended itinerary
+    //   IEP             print extended itinerary
+    //   IBPJ / IEPJ     joint
+    //
+    // Qualifier suffixes (subset implemented):
+    //   /P<n>[-<m>]     selected passengers
+    //   /S<n>[-<m>]     selected segments
+    //
+    // For our emulator "display" (D) and "print" (no D) verbs render
+    // identical content since we don't model a printer — both return
+    // the rendered text body.
+    //
+    // Out-of-scope qualifiers (accepted but ignored): /LP <lang>,
+    // /TO <12|24>, /COPY, /D <printer>, /T<n> (TSTs), /M, /A*, /L*.
+    const docMatch = /^(INVD|INVDJ|INVJ|INV|INED|INEDJ|INEJ|INE|IBD|IBPJ|IBP|IED|IEPJ|IEP)(\/.*)?$/.exec(entry);
+    if (docMatch) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const verb = docMatch[1];
+      const qual = docMatch[2] ?? '';
+      const isInvoice = verb.startsWith('INV') || verb.startsWith('INE');
+      const isExtended = verb.startsWith('INE') || verb.startsWith('IE');
+      const isJoint = verb.endsWith('J') || verb.endsWith('DJ');
+      // Pax selection (/P<n>[-<m>]).
+      let paxFilter: number[] | undefined;
+      const pMatch = /\/P(\d+)(?:-(\d+))?/.exec(qual);
+      if (pMatch) {
+        const lo = parseInt(pMatch[1], 10);
+        const hi = pMatch[2] ? parseInt(pMatch[2], 10) : lo;
+        if (lo < 1 || hi > wa.pnr.names.length || lo > hi) return 'INVALID PASSENGER';
+        paxFilter = [];
+        for (let i = lo; i <= hi; i++) paxFilter.push(i);
+      }
+      // Segment selection (/S<n>[-<m>]).
+      let segFilter: number[] | undefined;
+      const sMatch = /\/S(\d+)(?:-(\d+))?/.exec(qual);
+      if (sMatch) {
+        const lo = parseInt(sMatch[1], 10);
+        const hi = sMatch[2] ? parseInt(sMatch[2], 10) : lo;
+        if (lo < 1 || hi > wa.pnr.segments.length || lo > hi) return 'INVALID SEGMENT';
+        segFilter = [];
+        for (let i = lo; i <= hi; i++) segFilter.push(i);
+      }
+      return renderAmadeusDocument(wa.pnr, {
+        kind: isInvoice ? 'invoice' : 'itinerary',
+        extended: isExtended,
+        joint: isJoint,
+        paxFilter,
+        segFilter,
+      });
     }
 
     // --- v4 chunk 7: queue work verbs (QSTART / QN / QF / QFR / QXI) ---
