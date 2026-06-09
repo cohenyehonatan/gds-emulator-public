@@ -130,6 +130,7 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
     seatRequests: pnr.seatRequests,
     hotelSegments: pnr.hotelSegments,
     carSegments: pnr.carSegments,
+    railSegments: pnr.railSegments,
     priceQuotes: pnr.priceQuotes,
     tickets: pnr.tickets,
     manualAccountingLines: pnr.manualAccountingLines,
@@ -162,6 +163,7 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.seatRequests = (plain.seatRequests as Pnr['seatRequests']) ?? [];
   p.hotelSegments = (plain.hotelSegments as Pnr['hotelSegments']) ?? [];
   p.carSegments = (plain.carSegments as Pnr['carSegments']) ?? [];
+  p.railSegments = (plain.railSegments as Pnr['railSegments']) ?? [];
   p.priceQuotes = (plain.priceQuotes as Pnr['priceQuotes']) ?? [];
   p.tickets = (plain.tickets as Pnr['tickets']) ?? [];
   p.manualAccountingLines = (plain.manualAccountingLines as Pnr['manualAccountingLines']) ?? [];

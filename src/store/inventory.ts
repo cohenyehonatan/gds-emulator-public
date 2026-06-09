@@ -16,6 +16,8 @@ import type { CarRental } from '../models/car.js';
 import { CAR_SEED } from './car-seed.js';
 import { resolveMct, connectionTypeFor } from '../models/mct.js';
 import { MCT_SEED } from './mct-seed.js';
+import type { RailService } from '../models/rail.js';
+import { RAIL_SEED } from './rail-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -124,6 +126,18 @@ export class Inventory {
   carsIn(city: string, company?: string): CarRental[] {
     const all = CAR_SEED.filter((c) => c.city === city);
     return company ? all.filter((c) => c.company === company) : all;
+  }
+
+  /**
+   * Rail services between two stations, sorted by departure time
+   * (the R/AD "by departure time" ordering — also Annex-I-compatible
+   * since these are all non-stop services). Empty for unseeded pairs
+   * so callers surface "NO RAIL SERVICES".
+   */
+  railBetween(origin: string, destination: string): RailService[] {
+    return RAIL_SEED
+      .filter((r) => r.origin === origin && r.destination === destination)
+      .sort((a, b) => (parseClockToMinutes(a.departTime) ?? 0) - (parseClockToMinutes(b.departTime) ?? 0));
   }
 
   /**

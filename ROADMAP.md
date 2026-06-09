@@ -897,9 +897,18 @@ into four buckets.
 
 ### New arcs
 
-- [ ] **Rail domain** — Amadeus AccesRail (9B) is QRG-documented and
-      uses standard air transactions; `docs/non-air-domain-pattern.md`
-      makes this a ~1-commit chunk.
+- [x] **Rail domain** (landed) — Amadeus Rail Mode per QRG p.114-115:
+      `R/AD`/`R/AN <date><orig><dest>[<time>]` availability, the
+      standard `SS<seats><class><line>` sell (prefers the rail display
+      when on screen; a new air AN clears it — matching "SS sells from
+      the displayed availability"), standard `XE<n>` cancel made
+      rail-aware. RailService/RailSegment model + 10-service seed over
+      the QRG's own example pairs (2V WAS-NYP, 9F XPG-QQS, 9B GOT-STO),
+      Inventory.railBetween, WorkArea.lastRailAvail, Pnr.railSegments
+      (clone/hasContent/JSON-store/TRN display line all wired). Air SS
+      numbering now counts auxiliary segments so mixed PNRs never
+      duplicate segment numbers. One pattern-doc deviation, documented:
+      rail's sell is the standard SS, not a dedicated verb.
 - [ ] **Worldspan dialect** — the GDS Format Comparison Guide carries
       the full Worldspan Rosetta column (`41*` seat maps, `4RA` SSRs,
       `4G1*`-analog sells); co-buildable from an existing dialect the

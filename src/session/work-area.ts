@@ -129,6 +129,21 @@ export class WorkAreaSlot {
   };
 
   /**
+   * Cached rail-availability display from the last R/AD or R/AN
+   * query (v6 rail arc). The standard SS sell reads this FIRST when
+   * set — matching real Amadeus, where SS sells from whatever
+   * availability is on screen. A new air AN display clears it (the
+   * air display replaced the rail one on screen), and vice versa a
+   * new R/ display leaves the air cache intact but takes SS priority.
+   */
+  lastRailAvail?: {
+    date: string;
+    origin: string;
+    destination: string;
+    services: import('../models/rail.js').RailService[];
+  };
+
+  /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
    * by SSR / remarks live wiring to reference passengers via
@@ -179,6 +194,7 @@ export class WorkAreaSlot {
     this.lastSeatMap = undefined;
     this.lastHotelAvail = undefined;
     this.lastCarAvail = undefined;
+    this.lastRailAvail = undefined;
   }
 }
 
@@ -370,5 +386,11 @@ export class WorkArea {
   }
   set lastCarAvail(v: WorkAreaSlot['lastCarAvail']) {
     this.s.lastCarAvail = v;
+  }
+  get lastRailAvail(): WorkAreaSlot['lastRailAvail'] {
+    return this.s.lastRailAvail;
+  }
+  set lastRailAvail(v: WorkAreaSlot['lastRailAvail']) {
+    this.s.lastRailAvail = v;
   }
 }

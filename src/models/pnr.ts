@@ -20,6 +20,7 @@ import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-acco
 import type { AddressElement } from './address.js';
 import type { HotelSegment } from './hotel.js';
 import type { CarSegment } from './car.js';
+import type { RailSegment } from './rail.js';
 import type { SeatRequest } from './seat-request.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
@@ -68,6 +69,8 @@ export class Pnr {
    * PNR display references uniformly.
    */
   carSegments: CarSegment[] = [];
+  /** Rail segments (Amadeus R/ family, QRG p.114). Cross-dialect. */
+  railSegments: RailSegment[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   /**
@@ -129,6 +132,7 @@ export class Pnr {
     p.seatRequests = this.seatRequests.map((x) => ({ ...x }));
     p.hotelSegments = this.hotelSegments.map((x) => ({ ...x }));
     p.carSegments = this.carSegments.map((x) => ({ ...x }));
+    p.railSegments = this.railSegments.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
@@ -154,6 +158,7 @@ export class Pnr {
       this.frequentFlyers.length > 0 ||
       this.hotelSegments.length > 0 ||
       this.carSegments.length > 0 ||
+      this.railSegments.length > 0 ||
       this.ticketing !== undefined ||
       this.optionField !== undefined ||
       this.receivedFrom !== undefined

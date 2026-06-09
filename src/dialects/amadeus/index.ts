@@ -63,6 +63,7 @@ import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
+import { RAIL_PROVIDER_NAMES } from '../../models/rail.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { connectionTypeFor } from '../../models/mct.js';
@@ -616,6 +617,12 @@ function renderAmadeusItinerary(pnr: Pnr): string {
     lines.push({
       n: c.segmentNumber,
       text: `  ${c.segmentNumber}. CCR ${c.company} ${c.status} ${c.city} ${c.pickup}-${c.dropoff} ${c.vehicleType} ${c.rateCode} ${c.amount.toFixed(2)}${c.currency}/DY ${c.confirmationNumber ?? ''}`.trimEnd(),
+    });
+  }
+  for (const r of pnr.railSegments) {
+    lines.push({
+      n: r.segmentNumber,
+      text: `  ${r.segmentNumber}. TRN ${r.provider} ${r.trainNumber} ${r.bookingClass} ${r.date} ${r.origin} ${r.destination} ${r.status}${r.seats} ${r.departTime} ${r.arriveTime} ${r.confirmationNumber ?? ''}`.trimEnd(),
     });
   }
   return lines
@@ -1199,6 +1206,9 @@ export class AmadeusDialect implements Dialect {
       wa.lastAvailability = {
         date: avail.date, origin: avail.origin, destination: avail.destination, lines,
       };
+      // The air display replaces any rail display on screen — SS now
+      // sells air again (v6 rail arc).
+      wa.lastRailAvail = undefined;
       // Availability is a read-side operation; no state-machine event.
       // Render: "AN <DATE> <ORIG><DEST>" header + numbered lines.
       const header = `AN ${avail.date} ${avail.origin}${avail.destination}`;
@@ -1215,6 +1225,37 @@ export class AmadeusDialect implements Dialect {
     if (entry.startsWith('SS')) {
       const sell = parseSell(entry.slice(2));
       if (!sell) return FORMAT_ERROR;
+      // v6 rail arc: when a rail availability display is on screen
+      // (R/AD or R/AN ran more recently than any air AN), SS sells
+      // from it — matching real Amadeus, where the sell always
+      // references the displayed availability. QRG p.115 "SEGMENT
+      // SELL FROM AVAILABILITY: Sell seat (short sell) SS1F21".
+      if (wa.lastRailAvail) {
+        const rail = wa.lastRailAvail;
+        const svc = rail.services[sell.line - 1];
+        if (!svc) return NO_AVAIL;
+        if ((svc.classSeats[sell.bookingClass] ?? 0) < sell.seats) return 'CLASS NOT AVAILABLE';
+        const seg: import('../../models/rail.js').RailSegment = {
+          segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+            wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1,
+          provider: svc.provider,
+          providerName: RAIL_PROVIDER_NAMES[svc.provider] ?? svc.provider,
+          trainNumber: svc.trainNumber,
+          bookingClass: sell.bookingClass,
+          date: rail.date,
+          origin: svc.origin,
+          destination: svc.destination,
+          departTime: svc.departTime,
+          arriveTime: svc.arriveTime,
+          seats: sell.seats,
+          status: 'SS',
+          confirmationNumber: `RC${hotelConfirmationFor(svc.provider, svc.trainNumber, wa.pnr.railSegments.length)}`,
+        };
+        wa.pnr.railSegments.push(seg);
+        recordHistory(wa.pnr, `SELL TRN ${svc.provider}${svc.trainNumber}${sell.bookingClass}/${rail.date}`);
+        try { wa.machine.transition(SessionEvent.SELL); } catch { /* */ }
+        return ` ${seg.segmentNumber}. TRN ${seg.provider} ${seg.trainNumber} ${seg.bookingClass} ${seg.date} ${seg.origin} ${seg.destination} SS${seg.seats}`;
+      }
       const avail = wa.lastAvailability;
       if (!avail) return NO_AVAIL;
       const line = avail.lines[sell.line - 1];
@@ -1222,7 +1263,8 @@ export class AmadeusDialect implements Dialect {
       const remaining = ctx.backend.inventory.sell(avail.date, line.carrier, line.flightNumber, sell.bookingClass, sell.seats);
       if (!remaining) return 'CLASS NOT AVAILABLE';
       const segment: AirSegment = {
-        segmentNumber: wa.pnr.segments.length + 1,
+        segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+          wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1,
         carrier: line.carrier,
         flightNumber: line.flightNumber,
         bookingClass: sell.bookingClass,
@@ -1486,7 +1528,9 @@ export class AmadeusDialect implements Dialect {
     //   RTG   general facts only (SSR + OSI)
     //   RTR   remarks only
     if (entry === 'RTA' || entry === 'RTI') {
-      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      const hasItin = wa.pnr.segments.length > 0 || wa.pnr.hotelSegments.length > 0 ||
+        wa.pnr.carSegments.length > 0 || wa.pnr.railSegments.length > 0;
+      if (!hasItin) return NO_ITINERARY;
       return renderAmadeusItinerary(wa.pnr);
     }
     if (entry === 'RTN') {
@@ -1625,7 +1669,7 @@ export class AmadeusDialect implements Dialect {
     if (entry.startsWith('XE')) {
       const segs = parseSegmentList(entry.slice(2));
       if (!segs || segs.length === 0) return FORMAT_ERROR;
-      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.segments.length === 0 && wa.pnr.railSegments.length === 0) return NO_ITINERARY;
       const toCancel = new Set(segs);
       const kept: AirSegment[] = [];
       for (const seg of wa.pnr.segments) {
@@ -1635,6 +1679,9 @@ export class AmadeusDialect implements Dialect {
           kept.push(seg);
         }
       }
+      // Rail segments cancel via the same XE element cancel (the QRG
+      // rail chapter documents no rail-specific cancel verb).
+      wa.pnr.railSegments = wa.pnr.railSegments.filter((r) => !toCancel.has(r.segmentNumber));
       wa.pnr.segments = kept;
       wa.pnr.renumberSegments();
       recordHistory(wa.pnr, `XE ${segs.join(',')}`);
@@ -2645,6 +2692,38 @@ export class AmadeusDialect implements Dialect {
       wa.pnr.carSegments.splice(idx, 1);
       recordHistory(wa.pnr, `CX ${seg.company}${seg.vehicleType} CANCELLED`);
       return 'OK CANCELLED';
+    }
+
+    // --- v6 rail arc: Rail Mode availability (R/AD, R/AN) ---
+    // Per QRG p.114 (Amadeus Rail):
+    //   R/AD 20JULWASNYP5P    availability by departure time
+    //   R/AN 20JULWASNYP5P    neutral availability
+    // Optional trailing time qualifier (5P / 1130A) filters to
+    // services departing at/after that time. The space after AD/AN
+    // is optional (the QRG prints it; operators often omit).
+    //
+    // The sell from this display is the standard SS<seats><class>
+    // <line> (QRG p.115) — handled in the SS branch, which prefers
+    // the rail display when one is on screen. Cancel is the standard
+    // XE<n> element cancel (no rail-specific cancel verb in the QRG).
+    const railAvailMatch = /^R\/A([DN])\s?(\d{1,2}[A-Z]{3})([A-Z]{3})([A-Z]{3})(\d{1,4}[AP])?$/.exec(entry);
+    if (railAvailMatch) {
+      const date = railAvailMatch[2];
+      const origin = railAvailMatch[3];
+      const destination = railAvailMatch[4];
+      const services = ctx.backend.inventory.railBetween(origin, destination);
+      if (services.length === 0) return 'NO RAIL SERVICES';
+      wa.lastRailAvail = { date, origin, destination, services };
+      const lines = [`R/A${railAvailMatch[1]} ${date} ${origin}${destination}`];
+      services.forEach((svc, i) => {
+        const classes = Object.entries(svc.classSeats)
+          .map(([cls, n]) => `${cls}${n}`)
+          .join(' ');
+        lines.push(
+          `${(i + 1).toString().padStart(2, ' ')} ${svc.provider} ${svc.trainNumber}  ${svc.origin} ${svc.destination}  ${svc.departTime.padStart(5, ' ')} ${svc.arriveTime.padStart(5, ' ')}  ${classes}`,
+        );
+      });
+      return lines.join('\n');
     }
 
     // --- v4 chunk 7: queue work verbs (QSTART / QN / QF / QFR / QXI) ---
