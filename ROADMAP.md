@@ -909,10 +909,14 @@ into four buckets.
       numbering now counts auxiliary segments so mixed PNRs never
       duplicate segment numbers. One pattern-doc deviation, documented:
       rail's sell is the standard SS, not a dedicated verb.
-- [ ] **Worldspan dialect** — the GDS Format Comparison Guide carries
-      the full Worldspan Rosetta column (`41*` seat maps, `4RA` SSRs,
-      `4G1*`-analog sells); co-buildable from an existing dialect the
-      way Apollo was co-built from Galileo. Fifth tenant.
+- [x] **Worldspan dialect** (landed, 3 commits) — fifth tenant,
+      co-built from Galileo via a ~15-rule translator (W.1: sigil
+      rewrites for sign-on/name/phone/received/ticketing/remarks/
+      SSR/OSI + sells/status/rebook/V$/retrieve-by-name; W.2: the
+      Galileo `S.` advance-seat-request family wired cross-dialect
+      + Worldspan `4R` translations onto it; W.3: diff-oracle
+      `--dialect=worldspan` + docs). Emulated-only — no live 1P
+      tenant.
 - [ ] **v4 BHS integration** — the aviation-suite tie-in (see the v4
       section above): check-in retrieves a PNR by locator before
       generating PECTAB; `AgentTerminal` is the intended seam.

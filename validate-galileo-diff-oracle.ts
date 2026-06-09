@@ -34,6 +34,7 @@
 import { GdsHost } from './src/session/gds-host.js';
 import { GalileoDialect } from './src/dialects/galileo/index.js';
 import { ApolloDialect } from './src/dialects/apollo/index.js';
+import { WorldspanDialect } from './src/dialects/worldspan/index.js';
 import { liveTravelportFromEnv } from './src/backends/live-travelport-backend.js';
 import type { WorkArea } from './src/session/work-area.js';
 import type { Dialect } from './src/dialects/dialect.js';
@@ -126,6 +127,10 @@ interface DiffStep {
   /** Apollo-cryptic variant. Used when --dialect=apollo so the harness
    *  exercises the translator (Apollo `01Y1` → Galileo `N1Y1`, etc.). */
   apolloEntry?: string;
+  /** Worldspan-cryptic variant for --dialect=worldspan. When absent,
+   *  falls back to apolloEntry (Worldspan shares Apollo's 0-sell and
+   *  .-status sigils) and then to the Galileo entry. */
+  worldspanEntry?: string;
   expectStructural?: boolean;
 }
 
@@ -136,9 +141,14 @@ async function runBoth(
   liveWa: WorkArea,
   step: DiffStep,
   rows: DiffRow[],
-  apollo = false
+  dialect?: string
 ): Promise<void> {
-  const entry = apollo && step.apolloEntry ? step.apolloEntry : step.entry;
+  const entry =
+    dialect === 'worldspan'
+      ? step.worldspanEntry ?? step.apolloEntry ?? step.entry
+      : dialect === 'apollo' && step.apolloEntry
+        ? step.apolloEntry
+        : step.entry;
   const [emulated, live] = await Promise.all([
     emulatedHost.process(entry, emulatedWa).catch((err) => `THROW: ${err instanceof Error ? err.message : String(err)}`),
     liveHost.process(entry, liveWa).catch((err) => `THROW: ${err instanceof Error ? err.message : String(err)}`),
@@ -171,11 +181,13 @@ async function main(): Promise<void> {
   // Galileo equivalents at the dialect layer; this harness is the only
   // place where that wire gets a real live workout.
   const dialectArg = process.argv.find((a) => a.startsWith('--dialect='))?.slice('--dialect='.length);
-  const makeDialect: () => Dialect = dialectArg === 'apollo'
-    ? () => new ApolloDialect()
+  const makeDialect: () => Dialect =
+    dialectArg === 'apollo' ? () => new ApolloDialect()
+    : dialectArg === 'worldspan' ? () => new WorldspanDialect()
     : () => new GalileoDialect();
 
-  console.log(`${dialectArg === 'apollo' ? 'Apollo' : 'Galileo'} live-as-oracle diff harness`);
+  const harnessName = dialectArg === 'apollo' ? 'Apollo' : dialectArg === 'worldspan' ? 'Worldspan' : 'Galileo';
+  console.log(`${harnessName} live-as-oracle diff harness`);
   console.log('PCC=7K9S  emulated host (Inventory+PnrStore) vs live host (LiveTravelportBackend)');
 
   const emulatedHost = new GdsHost({
@@ -188,10 +200,10 @@ async function main(): Promise<void> {
   const liveWa = liveHost.newWorkArea();
   const rows: DiffRow[] = [];
 
-  const apollo = dialectArg === 'apollo';
+  const apollo = dialectArg; // dialect tag threaded into runBoth (name kept to avoid churn below)
   // Pre-warm both sessions — Apollo and Galileo SON cryptic is
   // identical (`SON/ZHA`).
-  await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: 'SON/ZHA' }, rows, apollo);
+  await runBoth(emulatedHost, emulatedWa, liveHost, liveWa, { entry: 'SON/ZHA', worldspanEntry: 'BSI$5467HA/GS' }, rows, apollo);
 
   // Availability — INTRINSIC STRUCTURAL diff. Apollo and Galileo
   // availability cryptic is identical for the basic form.
@@ -221,7 +233,7 @@ async function main(): Promise<void> {
   // nothing built" — clean baseline for stateless wording checks.
   const cleanEmu = emulatedHost.newWorkArea();
   const cleanLive = liveHost.newWorkArea();
-  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'SON/ZHA' }, rows, apollo);
+  await runBoth(emulatedHost, cleanEmu, liveHost, cleanLive, { entry: 'SON/ZHA', worldspanEntry: 'BSI$5467HA/GS' }, rows, apollo);
 
   // *<random-locator> — both should return "NO BOOKING FILE". Verifies
   // the canonical Galileo no-PNR wording matches between emulated's

@@ -20,6 +20,7 @@
     "validate:creds": "tsx validate-travelport-creds.ts",
     "validate:diff-oracle": "tsx validate-galileo-diff-oracle.ts",
     "validate:diff-oracle:apollo": "tsx validate-galileo-diff-oracle.ts --dialect=apollo",
+    "validate:diff-oracle:worldspan": "tsx validate-galileo-diff-oracle.ts --dialect=worldspan",
     "validate:live-galileo:capture": "TVP_CAPTURE=./tvp-recording.jsonl tsx validate-galileo-handler-live.ts",
     "validate:live-galileo:replay": "TVP_REPLAY=./tvp-recording.jsonl tsx validate-galileo-handler-live.ts",
     "test": "vitest run",
