@@ -139,3 +139,31 @@ describe('WorldspanDialect — full PNR lifecycle through the translator', () =>
     expect(host.dialect.isErrorResponse(resp)).toBe(true);
   });
 });
+
+describe('Worldspan hotel + car (Comparison Guide 5-way table)', () => {
+  it('translator maps the hotel + car family', () => {
+    expect(t('HLLON6FEB09FEB2')).toBe('HOA6FEB-09FEBLON2');
+    expect(t('HLLON')).toBe('HOILON');
+    expect(t('HLLON/CHI')).toBe('HOILON/HI');
+    expect(t('HA1')).toBe('HOC1');
+    expect(t('CRA23AUG-25AUGLON/ARR-1P')).toBe('CAL23AUG-25AUGLON/ARR-1P');
+    expect(t('CR04')).toBe('N1A4');
+  });
+
+  it('end-to-end: HL avail → HA complete → CRA avail → CR0 sell', async () => {
+    const host = new GdsHost({
+      port: 0, logLevel: 'error', dialect: new WorldspanDialect(), pcc: '1P',
+    });
+    const wa = host.newWorkArea();
+    await host.process('BSI$5467AB/GS', wa);
+    const avail = await host.process('HLLON6FEB09FEB2', wa);
+    expect(avail).toContain('HOTEL AVAILABILITY LON 6FEB-09FEB');
+    const complete = await host.process('HA1', wa);
+    expect(complete).toContain('HILON HOLIDAY INN');
+    const carAvail = await host.process('CRA23AUG-25AUGLON', wa);
+    expect(carAvail).toContain('CAR AVAILABILITY LON');
+    const sold = await host.process('CR04', wa);
+    expect(sold).toContain('CAR SOLD');
+    expect(wa.pnr.carSegments).toHaveLength(1);
+  });
+});

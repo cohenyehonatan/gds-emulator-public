@@ -141,6 +141,33 @@ export function translateWorldspanToGalileo(raw: string): string {
   const seatMap = /^4(\d{1,2})\*([A-Z])$/.exec(s);
   if (seatMap) return `SM*A${seatMap[1]}${seatMap[2]}`;
 
+  // Hotel family (Comparison Guide "Hotels" 5-way table, Worldspan
+  // column):
+  //   HLMUC9APR16APR2[/quals] → HOA9APR-16APRMUC2   availability
+  //   HLNRT                   → HOINRT              hotel index
+  //   HLNRT/CEM               → HOINRT/EM           index by chain
+  //   HA3                     → HOC3                complete avail
+  const hlAvail = /^HL([A-Z]{3})(\d{1,2}[A-Z]{3})(\d{1,2}[A-Z]{3})(\d{1,2})?(?:\/.*)?$/.exec(s);
+  if (hlAvail) {
+    return `HOA${hlAvail[2]}-${hlAvail[3]}${hlAvail[1]}${hlAvail[4] ?? ''}`;
+  }
+  const hlIndex = /^HL([A-Z]{3})(?:\/C([A-Z]{2}))?$/.exec(s);
+  if (hlIndex) {
+    return hlIndex[2] ? `HOI${hlIndex[1]}/${hlIndex[2]}` : `HOI${hlIndex[1]}`;
+  }
+  const haComplete = /^HA(\d{1,2})$/.exec(s);
+  if (haComplete) return `HOC${haComplete[1]}`;
+
+  // Car family (Comparison Guide "Cars" table, Worldspan column):
+  //   CRA23AUG-25AUGDEN/… → CAL23AUG-25AUGDEN/…   availability
+  //   CR04                → N1A4                   reference sell
+  //                         (one car from avail line 4)
+  // The H0/R- hotel-sell and CRD description forms are not cleanly
+  // decomposable from the guide's single examples — deferred.
+  if (/^CRA\d/.test(s)) return 'CAL' + s.slice(3);
+  const cr0 = /^CR0(\d{1,2})$/.exec(s);
+  if (cr0) return `N1A${cr0[1]}`;
+
   // 4R seat-request family → Galileo S. (wired in W.2). The three
   // verbatim Comparison Guide rows plus the structural cancel forms:
   //   4RA$W       → S.NW    non-smoking window
