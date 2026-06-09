@@ -186,10 +186,29 @@ export function dispatchGalileo(
         return renderGalileoSwitchAreaResponse({ pcc: ctx.pcc, agent: wa.agent }, wa.area);
 
       case 'availability':
+        // An air availability display replaces any hotel/car display
+        // on screen — N-sells reference air again.
+        wa.lastHotelAvail = undefined;
+        wa.lastCarAvail = undefined;
         return handleGalileoAvailability(entry, wa, ctx);
 
       case 'sell':
+        // Hotel/car reference sells share the air-sell shape (the
+        // Comparison Guide's verbatim rows: hotel `N1A2D3`, car
+        // `N1A4`) — disambiguate by display context, same as real
+        // hosts: the sell references whatever availability is on
+        // screen. A hotel/car display is set by HOA/CAL and cleared
+        // by an air availability (and by each other).
+        if (entry.mode === 'availability' && (wa.lastHotelAvail || wa.lastCarAvail)) {
+          return handleGalileoAuxSell(entry, wa, ctx);
+        }
         return handleGalileoSell(entry, wa, ctx);
+
+      case 'hotel':
+        return handleGalileoHotel(entry, wa, ctx);
+
+      case 'car':
+        return handleGalileoCar(entry, wa, ctx);
 
       case 'name':
         return handleGalileoName(entry, wa, ctx);
@@ -2594,6 +2613,162 @@ function renderSeatCharacteristics(label: string, space: import('../../models/se
     }
   }
   return lines.join('\n');
+}
+
+/**
+ * Galileo hotel family (HOA / HOI / HOC) — Comparison Guide "Hotels"
+ * 5-way table. Reuses the cross-dialect hotel seed + the WorkArea
+ * lastHotelAvail cache the Amadeus HA family populates, so a follow-on
+ * N<rooms>A<line>D<days> reference sell books from the same store.
+ * Response wording reconstructed (the guide documents entries, not
+ * screens).
+ */
+function handleGalileoHotel(
+  entry: import('../../protocol/entry.js').HotelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): string {
+  if (entry.action === 'availability' || entry.action === 'index') {
+    const props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
+    if (props.length === 0) return 'NO HOTELS';
+    const checkIn = entry.checkIn ?? '15JUL';
+    const checkOut = entry.checkOut ?? checkIn;
+    const nights = entry.checkIn && entry.checkOut ? galileoNights(entry.checkIn, entry.checkOut) : 1;
+    wa.lastHotelAvail = { city: entry.city!, checkIn, checkOut, nights, properties: props };
+    wa.lastCarAvail = undefined; // hotel display replaces a car display
+    const title = entry.action === 'index' ? 'HOTEL INDEX' : 'HOTEL AVAILABILITY';
+    const lines = [`${title} ${entry.city}${entry.action === 'availability' ? ` ${checkIn}-${checkOut}` : ''}`];
+    props.forEach((p, i) => {
+      const lo = p.rates.reduce((min, r) => Math.min(min, r.amount), Infinity);
+      const cur = p.rates[0]?.currency ?? '';
+      lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property} ${p.name.padEnd(38, ' ')} ${lo.toFixed(0)}${cur}`);
+    });
+    return lines.join('\n');
+  }
+  // HOC<line> — complete availability: all rates for one property.
+  const cached = wa.lastHotelAvail;
+  if (!cached) return 'NO HOTEL DISPLAY';
+  const prop = cached.properties[(entry.line ?? 0) - 1];
+  if (!prop) return 'INVALID LINE';
+  const lines = [`${prop.chain}${prop.property} ${prop.name}`, `${prop.address} ${prop.city}`];
+  prop.rates.forEach((r, i) => {
+    lines.push(`${(i + 1).toString().padStart(2, ' ')} ${r.code}  ${r.amount.toFixed(2)} ${r.currency}  AVL ${r.available}`);
+  });
+  return lines.join('\n');
+}
+
+/**
+ * Galileo car family (CAL / CAI) — Comparison Guide "Cars" table.
+ * Same store + cache the Amadeus CA family uses.
+ */
+function handleGalileoCar(
+  entry: import('../../protocol/entry.js').CarEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): string {
+  const rentals = ctx.backend.inventory.carsIn(entry.city!);
+  if (rentals.length === 0) return 'NO CARS';
+  if (entry.action === 'availability') {
+    const pickup = entry.pickup ?? '15JUL';
+    const dropoff = entry.dropoff ?? pickup;
+    const days = entry.pickup && entry.dropoff ? galileoNights(entry.pickup, entry.dropoff) : 1;
+    wa.lastCarAvail = { city: entry.city!, pickup, dropoff, days, rentals };
+    wa.lastHotelAvail = undefined; // car display replaces a hotel display
+    const lines = [`CAR AVAILABILITY ${entry.city} ${pickup}-${dropoff}`];
+    rentals.forEach((r, i) => {
+      lines.push(`${(i + 1).toString().padStart(2, ' ')} ${r.company} ${r.vehicleType}  ${r.category.padEnd(20, ' ')} ${r.amount.toFixed(0)}${r.currency}/DY`);
+    });
+    return lines.join('\n');
+  }
+  // CAI<city> — vendor index.
+  const vendors = [...new Set(rentals.map((r) => r.company))];
+  return [`CAR VENDORS ${entry.city}`, ...vendors.map((v, i) => `${i + 1} ${v}`)].join('\n');
+}
+
+/**
+ * Hotel/car reference sell from the cached aux display — the
+ * Comparison Guide's verbatim sell rows:
+ *   hotel: N1A2D3  (rooms=1, availability line 2, 3 days)
+ *   car:   N1A4    (1 car, availability line 4)
+ * The air-sell parser already produces {seats, bookingClass:'A',
+ * line} for these shapes; the D<days> tail (hotel) arrives via the
+ * legs array as a second pair when present — we re-derive from raw
+ * to keep the decomposition explicit. Decomposition interpreted from
+ * the guide's examples (the guide shows entries, not field meanings)
+ * — flagged as such.
+ */
+function handleGalileoAuxSell(
+  entry: import('../../protocol/entry.js').SellEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): string {
+  const m = /^N(\d{1,2})A(\d{1,2})(?:D(\d{1,2}))?$/.exec(entry.raw.toUpperCase());
+  if (!m) return GalileoResponse.FORMAT;
+  const count = parseInt(m[1], 10);
+  const line = parseInt(m[2], 10);
+  const days = m[3] ? parseInt(m[3], 10) : undefined;
+
+  if (wa.lastHotelAvail) {
+    const cached = wa.lastHotelAvail;
+    const prop = cached.properties[line - 1];
+    if (!prop) return 'INVALID LINE';
+    const rate = prop.rates[0];
+    if (!rate || rate.available < 1) return 'NO ROOMS';
+    const nights = days ?? cached.nights;
+    const seg: import('../../models/hotel.js').HotelSegment = {
+      segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+        wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1,
+      chain: prop.chain, property: prop.property, name: prop.name,
+      city: prop.city, checkIn: cached.checkIn, checkOut: cached.checkOut,
+      nights, rateCode: rate.code, ratePerNight: rate.amount,
+      currency: rate.currency, rooms: count, status: 'HK',
+      confirmationNumber: `HC${galileoConfirmation(prop.chain, prop.property, wa.pnr.hotelSegments.length)}`,
+    };
+    wa.pnr.hotelSegments.push(seg);
+    return `HOTEL SOLD ${seg.segmentNumber}. HHL ${prop.chain} HK${count} ${prop.city} ${cached.checkIn}-${cached.checkOut} ${rate.code} ${rate.amount.toFixed(2)}${rate.currency} ${seg.confirmationNumber}`;
+  }
+
+  const cached = wa.lastCarAvail!;
+  const rental = cached.rentals[line - 1];
+  if (!rental) return 'INVALID LINE';
+  if (rental.available < 1) return 'NO CARS';
+  const seg: import('../../models/car.js').CarSegment = {
+    segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+      wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1,
+    company: rental.company, companyName: rental.company,
+    vehicleType: rental.vehicleType, category: rental.category,
+    rateCode: rental.rateCode, city: rental.city,
+    pickup: cached.pickup, dropoff: cached.dropoff, days: cached.days,
+    amount: rental.amount, currency: rental.currency, status: 'HK',
+    confirmationNumber: `CC${galileoConfirmation(rental.company, rental.vehicleType, wa.pnr.carSegments.length)}`,
+  };
+  wa.pnr.carSegments.push(seg);
+  return `CAR SOLD ${seg.segmentNumber}. CCR ${rental.company} HK ${rental.city} ${cached.pickup}-${cached.dropoff} ${rental.vehicleType} ${rental.amount.toFixed(2)}${rental.currency}/DY ${seg.confirmationNumber}`;
+}
+
+/** DJB2-based deterministic 5-digit confirmation (same scheme the
+ *  Amadeus aux sells use). */
+function galileoConfirmation(a: string, b: string, idx: number): string {
+  let hash = 5381;
+  const str = `${a}|${b}|${idx}`;
+  for (let i = 0; i < str.length; i++) hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  return String(Math.abs(hash) % 90000 + 10000);
+}
+
+/** Crude DDMON ordinal difference (same scheme as the Amadeus
+ *  computeNights — months treated as 31 days; emulator-fine). */
+function galileoNights(a: string, b: string): number {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const parse = (s: string): number | null => {
+    const m = /^(\d{1,2})([A-Z]{3})$/.exec(s);
+    if (!m) return null;
+    const mon = months.indexOf(m[2]);
+    return mon < 0 ? null : mon * 31 + parseInt(m[1], 10);
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa == null || pb == null) return 1;
+  return pb - pa > 0 ? pb - pa : 1;
 }
 
 /**

@@ -94,6 +94,12 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleSeatMap(entry, wa, ctx);
       case 'seat_request':
         return handleSeatRequest(entry, wa, ctx);
+      case 'hotel':
+      case 'car':
+        // Galileo/Apollo/Worldspan-only kinds today — Sabre's parser
+        // never emits them. Exhaustiveness case so a future Sabre
+        // hotel/car cryptic gets a deliberate wiring decision.
+        return 'NOT IMPLEMENTED';
       case 'divide':
         return handleDivide(entry, wa);
       case 'file':

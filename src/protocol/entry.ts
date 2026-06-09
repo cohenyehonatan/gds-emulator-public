@@ -235,6 +235,37 @@ export interface SeatRequestEntry extends BaseEntry {
   cancelAll?: boolean;
 }
 
+/**
+ * Hotel verbs — Galileo HO* family (Comparison Guide "Hotels" 5-way
+ * table; Apollo identical, Worldspan HL/HA translate onto it):
+ *   HOA<d1>-<d2><city>[/<adults>]  availability
+ *   HOI<city>[/<chain>]            index
+ *   HOC<line>                      complete availability (line detail)
+ */
+export interface HotelEntry extends BaseEntry {
+  kind: 'hotel';
+  action: 'availability' | 'index' | 'detail';
+  checkIn?: string;
+  checkOut?: string;
+  city?: string;
+  adults?: number;
+  chain?: string;
+  line?: number;
+}
+
+/**
+ * Car verbs — Galileo CA* family (Comparison Guide "Cars" table):
+ *   CAL<d1>-<d2><city>[/quals]   availability (qualifiers ignored)
+ *   CAI<city>                    index of vendors by city
+ */
+export interface CarEntry extends BaseEntry {
+  kind: 'car';
+  action: 'availability' | 'index';
+  pickup?: string;
+  dropoff?: string;
+  city?: string;
+}
+
 export interface CancelEntry extends BaseEntry {
   kind: 'cancel';
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
@@ -592,6 +623,8 @@ export type ParsedEntry =
   | FlightInfoEntry
   | SeatMapEntry
   | SeatRequestEntry
+  | HotelEntry
+  | CarEntry
   | CancelEntry
   | SegmentStatusEntry
   | PassiveCancelEntry

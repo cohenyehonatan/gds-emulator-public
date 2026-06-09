@@ -127,6 +127,58 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
+  // Galileo hotel family — HO* (Comparison Guide "Hotels" 5-way
+  // table; Apollo column is identical so ApolloDialect passes
+  // through). Forms implemented are the verbatim guide rows:
+  //   HOA6FEB-09FEBSAN2     availability, dates + city + adults
+  //   HOI<city>[/<chain>]   hotel index
+  //   HOC<line>             complete availability for a display line
+  // Modifier-heavy variants (/D-10M distance, /RT- rate) are accepted
+  // but ignored — split off at the first `/`.
+  const hoaMatch = /^HOA(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})([A-Z]{3})(\d{1,2})?(?:\/.*)?$/.exec(u);
+  if (hoaMatch) {
+    return {
+      kind: 'hotel', raw: trimmed, timestamp: new Date(),
+      action: 'availability',
+      checkIn: hoaMatch[1], checkOut: hoaMatch[2],
+      city: hoaMatch[3],
+      adults: hoaMatch[4] ? parseInt(hoaMatch[4], 10) : undefined,
+    };
+  }
+  const hoiMatch = /^HOI([A-Z]{3})(?:\/([A-Z]{2}))?$/.exec(u);
+  if (hoiMatch) {
+    return {
+      kind: 'hotel', raw: trimmed, timestamp: new Date(),
+      action: 'index', city: hoiMatch[1], chain: hoiMatch[2],
+    };
+  }
+  const hocMatch = /^HOC(\d{1,2})$/.exec(u);
+  if (hocMatch) {
+    return {
+      kind: 'hotel', raw: trimmed, timestamp: new Date(),
+      action: 'detail', line: parseInt(hocMatch[1], 10),
+    };
+  }
+
+  // Galileo car family — CA* (Comparison Guide "Cars" table):
+  //   CAL23AUG-25AUGDEN[/quals]  availability (ARR-/DT- ignored)
+  //   CAIDEN                     vendor index by city
+  const calMatch = /^CAL(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})([A-Z]{3})(?:\/.*)?$/.exec(u);
+  if (calMatch) {
+    return {
+      kind: 'car', raw: trimmed, timestamp: new Date(),
+      action: 'availability',
+      pickup: calMatch[1], dropoff: calMatch[2], city: calMatch[3],
+    };
+  }
+  const caiMatch = /^CAI([A-Z]{3})$/.exec(u);
+  if (caiMatch) {
+    return {
+      kind: 'car', raw: trimmed, timestamp: new Date(),
+      action: 'index', city: caiMatch[1],
+    };
+  }
+
   // Galileo advance seat request family — `S.` (Pocket Guide H/ASR).
   // Wired in W.2 so Worldspan's 4R sigil + Apollo route here too.
   //   S.@            cancel all seat requests
