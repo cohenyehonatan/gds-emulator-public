@@ -12,6 +12,8 @@ import { parseClockToMinutes } from '../utils/validation.js';
 import { SEAT_MAP_SEED } from './seat-map-seed.js';
 import type { HotelProperty } from '../models/hotel.js';
 import { HOTEL_SEED } from './hotel-seed.js';
+import type { CarRental } from '../models/car.js';
+import { CAR_SEED } from './car-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -110,6 +112,16 @@ export class Inventory {
   /** Look up a single hotel property by chain + property code. */
   hotelByCode(chain: string, property: string): HotelProperty | undefined {
     return HOTEL_SEED.find((h) => h.chain === chain && h.property === property);
+  }
+
+  /**
+   * Car rentals available in a city. Filterable by 2-letter company
+   * code. Returns empty array for unknown cities so callers can
+   * surface "NO CARS FOUND" without throwing.
+   */
+  carsIn(city: string, company?: string): CarRental[] {
+    const all = CAR_SEED.filter((c) => c.city === city);
+    return company ? all.filter((c) => c.company === company) : all;
   }
 
   private seatsFor(date: string, f: ScheduledFlight): Record<string, number> {

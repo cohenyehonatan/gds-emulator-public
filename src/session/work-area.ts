@@ -116,6 +116,19 @@ export class WorkAreaSlot {
   };
 
   /**
+   * Cached car-availability display from the last CA query (chunk
+   * 23). Drives CS<n> line-number reference.
+   */
+  lastCarAvail?: {
+    city: string;
+    pickup: string;
+    dropoff: string;
+    days: number;
+    arrivalTime?: string;
+    rentals: import('../models/car.js').CarRental[];
+  };
+
+  /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
    * by SSR / remarks live wiring to reference passengers via
@@ -165,6 +178,7 @@ export class WorkAreaSlot {
     this.lastFareDisplay = undefined;
     this.lastSeatMap = undefined;
     this.lastHotelAvail = undefined;
+    this.lastCarAvail = undefined;
   }
 }
 
@@ -350,5 +364,11 @@ export class WorkArea {
   }
   set lastHotelAvail(v: WorkAreaSlot['lastHotelAvail']) {
     this.s.lastHotelAvail = v;
+  }
+  get lastCarAvail(): WorkAreaSlot['lastCarAvail'] {
+    return this.s.lastCarAvail;
+  }
+  set lastCarAvail(v: WorkAreaSlot['lastCarAvail']) {
+    this.s.lastCarAvail = v;
   }
 }

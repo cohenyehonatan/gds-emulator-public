@@ -62,6 +62,7 @@ import type { AirSegment } from '../../models/segment.js';
 import { StatusCode, MANUAL_STATUS_CODES } from '../../protocol/constants.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { ticketNumber } from '../../models/ticket.js';
+import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { synthesizeAvailability, synthesizeDecorations } from '../../models/seat-map.js';
@@ -955,6 +956,47 @@ function hotelConfirmationFor(chain: string, property: string, idx: number): str
     hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
   }
   return String(Math.abs(hash) % 90000 + 10000);
+}
+
+/**
+ * Render the Amadeus CA car-availability list.
+ */
+function renderCarAvailability(
+  city: string,
+  pickup: string,
+  dropoff: string,
+  days: number,
+  rentals: import('../../models/car.js').CarRental[],
+): string {
+  const lines: string[] = [];
+  lines.push(`** AMADEUS CAR AVAILABILITY ${city} ${pickup}${dropoff !== pickup ? '-' + dropoff : ''} ${days}D **`);
+  rentals.forEach((r, i) => {
+    lines.push(`${(i + 1).toString().padStart(2, ' ')} ${r.company} ${r.vehicleType}  ${r.category.padEnd(22, ' ')} ${r.amount.toFixed(0).padStart(4)} ${r.currency}/DY`);
+  });
+  lines.push(`** ${rentals.length} VEHICLES **`);
+  return lines.join('\n');
+}
+
+/** Render a sold car segment confirmation block. */
+function renderCarSegment(seg: import('../../models/car.js').CarSegment): string {
+  return [
+    `OK CAR CONFIRMED ${seg.confirmationNumber ?? ''}`,
+    `  ${seg.segmentNumber}. ${seg.company} ${seg.vehicleType}  ${seg.companyName} ${seg.category}`,
+    `     ${seg.city}  ${seg.pickup}-${seg.dropoff}  ${seg.days}D`,
+    `     RATE ${seg.rateCode} ${seg.amount.toFixed(2)} ${seg.currency}/DY  ${seg.status}`,
+  ].join('\n');
+}
+
+/** Bump a DDMON date forward by N days within the same year. Crude
+ *  ordinal arithmetic — fine for emulator use. */
+function bumpDateByDays(date: string, n: number): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
+  if (!m) return date;
+  let day = parseInt(m[1], 10) + n;
+  let mon = months.indexOf(m[2]);
+  while (day > 31 && mon < 11) { day -= 31; mon++; }
+  return `${day}${months[mon]}`;
 }
 
 /**
@@ -2271,6 +2313,102 @@ export class AmadeusDialect implements Dialect {
       const seg = wa.pnr.hotelSegments[idx];
       wa.pnr.hotelSegments.splice(idx, 1);
       recordHistory(wa.pnr, `HX ${seg.chain}${seg.property} CANCELLED`);
+      return 'OK CANCELLED';
+    }
+
+    // --- v4 chunk 23: car availability + sell (CA / CS / CX) ---
+    // Per QRG p.81 (CAR AVAILABILITY) + p.89 (CAR SELL).
+    //
+    //   CA<city>[<date>[-<date>]]              multi-company
+    //   CA<company><city>[<date>[-<date>]]     specific company
+    //   CA<city><date>-<N>                     drop-off as N days
+    //   CS<n>[/<vehicle-type>]                 sell from cached list
+    //   CX<n>                                  cancel car segment
+    //
+    // Optional /ARR-<time>[-<time>] arrival-window suffix accepted
+    // but only the first time is recorded (we don't model the
+    // window). /TC option (two-character country) accepted as no-op.
+    //
+    // 2-letter company codes per QRG: ZE Hertz, ZD Budget, ZA Avis,
+    // ET Enterprise, ZI National, ZL Dollar, ZR Thrifty.
+    const caMatch = /^CA([A-Z]{2})?([A-Z]{3})(\d{1,2}[A-Z]{3})?(?:-(\d{1,2}[A-Z]{3}|\d{1,2}))?(\/.*)?$/.exec(entry);
+    if (caMatch) {
+      const company = caMatch[1];
+      const city = caMatch[2];
+      const date1 = caMatch[3];
+      const date2 = caMatch[4];
+      const qual = caMatch[5] ?? '';
+      const arrMatch = /\/ARR-(\d{3,4})/.exec(qual);
+      const pickup = date1 ?? '15JUL';
+      let dropoff = pickup;
+      let days = 1;
+      if (date2) {
+        if (/^\d{1,2}[A-Z]{3}$/.test(date2)) {
+          dropoff = date2;
+          days = computeNights(pickup, dropoff);
+        } else {
+          // /-<N> form: drop-off as N rental days
+          days = parseInt(date2, 10);
+          dropoff = bumpDateByDays(pickup, days);
+        }
+      }
+      const rentals = ctx.backend.inventory.carsIn(city, company);
+      if (rentals.length === 0) return 'NO CARS FOUND';
+      wa.lastCarAvail = {
+        city,
+        pickup,
+        dropoff,
+        days,
+        arrivalTime: arrMatch?.[1],
+        rentals,
+      };
+      return renderCarAvailability(city, pickup, dropoff, days, rentals);
+    }
+
+    const csMatch = /^CS(\d+)(?:\/VT-([A-Z]{4}))?$/.exec(entry);
+    if (csMatch) {
+      if (!wa.lastCarAvail) return 'NO CAR DISPLAY';
+      const line = parseInt(csMatch[1], 10);
+      const vt = csMatch[2];
+      let rental = wa.lastCarAvail.rentals[line - 1];
+      if (!rental) return 'INVALID LINE';
+      if (vt) {
+        rental = wa.lastCarAvail.rentals.find((r) => r.vehicleType === vt && r.company === rental.company) ?? rental;
+        if (rental.vehicleType !== vt) return 'INVALID VEHICLE TYPE';
+      }
+      if (rental.available < 1) return 'NO CARS AVAILABLE';
+      const cached = wa.lastCarAvail;
+      const seg: import('../../models/car.js').CarSegment = {
+        segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length + wa.pnr.carSegments.length + 1,
+        company: rental.company,
+        companyName: CAR_COMPANY_NAMES[rental.company] ?? rental.company,
+        vehicleType: rental.vehicleType,
+        category: rental.category,
+        rateCode: rental.rateCode,
+        city: rental.city,
+        pickup: cached.pickup,
+        dropoff: cached.dropoff,
+        days: cached.days,
+        amount: rental.amount,
+        currency: rental.currency,
+        pickupTime: cached.arrivalTime,
+        status: 'HK',
+        confirmationNumber: `CC${hotelConfirmationFor(rental.company, rental.vehicleType, wa.pnr.carSegments.length)}`,
+      };
+      wa.pnr.carSegments.push(seg);
+      recordHistory(wa.pnr, `CS ${rental.company}${rental.vehicleType} ${cached.pickup}-${cached.dropoff}`);
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return renderCarSegment(seg);
+    }
+
+    const cxMatch = /^CX(\d+)$/.exec(entry);
+    if (cxMatch) {
+      const segNum = parseInt(cxMatch[1], 10);
+      const idx = wa.pnr.carSegments.findIndex((s) => s.segmentNumber === segNum);
+      if (idx < 0) return 'SEGMENT NOT IN ITINERARY';
+      const seg = wa.pnr.carSegments[idx];
+      wa.pnr.carSegments.splice(idx, 1);
+      recordHistory(wa.pnr, `CX ${seg.company}${seg.vehicleType} CANCELLED`);
       return 'OK CANCELLED';
     }
 

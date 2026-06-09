@@ -672,6 +672,34 @@ different upside.
         dialect `TicketRecord` model + `ticketNumber()` helper so
         Sabre's `*T` family and Amadeus's `TWD` family share the
         underlying ticket store.
+      * Chunk 20 — TK ticketing-arrangement family (`4ca1e5f`): all
+        7 action codes (TKOK/TKTL/TKDO/TKIN/TKMA/TKSS/TKXL) + cross-
+        cutting qualifiers (/<office>, /<HHMM>, /P<n>, /S<n>[-<m>],
+        /C<n>, /-<freeflow>). Replaces the prior TKOK+TKTL-only
+        handler. Records history of TK replacements with arrow
+        notation. INVALID PASSENGER / INVALID SEGMENT validation.
+        Special TKTL/<time>/<office> non-Amadeus-office variant.
+      * Chunk 21 — document output (`e977340`): INVD/INV/INED/INE
+        invoice family + IBD/IBP/IED/IEP itinerary family + joint
+        (J-suffix) variants. /P<n>[-<m>] passenger filter, /S<n>[-<m>]
+        segment filter. Extended variants add tax breakdown + ticket
+        list. Display vs print verbs render identical content (no
+        printer model). Out-of-scope qualifiers (/LP /TO /COPY /D
+        /T<n>) accepted but ignored.
+      * Chunk 22 — hotel availability + sell (`20d049c`): HA<city>
+        list, HA<chain><city> chain filter, HA<chain><city><prop>
+        single property, optional <date1>[-<date2>] range, HS<n>
+        [/<rate-code>] sell, HX<n> cancel. New cross-dialect
+        HotelProperty/HotelRate/HotelSegment model + seed (10 props
+        across 4 cities × 6 chains). Inventory.hotelsIn(city, chain).
+        WorkArea.lastHotelAvail caches the displayed list for HS.
+      * Chunk 23 — car availability + sell (this commit): CA<city>
+        multi-company, CA<company><city> filter, CA<city><date>-
+        <date|N> range or rental-day count, /ARR-<time> arrival
+        window, CS<n>[/VT-<vt>] sell, CX<n> cancel. New CarRental/
+        CarSegment model + seed (18 rentals across 4 cities × 4
+        companies × ACRISS SIPP vehicle codes). Inventory.carsIn
+        (city, company). WorkArea.lastCarAvail. Pnr.carSegments.
 
       Remaining for future chunks: NUC/ROE/HIP fare construction
       (currently Sabre's emulated engine), MCT carrier-specific

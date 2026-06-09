@@ -19,6 +19,7 @@ import type { TicketRecord } from './ticket.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import type { AddressElement } from './address.js';
 import type { HotelSegment } from './hotel.js';
+import type { CarSegment } from './car.js';
 import type { SeatRequest } from './seat-request.js';
 import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js';
 
@@ -61,6 +62,12 @@ export class Pnr {
    * uniformly.
    */
   hotelSegments: HotelSegment[] = [];
+  /**
+   * Car-rental segments (Amadeus CA→CS family, QRG p.81). Same shape
+   * as hotelSegments — segmentNumber-aligned with air + hotel so the
+   * PNR display references uniformly.
+   */
+  carSegments: CarSegment[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
   /**
