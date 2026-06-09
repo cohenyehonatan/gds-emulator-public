@@ -747,14 +747,27 @@ different upside.
         ROE<rate>` trailer. Domestic itineraries keep the legacy
         local-currency line, so existing fare-calc asserts hold.
 
+      * Chunk 28 — connection-type inference + builder MCT wiring
+        (this commit): closes both chunk 26 scope-notes. Airports
+        carry country tags (`airportCountry` in mct.ts; unknown →
+        US so the conservative DD default holds); `connectionTypeFor`
+        infers DD/DI/ID/II from leg countries. DMI now shows the
+        inferred type (`1-2: LAX DD OK / MCT 35M (AIRPORT)`), and
+        `Inventory.connectionsFor` resolves each candidate hub's MCT
+        through the layered model with arriving + departing carrier
+        context — a carrier exception filed at a seeded hub changes
+        which connections build. Unseeded hubs (ORD/DEN/KEF in the
+        current schedule) fall back to the flat 45, so existing
+        availability behavior is unchanged.
+
       Remaining for future chunks: HIP algorithm (concept documented,
       decision tree not public), alliance ranking (genuinely opaque),
       real IROE table + real OAG MCT data (licensed) — see
       `docs/behavior-layer-research-2026-06-09.md`. All format-
       faithfully-implementable behavior-layer items are now landed
       (FFA/FFR chunk 25, MCT layering chunk 26, NUC rounding chunk
-      27); what remains requires either paid data or algorithms with
-      no public source.
+      27, MCT wiring chunk 28); what remains requires either paid
+      data or algorithms with no public source.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in

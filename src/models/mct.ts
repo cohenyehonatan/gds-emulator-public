@@ -68,6 +68,49 @@ export interface MctRecord {
 }
 
 /**
+ * Airport → ISO country code, for connection-type inference. A leg is
+ * domestic when its origin and destination share a country. Covers
+ * the airports in our seed; unknown airports default to 'US' so the
+ * conservative DD default from chunk 26 is preserved for unseeded
+ * airports.
+ */
+const AIRPORT_COUNTRY: Record<string, string> = {
+  // United States
+  JFK: 'US', LAX: 'US', ORD: 'US', SFO: 'US', DEN: 'US',
+  DFW: 'US', MIA: 'US', ATL: 'US', BOS: 'US', SEA: 'US',
+  // United Kingdom
+  LHR: 'GB', LGW: 'GB', LCY: 'GB', MAN: 'GB',
+  // Europe
+  CDG: 'FR', FRA: 'DE', AMS: 'NL', MAD: 'ES', FCO: 'IT',
+  DUB: 'IE', ZRH: 'CH', GVA: 'CH', KEF: 'IS',
+  // Asia-Pacific + Americas
+  NRT: 'JP', HND: 'JP', SYD: 'AU', YYZ: 'CA', MEX: 'MX',
+};
+
+export function airportCountry(airport: string): string {
+  return AIRPORT_COUNTRY[airport] ?? 'US';
+}
+
+/** A leg is domestic when origin + destination share a country. */
+export function isDomesticLeg(origin: string, destination: string): boolean {
+  return airportCountry(origin) === airportCountry(destination);
+}
+
+/**
+ * Infer the connection type at a hub from the arriving and departing
+ * legs: D/I per leg, concatenated. E.g. a JFK→ORD arrival (domestic)
+ * followed by ORD→FRA departure (international) is 'DI'.
+ */
+export function connectionTypeFor(
+  arriving: { origin: string; destination: string },
+  departing: { origin: string; destination: string },
+): MctConnectionType {
+  const a = isDomesticLeg(arriving.origin, arriving.destination) ? 'D' : 'I';
+  const d = isDomesticLeg(departing.origin, departing.destination) ? 'D' : 'I';
+  return `${a}${d}` as MctConnectionType;
+}
+
+/**
  * Resolve the MCT for a connection at an airport. Most-specific
  * record wins:
  *   1. (airport, type, carrier, toCarrier) exact pair

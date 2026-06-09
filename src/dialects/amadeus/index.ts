@@ -65,6 +65,7 @@ import { ticketNumber } from '../../models/ticket.js';
 import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
+import { connectionTypeFor } from '../../models/mct.js';
 import { synthesizeAvailability, synthesizeDecorations } from '../../models/seat-map.js';
 import { renderSeatMap, amadeusSeatMapHeader, AMADEUS_GLYPHS, type RenderOrientation } from '../../render/seat-map-render.js';
 
@@ -1371,12 +1372,14 @@ export class AmadeusDialect implements Dialect {
         const a = wa.pnr.segments[i];
         const b = wa.pnr.segments[i + 1];
         if (a.destination === b.origin) {
-          // Connection-type inference is out of scope (we don't tag
-          // airports domestic/international); DD is the conservative
-          // default for the emulated continuity check.
-          const mct = ctx.backend.inventory.mctFor(a.destination, 'DD', a.carrier, b.carrier);
+          // Chunk 28: connection type inferred from leg countries
+          // (D when origin + destination share a country, else I) —
+          // so a JFK→ORD then ORD→FRA connection resolves the DI
+          // standard at ORD, not the DD one.
+          const type = connectionTypeFor(a, b);
+          const mct = ctx.backend.inventory.mctFor(a.destination, type, a.carrier, b.carrier);
           const sourceTag = mct.source === 'fallback' ? '' : ` (${mct.source.toUpperCase()})`;
-          checks.push(`  ${i + 1}-${i + 2}: ${a.destination} OK / MCT ${mct.minutes}M${sourceTag}`);
+          checks.push(`  ${i + 1}-${i + 2}: ${a.destination} ${type} OK / MCT ${mct.minutes}M${sourceTag}`);
         } else {
           checks.push(`  ${i + 1}-${i + 2}: ${a.destination}->${b.origin} GAP`);
         }

@@ -14,7 +14,7 @@ import type { HotelProperty } from '../models/hotel.js';
 import { HOTEL_SEED } from './hotel-seed.js';
 import type { CarRental } from '../models/car.js';
 import { CAR_SEED } from './car-seed.js';
-import { resolveMct } from '../models/mct.js';
+import { resolveMct, connectionTypeFor } from '../models/mct.js';
 import { MCT_SEED } from './mct-seed.js';
 
 export interface ScheduledFlight {
@@ -161,13 +161,23 @@ export class Inventory {
     return parseClockToMinutes(f.arriveTime) ?? 0;
   }
 
-  /** Two-leg connections O→hub→D with a feasible same-day connection time. */
+  /**
+   * Two-leg connections O→hub→D with a feasible same-day connection
+   * time. Chunk 28: the feasibility check resolves the hub's MCT
+   * through the layered model with full context — connection type
+   * inferred from leg countries (DD/DI/ID/II) and the arriving +
+   * departing carriers, so carrier exceptions filed at seeded hubs
+   * change which connections build. Unseeded hubs fall back to the
+   * flat MIN_CONNECT_MINUTES (45), preserving prior behavior.
+   */
   private connectionsFor(origin: string, destination: string): ScheduledFlight[][] {
     const out: ScheduledFlight[][] = [];
     for (const a of SCHEDULE.filter((f) => f.origin === origin && f.destination !== destination)) {
       for (const b of SCHEDULE.filter((f) => f.origin === a.destination && f.destination === destination)) {
         if (b.origin === origin) continue;
-        if (this.depMin(b) >= this.arrMin(a) + MIN_CONNECT_MINUTES) {
+        const type = connectionTypeFor(a, b);
+        const mct = this.mctFor(a.destination, type, a.carrier, b.carrier);
+        if (this.depMin(b) >= this.arrMin(a) + mct.minutes) {
           out.push([a, b]);
           if (out.length >= MAX_CONNECTIONS) return out;
         }

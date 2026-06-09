@@ -133,7 +133,9 @@ describe('DMI — continuity check resolves through the layered model', () => {
     await host.process('AN20JULLAXJFK', wa);
     await host.process('SS1Y1', wa);
     const resp = await host.process('DMI', wa);
-    expect(resp).toContain('1-2: LAX OK / MCT 35M (AIRPORT)');
+    // Chunk 28: DMI now shows the inferred connection type (both
+    // legs US-domestic → DD).
+    expect(resp).toContain('1-2: LAX DD OK / MCT 35M (AIRPORT)');
   });
 
   it('connection at an unseeded airport shows the 45-minute fallback without a source tag', async () => {
@@ -148,7 +150,8 @@ describe('DMI — continuity check resolves through the layered model', () => {
     await host.process('AN28JUNKEFFRA', wa);
     await host.process('SS1Y1', wa);
     const resp = await host.process('DMI', wa);
-    expect(resp).toContain('KEF OK / MCT 45M');
+    // DEN→KEF (US→IS) and KEF→FRA (IS→DE) are both international → II.
+    expect(resp).toContain('KEF II OK / MCT 45M');
     expect(resp).not.toContain('45M (');
   });
 });
