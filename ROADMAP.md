@@ -875,11 +875,14 @@ into four buckets.
       carry them), hasContent() counts them (hotel-only PNR is
       dirty), and JsonFilePnrStore round-trips them (legacy files
       hydrate to empty arrays).
-- [ ] **Stale-TODO sweep** — `commands/sell.ts` still carries
-      "TODO: connection sells 01K1*" (landed; connections.test.ts
-      exercises it); `protocol/serializer.ts` has several
-      "TODO: confirm wording" markers that the live diff-oracle has
-      since validated as IDENTICAL. Cheap hygiene commit.
+- [x] **Stale-TODO sweep** (landed) — `commands/sell.ts`'s connection-
+      sell TODO replaced with a pointer at the landed implementation;
+      `commands/availability.ts`'s TODO trimmed to the genuinely-open
+      items (schedule-only '1' variants, return-date, `1*` scroll).
+      The `serializer.ts` "confirm wording" markers were checked and
+      stay: they flag Sabre reconstructed strings, which the Galileo
+      diff-oracle does NOT validate — they're the standard
+      reconstructed-string annotation, not stale.
 - [ ] **Sabre/Galileo hotel + car cryptic** — the Inventory seeds,
       models, and WorkArea cache slots are cross-dialect by
       construction; only Amadeus has the verb surface today. Sabre

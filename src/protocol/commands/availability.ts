@@ -5,8 +5,10 @@
  *   122JANFRAMAD          → avail 22JAN FRA-MAD
  *   123SEPLOSJNB2030      → avail 3SEP LOS-JNB, prefer 2030
  *
- * TODO: schedule-only display ('1' variants), return-date, connections,
- * and the '1*' scroll handled by the parser as a DisplayEntry/own kind.
+ * Connections are landed (Inventory.connectionsFor + the qualifier
+ * surface). Still TODO: schedule-only display ('1' variants),
+ * return-date, and the '1*' scroll handled by the parser as a
+ * DisplayEntry/own kind.
  */
 
 import { parseSabreDate, isCityPair, splitCityPair } from '../../utils/validation.js';

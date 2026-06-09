@@ -12,7 +12,9 @@
  *   0(carrier)OPEN(class)(date)(citypair)DS(seats)
  *     0AFOPENJ9JULLOSCDGDS2            open segment
  *
- * TODO (ROADMAP): connection sells 01K1* and 01L1K2.
+ * Connection sells (01Y1* full-connection, 01Y1F2 explicit per-leg
+ * classes) are landed — parsed here via the trailing `*` / class-line
+ * pairs and exercised in test/session/connections.test.ts.
  */
 
 import { isBookingClass, parseSabreDate, splitCityPair } from '../../utils/validation.js';
