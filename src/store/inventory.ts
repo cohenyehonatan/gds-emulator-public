@@ -14,6 +14,8 @@ import type { HotelProperty } from '../models/hotel.js';
 import { HOTEL_SEED } from './hotel-seed.js';
 import type { CarRental } from '../models/car.js';
 import { CAR_SEED } from './car-seed.js';
+import { resolveMct } from '../models/mct.js';
+import { MCT_SEED } from './mct-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -122,6 +124,28 @@ export class Inventory {
   carsIn(city: string, company?: string): CarRental[] {
     const all = CAR_SEED.filter((c) => c.city === city);
     return company ? all.filter((c) => c.company === company) : all;
+  }
+
+  /**
+   * Resolve the Minimum Connect Time for a connection at an airport,
+   * using the layered MCT seed (airport default → carrier exception →
+   * carrier-pair re-override per the OAG-documented model). Falls back
+   * to MIN_CONNECT_MINUTES (45) for unseeded airports — the same value
+   * the auto-connect builder uses, so DM lookups stay consistent with
+   * what availability actually surfaces.
+   */
+  mctFor(
+    airport: string,
+    connectionType: import('../models/mct.js').MctConnectionType,
+    carrier?: string,
+    toCarrier?: string,
+  ): { minutes: number; source: 'pair' | 'carrier' | 'airport' | 'fallback' } {
+    return resolveMct(MCT_SEED, airport, connectionType, carrier, toCarrier, MIN_CONNECT_MINUTES);
+  }
+
+  /** All seeded MCT records for an airport (drives the DM display). */
+  mctRecordsFor(airport: string): import('../models/mct.js').MctRecord[] {
+    return MCT_SEED.filter((r) => r.airport === airport);
   }
 
   private seatsFor(date: string, f: ScheduledFlight): Record<string, number> {

@@ -1350,12 +1350,20 @@ export class AmadeusDialect implements Dialect {
 
     // DM<airport>[-<airport2>][/<date>] — Minimum Connect Time lookup.
     // QRG p.25 examples: `DMFRA` (basic), `DMFRA/15DEC` (date-specific),
-    // `DMLGW-LHR` (inter-airport pair). Returns the emulated inventory's
-    // MIN_CONNECT_MINUTES constant — same value the auto-connect builder
-    // uses for emulated availability, so MCT lookups are consistent
-    // with what `AN<route>` would actually surface in connection lines.
+    // `DMLGW-LHR` (inter-airport pair).
+    //
+    // Chunk 26 upgraded the single MIN_CONNECT_MINUTES constant to a
+    // layered MCT model following OAG's documented hierarchy (airport
+    // default → carrier exception → carrier-pair re-override; see
+    // src/models/mct.ts + docs/behavior-layer-research-2026-06-09.md).
+    // Seeded airports show their per-connection-type standards +
+    // carrier exceptions; unseeded airports fall back to the global
+    // 45-minute default that the auto-connect builder uses.
     //
     // DMI — Check MCT and segment continuity in the current PNR.
+    // Resolves each connection's MCT through the same layered model,
+    // using the arriving + departing carriers so carrier exceptions
+    // surface in the continuity check.
     if (entry === 'DMI') {
       if (wa.pnr.segments.length < 2) return 'NO CONNECTIONS TO CHECK';
       const checks: string[] = [];
@@ -1363,7 +1371,12 @@ export class AmadeusDialect implements Dialect {
         const a = wa.pnr.segments[i];
         const b = wa.pnr.segments[i + 1];
         if (a.destination === b.origin) {
-          checks.push(`  ${i + 1}-${i + 2}: ${a.destination} OK / MCT ${MIN_CONNECT_MINUTES}M`);
+          // Connection-type inference is out of scope (we don't tag
+          // airports domestic/international); DD is the conservative
+          // default for the emulated continuity check.
+          const mct = ctx.backend.inventory.mctFor(a.destination, 'DD', a.carrier, b.carrier);
+          const sourceTag = mct.source === 'fallback' ? '' : ` (${mct.source.toUpperCase()})`;
+          checks.push(`  ${i + 1}-${i + 2}: ${a.destination} OK / MCT ${mct.minutes}M${sourceTag}`);
         } else {
           checks.push(`  ${i + 1}-${i + 2}: ${a.destination}->${b.origin} GAP`);
         }
@@ -1377,7 +1390,29 @@ export class AmadeusDialect implements Dialect {
       const date = dmMatch[3];
       const route = second ? `${airport}-${second}` : airport;
       const dateTail = date ? ` ${date}` : '';
-      return `DM ${route}${dateTail}\n  MCT ${MIN_CONNECT_MINUTES} MIN`;
+      const records = ctx.backend.inventory.mctRecordsFor(airport);
+      if (records.length === 0) {
+        // Unseeded airport — global default, same wording as before
+        // chunk 26 so existing operator muscle-memory holds.
+        return `DM ${route}${dateTail}\n  MCT ${MIN_CONNECT_MINUTES} MIN`;
+      }
+      const lines = [`DM ${route}${dateTail}`];
+      // Airport standards first, then carrier exceptions, then pair
+      // re-overrides — mirrors the OAG layering order.
+      const standards = records.filter((r) => !r.carrier);
+      const carrierExc = records.filter((r) => r.carrier && !r.toCarrier);
+      const pairExc = records.filter((r) => r.carrier && r.toCarrier);
+      for (const r of standards) {
+        lines.push(`  ${r.connectionType}  STANDARD            ${r.minutes} MIN`);
+      }
+      for (const r of carrierExc) {
+        lines.push(`  ${r.connectionType}  ${r.carrier} TO ALL           ${r.minutes} MIN`);
+      }
+      for (const r of pairExc) {
+        const val = r.minutes === 9999 ? 'STANDARD APPLIES' : `${r.minutes} MIN`;
+        lines.push(`  ${r.connectionType}  ${r.carrier} TO ${r.toCarrier}            ${val}`);
+      }
+      return lines.join('\n');
     }
 
     // FQD<orig><dest>[/<date>][/A<carrier>] — Fare Display for a market.

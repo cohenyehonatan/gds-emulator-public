@@ -720,15 +720,28 @@ different upside.
         Hub solution 862136 via Playwright Cloudflare bypass — see
         `docs/behavior-layer-research-2026-06-09.md` for the dig that
         unblocked this chunk (previously marked "no public source").
+      * Chunk 26 — layered MCT model (this commit): replaces the
+        single MIN_CONNECT_MINUTES=45 constant behind DM/DMI with the
+        OAG-documented 3-tier resolution (airport standard → carrier
+        exception → carrier-pair re-override, with the 9999
+        USE_STANDARD sentinel for "exceptions to exceptions").
+        `src/models/mct.ts` resolveMct() + `src/store/mct-seed.ts`
+        (21 fictional records across MIA/JFK/LAX/DFW/LHR, including
+        OAG's worked MIA example verbatim: DI standard 60, AA-to-ALL
+        55, AA-to-BA 9999-reverts). DM<airport> now lists the layered
+        records for seeded airports (legacy single-line wording kept
+        for unseeded ones); DMI resolves each connection through the
+        model with carrier context + source tag. Auto-connect builder
+        still uses the flat 45 (per-leg carrier context at build time
+        is a future wiring).
 
       Remaining for future chunks: NUC/ROE fare construction
       (rounding rules public, IROE table licensed), HIP algorithm
-      (concept documented, decision tree not), MCT carrier-specific
-      exceptions (model documented per OAG, real data licensed),
-      alliance ranking (genuinely opaque — see `docs/behavior-layer-
-      research-2026-06-09.md`). The behavior-layer caveat (below)
-      narrowed by the 2026-06-09 dig — fewer items remain "no public
-      source"; see the research doc for the per-item breakdown.
+      (concept documented, decision tree not), alliance ranking
+      (genuinely opaque — see `docs/behavior-layer-research-
+      2026-06-09.md`). The behavior-layer caveat (below) narrowed by
+      the 2026-06-09 dig — fewer items remain "no public source";
+      see the research doc for the per-item breakdown.
 - [ ] **Behavior layer (the honest hard part)** — no public source documents
       Amadeus's actual algorithms (fare construction, inventory simulation,
       MCT, alliance ranking). The emulator owns these. State the claim in
