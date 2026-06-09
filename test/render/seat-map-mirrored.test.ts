@@ -138,8 +138,10 @@ describe('Sabre + Galileo unaffected by mirrored-rows feature', () => {
     await host.process('115JULJFKLAX', wa);
     await host.process('01Y1', wa);
     const resp = await host.process('4G1*', wa);
-    // Still uses "ECONOMY (Y)" header line.
-    expect(resp).toContain('ECONOMY (Y)');
+    // Sabre format suppresses cross-dialect cabin label since chunk
+    // 7 deferred #10. Cabin context comes from the equipment-
+    // description line instead.
+    expect(resp).toContain('SEATS ECONOMY CLASS');
     // No < or > wing markers should appear at row-edges (no `< ` after row number).
     expect(resp).not.toMatch(/^\s*\d+\s+<\s/m);
   });

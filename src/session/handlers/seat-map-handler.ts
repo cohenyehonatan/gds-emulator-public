@@ -23,7 +23,7 @@ import type { WorkArea } from '../work-area.js';
 import type { HandlerContext } from './context.js';
 import { StatusCode } from '../../protocol/constants.js';
 import type { AirSegment } from '../../models/segment.js';
-import { synthesizeAvailability } from '../../models/seat-map.js';
+import { synthesizeAvailability, synthesizeDecorations } from '../../models/seat-map.js';
 import { renderSeatMap, sabreSeatMapHeader, SABRE_GLYPHS } from '../../render/seat-map-render.js';
 
 const PAGE_SIZE = 20;
@@ -64,11 +64,13 @@ export function handleSeatMap(entry: SeatMapEntry, wa: WorkArea, ctx: HandlerCon
     cached.scrollRow = newOffset;
     const locatorKey = wa.pnr.locator ?? 'PENDING';
     const availability = synthesizeAvailability(cached.map, locatorKey, cachedSegment.date);
+    const decorations = synthesizeDecorations(cached.map, locatorKey, cachedSegment.date);
     const header = sabreSeatMapHeader(cached.map, cachedSegment);
     return renderSeatMap(cached.map, availability, header, 'V', {
       rowOffset: newOffset,
       rowsPerPage: PAGE_SIZE,
       glyphs: SABRE_GLYPHS,
+      decorations,
     });
   }
 
@@ -94,10 +96,15 @@ export function handleSeatMap(entry: SeatMapEntry, wa: WorkArea, ctx: HandlerCon
 
   const locatorKey = wa.pnr.locator ?? 'PENDING';
   const availability = synthesizeAvailability(map, locatorKey, segment.date);
+  const decorations = synthesizeDecorations(map, locatorKey, segment.date);
   // Cache cachedSegment + scrollRow=0 so a follow-on ¤MD/¤MU can
   // re-render without re-resolving.
   wa.lastSeatMap = { segment: segmentNumber, map, cachedSegment: segment, scrollRow: 0 };
 
   const header = sabreSeatMapHeader(map, segment);
-  return renderSeatMap(map, availability, header, 'V', { rowsPerPage: PAGE_SIZE, glyphs: SABRE_GLYPHS });
+  return renderSeatMap(map, availability, header, 'V', {
+    rowsPerPage: PAGE_SIZE,
+    glyphs: SABRE_GLYPHS,
+    decorations,
+  });
 }

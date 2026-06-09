@@ -110,6 +110,24 @@ export interface SeatMapGlyphs {
    * simple-row format. Default false everywhere.
    */
   mirroredRows?: boolean;
+  /**
+   * When true, the renderer overlays `-BLKHD-` between aisles on
+   * bulkhead rows (first row of each cabin), per the Sabre Basic
+   * Course DL/MD90 sample (chunk 7 deferred #10).
+   */
+  bulkheadOverlay?: boolean;
+  /**
+   * When true, the renderer appends `P` to row labels where any seat
+   * in the row carries V (preferred) decoration. Per the Sabre Basic
+   * Course DL/MD90 sample row-3 marker.
+   */
+  preferredRowPrefix?: boolean;
+  /**
+   * When true, skip the cross-dialect "ECONOMY (Y)" cabin-label
+   * header line. Sabre + Amadeus conventions don't print it; only
+   * the cross-dialect default + Galileo do.
+   */
+  skipCabinLabel?: boolean;
 }
 
 export const GALILEO_GLYPHS: SeatMapGlyphs = {
@@ -145,7 +163,10 @@ export const SABRE_GLYPHS: SeatMapGlyphs = {
     Unavailable: '.',
   },
   positionPriority: ['E', 'H'],
-  legend: 'LEGEND: * AVAIL  . TAKEN  - BLOCK  E EXIT ROW  H HANDICAP  (Sabre Basic Course DL/MD90 + Eurostar 2026)',
+  legend: 'LEGEND: * AVAIL  . TAKEN  - BLOCK  E EXIT ROW  H HANDICAP  -BLKHD- BULKHEAD  P PREFERRED ROW  (Sabre Basic Course DL/MD90 + Eurostar 2026)',
+  bulkheadOverlay: true,
+  preferredRowPrefix: true,
+  skipCabinLabel: true,
 };
 
 const CABIN_LETTER: Record<string, string> = {
@@ -264,20 +285,59 @@ function renderCabin(
   // row label + 1 sep). For both to align: cabin_pad = row_pad + 4.
   // Bumping row labels right by 1 (row_pad 11 → 12) bumps cabin_pad
   // 14 → 16 to track. Exit-row indent matches the new data position.
-  lines.push(` ${cabinLabel.padEnd(16)} ${headerCols}`);
-  for (const row of cabin.Row) {
+  if (!glyphs.skipCabinLabel) {
+    lines.push(` ${cabinLabel.padEnd(16)} ${headerCols}`);
+  } else {
+    // Skip cabin-label header but still print the column header on a
+    // dedicated line so the rows below align with column letters.
+    lines.push(` ${' '.repeat(16)} ${headerCols}`);
+  }
+  cabin.Row.forEach((row, rowIdx) => {
     const isExitRow = row.Space.some((s) => s.Characteristic?.includes('E'));
-    if (isExitRow) lines.push(' '.repeat(17) + ' --- EXIT ROW ---');
+    const isBulkhead = rowIdx === 0;
+    const hasPreferred = decorations
+      ? row.Space.some((s) => (decorations.get(`${row.label}${s.location}`) ?? []).includes('V'))
+      : false;
+    if (isExitRow && !glyphs.skipCabinLabel) lines.push(' '.repeat(17) + ' --- EXIT ROW ---');
     const seatChars = columns.map((col) => {
       const space = row.Space.find((s) => s.location === col);
       if (!space) return ' ';
       return renderSeat(`${row.label}${col}`, space, statusByLabel, glyphs, decorations);
     });
-    const seats = formatRow(columns, seatChars, aisleAfter);
-    const rowLabel = row.label.padStart(3, ' ');
+    let seats = formatRow(columns, seatChars, aisleAfter);
+    // BLKHD overlay: replace the per-cell glyphs with the BLKHD label
+    // spanning the aisle gap. We only attempt this when bulkhead AND
+    // bulkheadOverlay are true; the column-content underneath gets
+    // replaced with a centered "-BLKHD-" marker.
+    if (isBulkhead && glyphs.bulkheadOverlay) {
+      seats = overlayBlkhd(seats);
+    }
+    // Preferred-row prefix: append `P` to the row label so the
+    // operator can see which rows charge for preferred-seat
+    // selection. Per the Sabre Basic Course DL/MD90 sample row-3
+    // "3P" marker.
+    const rawLabel = glyphs.preferredRowPrefix && hasPreferred
+      ? `${row.label}P`
+      : row.label;
+    const rowLabel = rawLabel.padStart(3, ' ');
     lines.push(` ${' '.repeat(12)} ${rowLabel} ${seats}`);
-  }
+  });
   return lines;
+}
+
+/**
+ * Replace the existing per-cell seat glyphs in a formatted row with
+ * a centered "-BLKHD-" marker on the bulkhead row, per the Sabre
+ * Basic Course DL/MD90 sample row-2 marker. The overlay keeps the
+ * row's left/right edges so column alignment stays consistent.
+ */
+function overlayBlkhd(seats: string): string {
+  // Center BLKHD in the row's width.
+  const width = seats.length;
+  const marker = '-BLKHD-';
+  if (width < marker.length + 4) return seats; // not wide enough; leave alone
+  const pad = Math.max(0, Math.floor((width - marker.length) / 2));
+  return seats.slice(0, pad) + marker + seats.slice(pad + marker.length);
 }
 
 /**
@@ -457,12 +517,93 @@ export function amadeusSeatMapHeader(
  *   SEATS INVENTORY DETAIL
  * Verbatim example from the PDF: "864Y 25OCT DFWSLC".
  */
+/**
+ * Carrier-name lookup for the Sabre equipment-description line. Only
+ * a small curated set of the most common carriers in our seed data —
+ * unknown carriers print their 2-letter code as the airline name.
+ * Sourced from IATA airline-code public registry.
+ */
+const SABRE_CARRIER_NAMES: Record<string, string> = {
+  AA: 'AMERICAN',
+  DL: 'DELTA',
+  UA: 'UNITED',
+  WN: 'SOUTHWEST',
+  B6: 'JETBLUE',
+  AS: 'ALASKA',
+  NK: 'SPIRIT',
+  F9: 'FRONTIER',
+  HA: 'HAWAIIAN',
+  BA: 'BRITISH AIRWAYS',
+  LH: 'LUFTHANSA',
+  AF: 'AIR FRANCE',
+  KL: 'KLM',
+  IB: 'IBERIA',
+  QF: 'QANTAS',
+  NH: 'ANA',
+  JL: 'JAPAN AIRLINES',
+};
+
+/**
+ * Equipment-name lookup for the Sabre equipment-description line.
+ * IATA standard equipment codes; matches what carriers print in
+ * the response. Unknown codes print the code alone.
+ */
+const SABRE_EQUIPMENT_NAMES: Record<string, string> = {
+  '737': 'BOEING 737',
+  '738': 'BOEING 737-800',
+  '739': 'BOEING 737-900',
+  '747': 'BOEING 747',
+  '757': 'BOEING 757',
+  '767': 'BOEING 767',
+  '777': 'BOEING 777',
+  '787': 'BOEING 787',
+  '320': 'AIRBUS A320',
+  '321': 'AIRBUS A321',
+  '32A': 'AIRBUS A320',
+  '32B': 'AIRBUS A321',
+  '330': 'AIRBUS A330',
+  '350': 'AIRBUS A350',
+  '380': 'AIRBUS A380',
+  'M80': 'MCDONNELL DOUGLAS MD-80',
+  'M90': 'MCDONNELL DOUGLAS MD-90',
+  CRJ: 'BOMBARDIER CRJ',
+  E90: 'EMBRAER 190',
+};
+
+/**
+ * Build Sabre's two-line header per the Basic Course DL/MD90 sample
+ * (`references/Sabre-Basic-Reservation-Course.pdf` p.~74 + the
+ * parity-doc Eurostar 2026 cross-reference):
+ *
+ *   615Y 15JUL JFKLAX   SEATS INVENTORY DETAIL    M90-Y1/SHIP 000
+ *   M90 DELTA MD90 Y-138 SEATS ECONOMY CLASS
+ *
+ * Line 1: flight + class + date + city pair + "SEATS INVENTORY
+ *         DETAIL" + equipment code + cabin code + "/SHIP <tail>"
+ * Line 2: equipment code + airline name + equipment type + cabin
+ *         + total-seats + cabin-class label
+ *
+ * Ship tail number is not modeled in our seed — we print "000" as a
+ * placeholder, which matches the parity-doc sample's choice.
+ */
 export function sabreSeatMapHeader(
   seatMap: SeatMap,
   segment: AirSegment,
 ): string {
   const cls = segment.bookingClass || 'Y';
-  return `${seatMap.flightNumber}${cls} ${segment.date} ${segment.origin}${segment.destination}\nSEATS INVENTORY DETAIL`;
+  const equipment = seatMap.equipment;
+  const cabinCode = cabinLetter(seatMap.Cabin.find((c) => /^(ECONOMY|MAIN)/i.test(c.name))?.name ?? 'ECONOMY');
+  // Per-cabin total seat count.
+  const totalSeats = seatMap.Cabin.reduce((sum, c) => {
+    return sum + c.Row.reduce((rs, r) => rs + r.Space.filter((s) => !s.Characteristic?.some((x) => NO_SEAT_CHARACTERISTICS.has(x))).length, 0);
+  }, 0);
+  const carrierName = SABRE_CARRIER_NAMES[segment.carrier] ?? segment.carrier;
+  const equipmentName = SABRE_EQUIPMENT_NAMES[equipment] ?? equipment;
+  // Cabin class label — first cabin's name as the "primary" class.
+  const primaryCabin = seatMap.Cabin[0]?.name ?? 'ECONOMY';
+  const line1 = `${seatMap.flightNumber}${cls} ${segment.date} ${segment.origin}${segment.destination}   SEATS INVENTORY DETAIL    ${equipment}-${cabinCode}1/SHIP 000`;
+  const line2 = `${equipment} ${carrierName} ${equipmentName} ${cabinCode}-${totalSeats} SEATS ${primaryCabin} CLASS`;
+  return `${line1}\n${line2}`;
 }
 
 /**

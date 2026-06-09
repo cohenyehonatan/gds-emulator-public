@@ -33,7 +33,11 @@ describe('Sabre seat map — 4G display family', () => {
     // Sabre header: "<flight><class> <date> <citypair>" + "SEATS INVENTORY DETAIL"
     expect(resp).toMatch(/^\d+Y 15JUL JFKLAX/);
     expect(resp).toContain('SEATS INVENTORY DETAIL');
-    expect(resp).toContain('ECONOMY (Y)');
+    // Per chunk 7 deferred #10: Sabre format suppresses the cross-
+    // dialect "ECONOMY (Y)" cabin label header and instead prints
+    // the airline + equipment description line. Cabin context is
+    // conveyed by the equipment-class label in the header.
+    expect(resp).toContain('SEATS ECONOMY CLASS');
     expect(resp).toContain('LEGEND');
   });
 
@@ -56,7 +60,9 @@ describe('Sabre seat map — 4G display family', () => {
     const resp = await host.process('4G*BA192F15JULDFWLHR', wa);
     expect(resp).toContain('192F 15JUL DFWLHR');
     expect(resp).toContain('SEATS INVENTORY DETAIL');
-    expect(resp).toContain('FIRST (F)');
+    // First-class cabin is the seat map's primary cabin → equipment
+    // description line says "SEATS FIRST CLASS"
+    expect(resp).toContain('SEATS FIRST CLASS');
   });
 
   it('4G* direct with an unknown flight returns NO SCHEDULE FOUND', async () => {

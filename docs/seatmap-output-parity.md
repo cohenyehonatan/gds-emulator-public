@@ -386,24 +386,19 @@ Three findings from the dig changed the priority list:
 | 7 | **✅ GWS numeric error code mapping for live wire** | ✅ Done — landed `e4418ff` |
 | 8 | **✅ Galileo `SA*S<n>;` traditional-format alias** | ✅ Done — landed `cbe6bbc` |
 | 9 | **✅ Galileo SA* filter suffixes** (`/NW`, `/<row>`, `/<class>-<n>`) + change-of-gauge `#<airport>` + `SC*` characteristics | ✅ Done — landed (this commit). `/<row>` drives renderer rowOffset (real effect); preference / paxCount / cogOrigin parsed but no semantic effect; `SC*<seat>` displays PADIS 9825 codes. |
-| 10 | Sabre-specific ship/equipment description lines, BLKHD marker, P preferred-row prefix | **Defer** — needs additional data (ship-tail records, total seat count, preferred-seat data). Not blocking any cryptic-flow correctness. |
+| 10 | **✅ Sabre ship/equipment description lines + BLKHD marker + P preferred-row prefix** | ✅ Done — landed (this commit). Carrier-name + equipment-name lookup tables; ship-tail printed as "000" placeholder; BLKHD overlay on bulkhead row; P suffix on preferred rows (driven by V decoration). |
 | 11 | **✅ Amadeus mirrored cabin code labels + top+bottom column headers + wing markers (`<>`, `<E E>`) on vertical** | ✅ Done — landed `591ba5c` |
 | 12 | **✅ Exit-row passenger-profile check** (IATA + 14 CFR 121.585 eligibility on Amadeus ST) | ✅ Done — landed (this commit) |
 
 **Final status**:
-- **10 of 12 fixes landed.** Per-dialect glyphs aligned to published
+- **ALL 12 fixes landed.** Per-dialect glyphs aligned to published
   conventions (Sabre / Amadeus); Apollo cryptic corrected (9V/);
   error-code mapping for live wire; chargeable/preferred/legroom
-  metadata; semicolon-suffix alias; Amadeus mirrored row format with
-  wing/bulkhead markers; IATA exit-row eligibility check on ST.
-- **2 deferreds remain**, both explicitly non-blocking and
-  feature-expansion rather than correctness:
-  - #9 Galileo SA* filter suffixes (`/NW`, `/<row>`, `/<class>-<n>`)
-    + change-of-gauge `#<airport>` + `SC*` characteristics —
-    operators using these get an honest "not implemented".
-  - #10 Sabre ship/equipment description lines + BLKHD marker +
-    P preferred-row prefix — needs ship-tail records, total seat
-    count, preferred-seat data we don't model.
+  metadata; semicolon-suffix alias; Amadeus mirrored row format
+  with wing/bulkhead markers; IATA exit-row eligibility check on
+  ST; Galileo SA* filter suffix family + SC*<seat>; Sabre two-line
+  header with ship + equipment description + BLKHD overlay + P
+  preferred-row prefix.
 
 ## Galileo open question (after a second, deeper dig 2026-06-08)
 
