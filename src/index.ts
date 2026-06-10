@@ -93,9 +93,57 @@ async function startServer(): Promise<void> {
   });
 }
 
+/**
+ * `npm start` — the front door. Prints a directory of every npm
+ * script and what it gets you, so a newcomer doesn't have to read
+ * package.json to find the five terminals.
+ */
+function printDirectory(): void {
+  console.log(`
+gds-emulator — multi-dialect GDS host emulator
+══════════════════════════════════════════════
+
+TERMINALS (interactive REPL, full-screen CRT on a TTY)
+  npm run start:terminal             Sabre (default dialect)
+  npm run start:terminal:sabre       Sabre — the source-grounded reference
+  npm run start:terminal:galileo     Galileo (1G) — full PNR lifecycle; live
+                                     Travelport wire when TVP_* env vars set
+  npm run start:terminal:apollo      Apollo (1V) — Galileo co-build (translator)
+  npm run start:terminal:amadeus     Amadeus — ~150 verbs, hotel/car/rail,
+                                     e-ticketing, HE help system
+  npm run start:terminal:worldspan   Worldspan (1P) — Galileo co-build
+
+CLIENT / SERVER
+  npm run start:server               GDS host on TCP (port 9600)
+  npm run start:terminal:tcp         connect a terminal to a remote host
+                                     (GDS_HOST / GDS_PORT env; CRT status bar
+                                     negotiates automatically)
+
+DEMO / TESTS
+  npm run dev                        scripted demo: host + terminal + booking
+  npm test                           unit suite (~1500 tests)
+  npm run typecheck                  tsc --noEmit
+
+LIVE VALIDATION (needs TVP_CLIENT_ID/SECRET/USERNAME/PASSWORD)
+  npm run validate:creds             OAuth + single-endpoint smoke
+  npm run validate:live-galileo      full Galileo handler chain vs pre-prod
+    …:capture / …:replay             record to / replay from tvp-recording.jsonl
+  npm run validate:diff-oracle       emulated-vs-live wording calibration
+    …:apollo / …:worldspan           same harness through each translator
+
+TIPS
+  Inside any terminal: type HELP (Galileo/Apollo/Worldspan), HE (Amadeus)
+  for the in-terminal verb directory. Sabre help lives in Format Finder
+  (web), so Sabre has no help verb — by the book. Quit with .q
+`);
+}
+
 const command = process.argv[2];
 
 switch (command) {
+  case 'directory':
+    printDirectory();
+    break;
   case 'server':
     startServer().catch((err) => {
       logger.error(err.message);
