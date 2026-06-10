@@ -265,6 +265,16 @@ function renderWorldspanAvailability(avail: import('../../models/availability-re
   return lines.join('\n');
 }
 
+/** DDMON ± n days, month-aware (real calendar, next-occurrence year). */
+function wsAddDays(date: string, n: number): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
+  if (!m) return date;
+  const now = new Date();
+  const t = new Date(Date.UTC(now.getUTCFullYear(), months.indexOf(m[2]), parseInt(m[1], 10) + n));
+  return `${t.getUTCDate()}${months[t.getUTCMonth()]}`;
+}
+
 function wsDow(date: string): string {
   const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
@@ -376,6 +386,47 @@ export class WorldspanDialect implements Dialect {
     if (helpMatch) {
       return renderWorldspanHelp(helpMatch[1]);
     }
+    // Availability continuation entries (calibration arc commit 2)
+    // — forms VERBATIM from the Go! Res manual's HELP AVAILCONT
+    // table (p.26). Each re-runs the cached request with a delta and
+    // re-renders natively:
+    //   AD / A*      more flights / recall   (one-screen seed: both
+    //                redisplay the full list)
+    //   AT / AY      next / previous day
+    //   A<n>D        n days later            A28JUN  same pair, new date
+    //   A1400        same pair, new time (accepted; our inventory
+    //                isn't time-paginated — flagged)
+    //   A-DL / A-YY  carrier filter / back to all airlines
+    //   A/R[<date>]  return availability (city pair swapped)
+    //   A@A<city> / A@D<city>   change destination / origin
+    // AU (previous display) and AC<n> (more classes) aren't modeled —
+    // no display paging. AE/AO (elapsed times) deferred.
+    const cont = wa.lastAvailability;
+    if (cont) {
+      const rerun = (date: string, org: string, dst: string, cxr?: string) =>
+        this.processEntry(`A${date}${org}${dst}${cxr ? '-' + cxr : ''}`, wa, ctx);
+      if (u === 'AD' || u === 'A*') return rerun(cont.date, cont.origin, cont.destination);
+      if (u === 'AT') return rerun(wsAddDays(cont.date, 1), cont.origin, cont.destination);
+      if (u === 'AY') return rerun(wsAddDays(cont.date, -1), cont.origin, cont.destination);
+      const nDays = /^A(\d{1,2})D$/.exec(u);
+      if (nDays) return rerun(wsAddDays(cont.date, parseInt(nDays[1], 10)), cont.origin, cont.destination);
+      const newDate = /^A(\d{1,2}[A-Z]{3})$/.exec(u);
+      if (newDate) return rerun(newDate[1], cont.origin, cont.destination);
+      const newTime = /^A(\d{3,4})$/.exec(u);
+      if (newTime) return rerun(cont.date, cont.origin, cont.destination);
+      const cxrFilter = /^A-([A-Z0-9]{2})$/.exec(u);
+      if (cxrFilter) {
+        if (cxrFilter[1] === 'YY') return rerun(cont.date, cont.origin, cont.destination);
+        return rerun(cont.date, cont.origin, cont.destination, cxrFilter[1]);
+      }
+      const ret = /^A\/R(\d{1,2}[A-Z]{3})?$/.exec(u);
+      if (ret) return rerun(ret[1] ?? cont.date, cont.destination, cont.origin);
+      const chgDst = /^A@A([A-Z]{3})$/.exec(u);
+      if (chgDst) return rerun(cont.date, cont.origin, chgDst[1]);
+      const chgOrg = /^A@D([A-Z]{3})$/.exec(u);
+      if (chgOrg) return rerun(cont.date, chgOrg[1], cont.destination);
+    }
+
     const translated = translateWorldspanToGalileo(raw);
     let entry;
     try {

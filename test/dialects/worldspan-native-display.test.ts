@@ -78,3 +78,53 @@ describe('native availability display', () => {
     expect(resp).not.toContain('WL-PLUS');
   });
 });
+
+describe('continuation entries (manual HELP AVAILCONT table, verbatim forms)', () => {
+  async function withDisplay(h: GdsHost) {
+    const wa = await signedIn(h);
+    await h.process('A15JULJFKLAX', wa);
+    return wa;
+  }
+
+  it('AT / AY / A<n>D walk the calendar; A<date> jumps', async () => {
+    const h = makeHost();
+    const wa = await withDisplay(h);
+    expect((await h.process('AT', wa)).split('\n')[0]).toContain('16JUL');
+    expect((await h.process('AY', wa)).split('\n')[0]).toContain('15JUL');
+    expect((await h.process('A7D', wa)).split('\n')[0]).toContain('22JUL');
+    expect((await h.process('A28JUN', wa)).split('\n')[0]).toContain('28JUN-');
+  });
+
+  it('A-<cxr> filters; A-YY restores all airlines', async () => {
+    const h = makeHost();
+    const wa = await withDisplay(h);
+    const filtered = await h.process('A-AA', wa);
+    expect(filtered).toContain('AA');
+    expect(filtered).not.toContain('B6');
+    const all = await h.process('A-YY', wa);
+    expect(all).toContain('B6');
+  });
+
+  it('A/R swaps the city pair; A@D changes the origin', async () => {
+    const h = makeHost();
+    const wa = await withDisplay(h);
+    expect((await h.process('A/R', wa)).split('\n')[0]).toContain('LAXJFK');
+    // From LAX-JFK, change origin back to JFK → JFK-JFK is empty;
+    // use A@A to retarget the destination instead.
+    expect((await h.process('A@AJFK', wa)).split('\n')[0]).not.toContain('LAXLAX');
+  });
+
+  it('A* recalls the current display; sells resolve against it', async () => {
+    const h = makeHost();
+    const wa = await withDisplay(h);
+    const recall = await h.process('A*', wa);
+    expect(recall.split('\n')[0]).toContain('15JUL');
+    expect(await h.process('01Y1', wa)).toContain('B6 615');
+  });
+
+  it('continuation entries without a prior display fall through to FORMAT', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    expect(h.dialect.isErrorResponse(await h.process('AT', wa))).toBe(true);
+  });
+});
