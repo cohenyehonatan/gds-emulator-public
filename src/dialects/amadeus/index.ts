@@ -711,35 +711,134 @@ function resolveSm(
   return { map, segment: seg, segmentNumber: 1 };
 }
 
-/** Render a retrieved PNR (response to RT<locator>). */
+/**
+ * Render the retrieved-PNR display — chunk 34, calibrated to the
+ * VERBATIM layout from Service Hub solutions 453392470 ("How to
+ * retrieve a PNR") and 906462/797696 (post-issuance PNRs):
+ *
+ *   --- TST RLR SFP ---
+ *   RP/NCE1A0900/NCE1A0900            AA/GS  13JAN25/1307Z   3XZ3N5
+ *     1.SMITH/KATY MS
+ *     2  AF 002 R 20JUN 5 CDGJFK HK1  0830 1030   *1A/E*
+ *     4 AP NCE 555-1212-H
+ *     5 TK OK13JAN/NCE1A0900//ETAF
+ *     6 SSR DOCS AF HK1 ...
+ *
+ * One unified numbering across every element type, in the published
+ * order: names -> segments (air + aux) -> AP family -> TK -> SSR ->
+ * OSI -> RM -> FA/FHD/FHP -> FB. Status banner from PNR state: TST
+ * (priced), TSM (EMDs exist), RLR (committed locator), SFP (DOCS
+ * data held). MSC and the OPW/OPC time-limit elements aren't
+ * modeled. Air segment lines: concatenated city pair, ISO weekday
+ * digit, 24-hour times, the *1A/E* e-ticketing flag.
+ */
 function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
-  const lines: string[] = [`RP/${pcc}/${agent ?? '----'}  ${pnr.locator ?? ''}`];
-  pnr.names.forEach((n, i) => {
-    n.passengers.forEach((pax, j) => {
+  const banner: string[] = [];
+  if (pnr.priceQuotes.length > 0) banner.push('TST');
+  if (pnr.emds.some((e) => !e.manual)) banner.push('TSM');
+  if (pnr.locator) banner.push('RLR');
+  if (pnr.ssrs.some((x) => x.code === 'DOCS')) banner.push('SFP');
+
+  const now = new Date();
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const stamp = `${now.getUTCDate()}${months[now.getUTCMonth()]}${String(now.getUTCFullYear() % 100).padStart(2, '0')}/${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}Z`;
+  const lines: string[] = [];
+  if (banner.length > 0) lines.push(`--- ${banner.join(' ')} ---`);
+  lines.push(`RP/${pcc}/${pcc}            ${agent ?? '--'}/SU  ${stamp}   ${pnr.locator ?? ''}`.trimEnd());
+
+  let n = 0;
+  const push = (text: string) => {
+    n += 1;
+    lines.push(`${String(n).padStart(3)}${text}`);
+  };
+
+  // 1. Names — `  1.ARCHER/COLIN MR` (number hard against the dot).
+  pnr.names.forEach((nm) => {
+    nm.passengers.forEach((pax) => {
       const title = pax.title ? ` ${pax.title}` : '';
-      const seq = n.passengers.length > 1 ? `${i + 1}.${j + 1}` : `${i + 1}`;
-      lines.push(`  ${seq}. ${n.surname}/${pax.firstName}${title}`);
+      push(`.${nm.surname}/${pax.firstName}${title}`);
     });
   });
-  const itin = renderAmadeusItinerary(pnr);
-  if (itin) lines.push(itin);
-  // EMD document lines — shapes VERBATIM from Service Hub 797696:
-  //   FA PAX 057-1812899556/DTAF/EUR250.00/13JAN25/NCE1A0900/00045673/E7
-  //   FB PAX 0000000001 TTP/O/TTM/RT OK ETICKET/EMD/E7
-  // (DT prefix = EMD document, vs ET for e-tickets; /E<n> associates
-  // the chargeable element.)
+
+  // 2. Itinerary — air + aux interleaved by segmentNumber.
+  const itin: { seg: number; text: string }[] = [];
+  for (const sgm of pnr.segments) {
+    const dep = clock24(sgm.departTime);
+    const overnight = sgm.arriveDate != null || isOvernight(sgm.departTime, sgm.arriveTime);
+    const arr = clock24(sgm.arriveTime) + (overnight ? '+1' : '');
+    const dowNum = sgm.dayOfWeekNum >= 1 && sgm.dayOfWeekNum <= 7
+      ? sgm.dayOfWeekNum
+      : isoDowFor(sgm.date);
+    itin.push({
+      seg: sgm.segmentNumber,
+      text: `  ${sgm.carrier}${sgm.flightNumber.padStart(4)} ${sgm.bookingClass} ${sgm.date} ${dowNum} ${sgm.origin}${sgm.destination} ${sgm.status}${sgm.seats}  ${dep} ${arr}   *1A/E*`,
+    });
+  }
+  for (const h of pnr.hotelSegments) {
+    itin.push({ seg: h.segmentNumber, text: ` HHL ${h.chain} ${h.status} ${h.city} ${h.checkIn}-${h.checkOut} ${h.rooms}RM ${h.name} ${h.rateCode} ${h.ratePerNight.toFixed(2)}${h.currency} ${h.confirmationNumber ?? ''}`.trimEnd() });
+  }
+  for (const c of pnr.carSegments) {
+    itin.push({ seg: c.segmentNumber, text: ` CCR ${c.company} ${c.status} ${c.city} ${c.pickup}-${c.dropoff} ${c.vehicleType} ${c.rateCode} ${c.amount.toFixed(2)}${c.currency}/DY ${c.confirmationNumber ?? ''}`.trimEnd() });
+  }
+  for (const r of pnr.railSegments) {
+    itin.push({ seg: r.segmentNumber, text: ` TRN ${r.provider} ${r.trainNumber} ${r.bookingClass} ${r.date} ${r.origin} ${r.destination} ${r.status}${r.seats} ${r.departTime} ${r.arriveTime} ${r.confirmationNumber ?? ''}`.trimEnd() });
+  }
+  itin.sort((a, b) => a.seg - b.seg).forEach((e) => push(e.text));
+
+  // 3. Contact (AP) family.
+  for (const ph of pnr.phones) {
+    push(` AP ${ph.city ? ph.city + ' ' : ''}${ph.number}${ph.type ? '-' + ph.type[0].toUpperCase() : ''}`);
+  }
+
+  // 4. Ticketing arrangement — `//ET<cxr>` once tickets exist (906462).
+  if (pnr.ticketing) {
+    const etSuffix = pnr.tickets.length > 0 ? `//ET${pnr.tickets[0].validatingCarrier}` : '';
+    const body = pnr.ticketing.replace(/^TK/, '');
+    push(` TK ${body}/${pcc}${etSuffix}`);
+  }
+
+  // 5-7. SSR / OSI / RM elements.
+  for (const ssr of pnr.ssrs) {
+    push(` SSR ${ssr.code} ${ssr.carrier} ${ssr.status}1${ssr.text ? ' ' + ssr.text : ''}`);
+  }
+  for (const osi of pnr.osis) {
+    push(` OSI ${osi.carrier} ${osi.text}`);
+  }
+  for (const rm of pnr.remarks) {
+    push(` RM ${rm.text}`);
+  }
+
+  // 8. Document elements — FA/FB shapes VERBATIM from 797696
+  //    (DT prefix = EMD vs ET = e-ticket; /E<n> element assoc).
   pnr.emds.forEach((e, i) => {
     if (e.manual) {
-      // Manual document element (QRG FHD/FHP; the 873296 PNR sample
-      // shows the manual-ET sibling as "FHE PAX XXX-XXXXXXXXXX").
-      lines.push(`  ${e.manual} PAX ${e.number}/E${e.elementRef ?? ''}`);
+      push(` ${e.manual} PAX ${e.number}/E${e.elementRef ?? ''}`);
       return;
     }
-    const date = `${e.issuedAt.getUTCDate()}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][e.issuedAt.getUTCMonth()]}${String(e.issuedAt.getUTCFullYear() % 100).padStart(2, '0')}`;
-    lines.push(`  FA PAX ${e.number}/DT${e.carrier}/${e.currency}${e.amount.toFixed(2)}/${date}/${pcc}/${String(i + 1).padStart(8, '0')}/E${e.elementRef ?? ''}`);
-    lines.push(`  FB PAX ${String(i).padStart(10, '0')} TTP/O/TTM/RT OK ETICKET/EMD/E${e.elementRef ?? ''}`);
+    const d = e.issuedAt;
+    const date = `${d.getUTCDate()}${months[d.getUTCMonth()]}${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
+    push(` FA PAX ${e.number}/DT${e.carrier}/${e.currency}${e.amount.toFixed(2)}/${date}/${pcc}/${String(i + 1).padStart(8, '0')}/E${e.elementRef ?? ''}`);
+    push(` FB PAX ${String(i).padStart(10, '0')} TTP/O/TTM/RT OK ETICKET/EMD/E${e.elementRef ?? ''}`);
   });
+
   return lines.join('\n');
+}
+
+/** ISO weekday (1=MO..7=SU) of the next occurrence of a DDMON date. */
+function isoDowFor(date: string): number {
+  const { dow } = daysOutAndDow(date);
+  const map: Record<string, number> = { MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6, SU: 7 };
+  return map[dow] ?? 0;
+}
+
+/** Convert a 900A/520P clock token to the display's 24-hour HHMM. */
+function clock24(t: string): string {
+  const m = /^(\d{1,2})(\d{2})([APN])$/.exec(t);
+  if (!m) return t;
+  let h = parseInt(m[1], 10) % 12;
+  if (m[3] === 'P') h += 12;
+  if (m[3] === 'N') h = 12;
+  return `${String(h).padStart(2, '0')}${m[2]}`;
 }
 
 /**
@@ -1894,6 +1993,12 @@ export class AmadeusDialect implements Dialect {
       }
       if (!pnr.locator) {
         pnr.locator = generateRecordLocator((loc) => ctx.backend.pnrs.has(loc));
+      }
+      // End-transaction confirms sold segments: SS -> HK. Every
+      // committed PNR in the Service Hub samples (453392470 etc.)
+      // shows HK status; SS only appears pre-commit.
+      for (const sgm of pnr.segments) {
+        if (sgm.status === StatusCode.SS) sgm.status = StatusCode.HK;
       }
       ctx.backend.pnrs.commit(pnr);
       const locator = pnr.locator!;
@@ -3589,6 +3694,12 @@ export class AmadeusDialect implements Dialect {
       // Commit (assign locator if absent), then queue.
       if (!pnr.locator) {
         pnr.locator = generateRecordLocator((loc) => ctx.backend.pnrs.has(loc));
+      }
+      // End-transaction confirms sold segments: SS -> HK. Every
+      // committed PNR in the Service Hub samples (453392470 etc.)
+      // shows HK status; SS only appears pre-commit.
+      for (const sgm of pnr.segments) {
+        if (sgm.status === StatusCode.SS) sgm.status = StatusCode.HK;
       }
       ctx.backend.pnrs.commit(pnr);
       const locator = pnr.locator!;

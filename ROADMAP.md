@@ -980,7 +980,11 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       availability display (33 — LANDED: verbatim header/line
       layout, days-out+DOW, terminals, +1 markers, E0/equipment,
       unnumbered connection legs + elapsed), the full RT PNR display
-      with unified element numbering + status banner (34 — big),
+      with unified element numbering + status banner (34 — LANDED:
+      banner from PNR state, RP header w/ Zulu stamp, one numbering
+      across names/segments/AP/TK/SSR/OSI/RM/FA/FB, 24h times + +1,
+      *1A/E*, SS→HK flip at commit; still unmodeled: MSC tag, OPW/
+      OPC elements, OPERATED BY sublines, RT<n>/RT0 list nav),
       the TTP post-issuance PNR mutation (35 — ET FA/FB/FE/FM/FV
       lines + post-ticket invariants), and SVC segments + FXK
       ancillary catalogue (36 — unlocks the SVC-method EMD rows
