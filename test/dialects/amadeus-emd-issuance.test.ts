@@ -282,3 +282,61 @@ describe('chunk 36 — auxiliary service segments (IU, solution 843687 verbatim)
     expect(display).toMatch(/^ {2}3 \/SVC LH HK1 CANC$/m);
   });
 });
+
+describe('chunk 36b — ancillary catalogue (FXK) + book (FWK), solution 828431 verbatim', () => {
+  async function withItinerary(h: GdsHost, names = 1) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN15JANHELBKK', wa);
+    await h.process('SS1Y1', wa);
+    for (let i = 0; i < names; i++) await h.process(`NM1SMITH/PAX${i + 1} MS`, wa);
+    return wa;
+  }
+
+  it('FXK renders the verbatim header + FLIGHT RELATED rows + descriptions', async () => {
+    const h = makeHost();
+    const wa = await withItinerary(h);
+    const resp = await h.process('FXK', wa);
+    const lines = resp.split('\n');
+    expect(lines[0]).toBe('FXK');
+    expect(lines[1]).toBe('    PASSENGER       PR FROM-TO C SC  SRV  PTC BKM (USD)TOTAL  AV');
+    expect(lines[2]).toBe('FLIGHT RELATED');
+    expect(lines[3]).toMatch(/^001 P1 {14}6X HEL-BKK Y C03 BULK ADT SSR {2}USD50 {5}OK$/);
+    expect(lines[4]).toBe('    BULK -');
+    // SVC-method rows are excluded (only SSR-method services list).
+    expect(resp).not.toContain('CANC');
+  });
+
+  it('FWK<n> books the catalog line as an SSR; TTM then issues it', async () => {
+    const h = makeHost();
+    const wa = await withItinerary(h);
+    await h.process('FXK', wa);
+    const resp = await h.process('FWK5', wa); // line 5 = FBAG
+    expect(resp).toBe(' SSR FBAG 6X NN1/P1');
+    expect(wa.pnr.ssrs[0]).toMatchObject({ code: 'FBAG', carrier: '6X' });
+    expect(await h.process('TTM', wa)).toContain('FBAG C/0CF USD150.00');
+  });
+
+  it('FWK without a catalog / invalid line → specific errors', async () => {
+    const h = makeHost();
+    const wa = await withItinerary(h);
+    expect(await h.process('FWK1', wa)).toBe('NO CATALOG DISPLAYED - FXK FIRST');
+    await h.process('FXK', wa);
+    expect(await h.process('FWK999', wa)).toBe('INVALID LINE');
+  });
+
+  it('FXK/P and FXK/S filters narrow the catalog; no itinerary → NO ITINERARY', async () => {
+    const h = makeHost();
+    const wa = await withItinerary(h, 2);
+    const all = await h.process('FXK', wa);
+    const p2 = await h.process('FXK/P2', wa);
+    expect(p2.split('\n').length).toBeLessThan(all.split('\n').length);
+    expect(p2).toContain('P2');
+    expect(p2).not.toContain(' P1 ');
+    expect(await h.process('FXK/S9', wa)).toBe('NO ANCILLARY SERVICES');
+    const empty = h.newWorkArea();
+    await h.process('JI2345HA/GS', empty);
+    await h.process('NM1SMITH/JEN MS', empty);
+    expect(await h.process('FXK', empty)).toBe('NO ITINERARY');
+  });
+});

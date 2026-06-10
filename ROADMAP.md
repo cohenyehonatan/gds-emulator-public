@@ -992,8 +992,14 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       multi-pax /P requirement, TTM issues EMD-S from SVC-method
       guide rows — LH CANC/DPST/PENF now sellable end-to-end; the
       TMC/TSM-P intermediate isn't modeled, TTM issues directly).
-      Still open: FXK ancillary catalogue (828431) + the unmined-
-      solutions table in the delta doc.
+      FXK landed too (36b): the verbatim catalogue screen
+      (PASSENGER/PR/FROM-TO/C/SC/SRV/PTC/BKM/TOTAL/AV columns +
+      FLIGHT RELATED section + description sublines) listing the
+      carrier's SSR-method guide rows per pax x segment, FXK/P + /S
+      filters, and FWK<n> booking from the cached catalog into an
+      SSR that TTM then issues. Catalogue → book → issue runs end-
+      to-end. Still open: the unmined-solutions table in the delta
+      doc (passive segments, EMD re-association, XBAG example…).
 
 The original survey (all items now resolved or annotated):
 

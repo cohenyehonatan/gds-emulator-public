@@ -155,6 +155,9 @@ export class WorkAreaSlot {
   /** Index into pnr.emds of the last EWD-displayed record (EWDRT). */
   lastEmdIndex?: number;
 
+  /** Last FXK ancillary catalog — FWK<n> books from it (chunk 36b). */
+  lastFxkCatalog?: { carrier: string; code: string; passenger: number }[];
+
   /**
    * Last rendered help screen — drives `MP HE` ("Redisplay the last
    * help screen", QRG p.5). Cleared on reset().
@@ -215,6 +218,7 @@ export class WorkAreaSlot {
     this.lastRailAvail = undefined;
     this.lastFailedEntry = undefined;
     this.lastEmdIndex = undefined;
+    this.lastFxkCatalog = undefined;
     this.lastHelpScreen = undefined;
   }
 }
@@ -413,6 +417,12 @@ export class WorkArea {
   }
   set lastRailAvail(v: WorkAreaSlot['lastRailAvail']) {
     this.s.lastRailAvail = v;
+  }
+  get lastFxkCatalog(): WorkAreaSlot['lastFxkCatalog'] {
+    return this.s.lastFxkCatalog;
+  }
+  set lastFxkCatalog(v: WorkAreaSlot['lastFxkCatalog']) {
+    this.s.lastFxkCatalog = v;
   }
   get lastEmdIndex(): number | undefined {
     return this.s.lastEmdIndex;

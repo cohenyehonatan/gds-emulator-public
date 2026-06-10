@@ -1197,7 +1197,9 @@ const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] 
     'EGSD/V<cxr>[/SC-<code>|/RFIC-<l>|/BM-<m>|/L<n>]   service guide',
     'TTM[/L<n>][/P<n>][/INF][/RT]   issue EMDs for chargeable SSRs',
     'TTP/TTM            tickets + EMDs together (TTP first)',
-    'EWD[/<n>|/L<n>|/EMD<num>]   record display    EWDRT EWDRL  redisplay'] },
+    'EWD[/<n>|/L<n>|/EMD<num>]   record display    EWDRT EWDRL  redisplay',
+    'FXK[/P<n>][/S<n>]  ancillary catalogue    FWK<n>  book from line',
+    'IU <cxr> NN<n> <code>…   auxiliary SVC segment    EWH  history'] },
   { keys: ['DM', 'MCT'], title: 'MIN CONNECT TIME', lines: [
     'DM<apt>[-<apt2>][/<date>]   MCT lookup (layered: standards +',
     '  carrier exceptions)        DMI   continuity check'] },
@@ -3565,6 +3567,68 @@ export class AmadeusDialect implements Dialect {
       recordHistory(wa.pnr, `CS ${rental.company}${rental.vehicleType} ${cached.pickup}-${cached.dropoff}`);
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return renderCarSegment(seg);
+    }
+
+    // --- chunk 36b: ancillary services catalogue (FXK) + book (FWK) ---
+    // Screen + entries VERBATIM from Service Hub solution 828431:
+    //   FXK            catalog for all pax + whole itinerary
+    //   FXK/P1,3       passenger filter      FXK/S4-5  segment filter
+    //   FWK<n>         book + price the service in catalog line n
+    //   (SR <code> books too — already implemented)
+    // Catalog content = the segment carrier's EMD guide rows with
+    // booking method SSR (the screen's FLIGHT RELATED section). The
+    // PR column (blank in the published sample) and non-flight-
+    // related sections aren't modeled.
+    const fxkMatch = /^FXK(?:\/P([\d,-]+))?(?:\/S([\d,-]+))?$/.exec(entry);
+    if (fxkMatch) {
+      if (wa.pnr.segments.length === 0) return NO_ITINERARY;
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const paxSel = fxkMatch[1] ? expandSelection(fxkMatch[1]) : undefined;
+      const segSel = fxkMatch[2] ? expandSelection(fxkMatch[2]) : undefined;
+      const paxCount = wa.pnr.names.reduce((acc, nm) => acc + nm.passengers.length, 0);
+      const catalog: { carrier: string; code: string; passenger: number }[] = [];
+      const rows: string[] = [];
+      let cur = '';
+      for (let pax = 1; pax <= paxCount; pax++) {
+        if (paxSel && !paxSel.includes(pax)) continue;
+        for (const sgm of wa.pnr.segments) {
+          if (segSel && !segSel.includes(sgm.segmentNumber)) continue;
+          for (const svc of ctx.backend.inventory.emdServicesFor(sgm.carrier)) {
+            if (svc.bookingMethod !== 'SSR') continue;
+            catalog.push({ carrier: svc.carrier, code: svc.code, passenger: pax });
+            cur = svc.currency;
+            const line = String(catalog.length).padStart(3, '0');
+            rows.push(
+              `${line} P${pax}              ${sgm.carrier} ${sgm.origin}-${sgm.destination} ${sgm.bookingClass} ${svc.rfisc} ${svc.code} ADT SSR  ${svc.currency}${svc.amount.toFixed(0)}     OK`,
+            );
+            rows.push(`    ${svc.description.toUpperCase()} -`);
+          }
+        }
+      }
+      if (catalog.length === 0) return 'NO ANCILLARY SERVICES';
+      wa.lastFxkCatalog = catalog;
+      return [
+        'FXK',
+        `    PASSENGER       PR FROM-TO C SC  SRV  PTC BKM (${cur})TOTAL  AV`,
+        'FLIGHT RELATED',
+        ...rows,
+      ].join('\n');
+    }
+
+    const fwkMatch = /^FWK(\d{1,3})$/.exec(entry);
+    if (fwkMatch) {
+      const cat = wa.lastFxkCatalog;
+      if (!cat) return 'NO CATALOG DISPLAYED - FXK FIRST';
+      const item = cat[parseInt(fwkMatch[1], 10) - 1];
+      if (!item) return 'INVALID LINE';
+      wa.pnr.ssrs.push({
+        code: item.code,
+        carrier: item.carrier,
+        status: 'NN',
+        nameRef: { item: item.passenger },
+      });
+      recordHistory(wa.pnr, `FWK ${item.code} BOOKED`);
+      return ` SSR ${item.code} ${item.carrier} NN1/P${item.passenger}`;
     }
 
     // --- chunk 36: auxiliary service segment (IU) ---
