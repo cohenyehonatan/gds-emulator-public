@@ -12,6 +12,7 @@ import { GdsHost } from '../session/gds-host.js';
 import { WorkArea } from '../session/work-area.js';
 import type { Dialect } from '../dialects/dialect.js';
 import { CrtScreen } from './crt-screen.js';
+import { createMouseFilter } from './mouse.js';
 import { LiveTravelportBackend, liveTravelportFromEnv } from '../backends/live-travelport-backend.js';
 import { EmulatedBackend, type Backend } from '../backends/backend.js';
 import { JsonFilePnrStore } from '../store/json-file-pnr-store.js';
@@ -68,6 +69,35 @@ function backendAdvisory(host: GdsHost): string[] {
   ];
 }
 
+/**
+ * CRT input plumbing: stdin → mouse filter → readline. Wheel on the
+ * response area scrolls the CRT scrollback; wheel on the input row
+ * becomes arrow-up/down (readline command history). Returns the
+ * filtered stream to hand readline, plus a cleanup for raw mode.
+ */
+function wireCrtMouse(
+  screen: CrtScreen,
+  redraw: () => void,
+): { input: NodeJS.ReadableStream; cleanup: () => void } {
+  const filter = createMouseFilter({
+    inputRow: () => screen.inputRow(),
+    onScroll: (dir) => {
+      if (dir === 1) screen.scrollUp();
+      else screen.scrollDown();
+      redraw();
+    },
+  });
+  process.stdin.pipe(filter);
+  // The filter isn't a TTY, so readline won't manage raw mode — do it
+  // here and restore on close.
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  const cleanup = () => {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    process.stdin.unpipe(filter);
+  };
+  return { input: filter, cleanup };
+}
+
 function isQuit(entry: string): boolean {
   return entry === '.q' || entry.toUpperCase() === 'QUIT';
 }
@@ -81,7 +111,10 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
   for (const line of backendAdvisory(host)) screen.print(line);
   screen.print('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: out, prompt: '› ' });
+  // Mouse wheel: response area scrolls the CRT scrollback; the input
+  // row scrolls readline command history (arrow-key substitution).
+  const mouse = wireCrtMouse(screen, () => redraw());
+  const rl = readline.createInterface({ input: mouse.input, output: out, prompt: '› ', terminal: true });
 
   const redraw = () => {
     screen.render(`AAA ${wa.agent ?? '----'}   [${wa.state()}]`);
@@ -96,12 +129,10 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
   // edge and overwrite `│`. Re-emit it after each keypress (deferred via
   // setImmediate so readline's own write completes first, then we restore
   // the border and the cursor position).
-  if (process.stdin.isTTY) {
-    readline.emitKeypressEvents(process.stdin);
-    process.stdin.on('keypress', () => {
-      setImmediate(() => screen.redrawRightBorder());
-    });
-  }
+  readline.emitKeypressEvents(mouse.input);
+  mouse.input.on('keypress', () => {
+    setImmediate(() => screen.redrawRightBorder());
+  });
 
   rl.on('line', async (line) => {
     const entry = line.trim();
@@ -121,6 +152,7 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
 
   return new Promise<void>((resolve) => {
     rl.on('close', () => {
+      mouse.cleanup();
       screen.leave();
       console.log('Session ended.');
       resolve();
@@ -190,7 +222,8 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     screen.print('  the status bar reflects the remote work-area state.');
     screen.print('');
 
-    const rl = readline.createInterface({ input: process.stdin, output: out, prompt: '› ' });
+    const mouse = wireCrtMouse(screen, () => redraw());
+    const rl = readline.createInterface({ input: mouse.input, output: out, prompt: '› ', terminal: true });
     let lastState = '?';
     let lastAgent = '----';
     const redraw = () => {
@@ -200,12 +233,10 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     };
     redraw();
 
-    if (process.stdin.isTTY) {
-      readline.emitKeypressEvents(process.stdin);
-      process.stdin.on('keypress', () => {
-        setImmediate(() => screen.redrawRightBorder());
-      });
-    }
+    readline.emitKeypressEvents(mouse.input);
+    mouse.input.on('keypress', () => {
+      setImmediate(() => screen.redrawRightBorder());
+    });
 
     rl.on('line', async (line) => {
       const entry = line.trim();
@@ -232,6 +263,7 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
 
     return new Promise<void>((resolve) => {
       rl.on('close', () => {
+        mouse.cleanup();
         screen.leave();
         terminal.disconnect();
         console.log('Session ended.');

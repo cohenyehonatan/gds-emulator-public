@@ -25,6 +25,10 @@ const ALT_OFF = `${ESC}[?1049l`;
 const WRAP_OFF = `${ESC}[?7l`;
 const WRAP_ON = `${ESC}[?7h`;
 const SHOW_CURSOR = `${ESC}[?25h`;
+// SGR mouse reporting: 1000 = button events (wheel arrives as
+// buttons 64/65), 1006 = SGR encoding (unambiguous, row/col > 223 safe).
+const MOUSE_ON = `${ESC}[?1000h${ESC}[?1006h`;
+const MOUSE_OFF = `${ESC}[?1006l${ESC}[?1000l`;
 
 /** Truncate or space-pad a plain (ANSI-free) string to an exact width. */
 function fit(s: string, width: number): string {
@@ -38,6 +42,8 @@ function clock(): string {
 
 export class CrtScreen {
   private lines: string[] = [];
+  /** Scrollback viewport offset — 0 = live tail; >0 = scrolled up. */
+  private scrollOffset = 0;
 
   constructor(
     private readonly out: NodeJS.WriteStream = process.stdout,
@@ -61,11 +67,27 @@ export class CrtScreen {
   }
 
   enter(): void {
-    this.out.write(ALT_ON + WRAP_OFF + GREEN);
+    this.out.write(ALT_ON + WRAP_OFF + GREEN + MOUSE_ON);
   }
 
   leave(): void {
-    this.out.write(WRAP_ON + RESET + ALT_OFF + SHOW_CURSOR);
+    this.out.write(MOUSE_OFF + WRAP_ON + RESET + ALT_OFF + SHOW_CURSOR);
+  }
+
+  /** Scroll the response viewport up (towards older output). */
+  scrollUp(n = 3): void {
+    const areaH = Math.max(0, this.rows - 6);
+    const max = Math.max(0, this.lines.length - areaH);
+    this.scrollOffset = Math.min(max, this.scrollOffset + n);
+  }
+
+  /** Scroll the response viewport down (towards the live tail). */
+  scrollDown(n = 3): void {
+    this.scrollOffset = Math.max(0, this.scrollOffset - n);
+  }
+
+  get scrolled(): number {
+    return this.scrollOffset;
   }
 
   /**
@@ -83,9 +105,11 @@ export class CrtScreen {
     this.out.write(`${ESC}7${ESC}[${row};${col}H${BOLD_GREEN}│${RESET}${ESC}8`);
   }
 
-  /** Append a host response (or any text block) to the scrollback. */
+  /** Append a host response (or any text block) to the scrollback.
+   *  New output snaps the viewport back to the live tail. */
   print(text: string): void {
     for (const line of text.split('\n')) this.lines.push(line);
+    this.scrollOffset = 0;
   }
 
   /** Echo a submitted cryptic entry into the scrollback. */
@@ -106,13 +130,15 @@ export class CrtScreen {
 
     // Status bar: title + AAA/state on the left, clock on the right.
     const left = ` ${this.screenName}   ${statusLeft}`;
-    const right = `${clock()} `;
+    const right = `${this.scrollOffset > 0 ? `▲${this.scrollOffset}  ` : ''}${clock()} `;
     const gap = Math.max(1, inner - left.length - right.length);
     const status = fit(left + ' '.repeat(gap) + right, inner);
 
-    // Response area: the tail of the scrollback, blank-padded to fill.
+    // Response area: the viewport into the scrollback (offset 0 =
+    // live tail; mouse wheel scrolls it), blank-padded to fill.
     const areaH = Math.max(0, H - 6);
-    const tail = this.lines.slice(-areaH);
+    const end = this.lines.length - this.scrollOffset;
+    const tail = this.lines.slice(Math.max(0, end - areaH), end);
     while (tail.length < areaH) tail.push('');
 
     const frameLines: string[] = [];
