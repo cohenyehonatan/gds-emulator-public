@@ -82,11 +82,11 @@ async function runDemo(): Promise<void> {
   process.exit(result.success ? 0 : 1);
 }
 
-async function startServer(): Promise<void> {
+async function startServer(dialect?: Dialect): Promise<void> {
   const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
-  const host = new GdsHost({ port, logLevel: 'debug' });
+  const host = new GdsHost({ port, logLevel: 'debug', ...(dialect ? { dialect } : {}) });
   await host.start();
-  logger.info('GDS host running. Press Ctrl+C to stop.');
+  logger.info(`GDS host running (${host.dialect.displayName ?? host.dialect.id} dialect). Press Ctrl+C to stop.`);
   process.on('SIGINT', async () => {
     await host.stop();
     process.exit(0);
@@ -114,7 +114,9 @@ TERMINALS (interactive REPL, full-screen CRT on a TTY)
   npm run start:terminal:worldspan   Worldspan (1P) — Galileo co-build
 
 CLIENT / SERVER
-  npm run start:server               GDS host on TCP (port 9600)
+  npm run start:server               GDS host on TCP (port 9600), Sabre
+  npm run start:server -- <dialect>  …any dialect (galileo, amadeus,
+                                     apollo, worldspan); GDS_DIALECT=… works too
   npm run start:client               connect a terminal to a remote host
                                      (GDS_HOST / GDS_PORT env; CRT status bar
                                      negotiates automatically)
@@ -145,12 +147,25 @@ switch (command) {
   case 'directory':
     printDirectory();
     break;
-  case 'server':
-    startServer().catch((err) => {
+  case 'server': {
+    // `server [<dialect>]` — the server owns the dialect; remote
+    // terminals just push entries. GDS_DIALECT env works too.
+    let serverDialect: Dialect | undefined;
+    const requested = process.argv[3] ?? process.env.GDS_DIALECT;
+    if (requested) {
+      try {
+        serverDialect = pickDialect(requested);
+      } catch (err) {
+        logger.error((err as Error).message);
+        process.exit(1);
+      }
+    }
+    startServer(serverDialect).catch((err) => {
       logger.error(err.message);
       process.exit(1);
     });
     break;
+  }
   case 'terminal': {
     // pickDialect throws synchronously on an unknown name, so it can't be
     // chained through .catch alone — wrap it explicitly.
