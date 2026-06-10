@@ -144,3 +144,23 @@ export interface SvcSegment {
   text?: string;
   passenger?: number;
 }
+
+/**
+ * Transitional Stored Miscellaneous document, type P — the pricing
+ * record an EMD issues from (TMC creates, TQM lists, TTM/M<n>
+ * issues). Mask layout verbatim from Service Hub solution 823571.
+ */
+export interface TsmRecord {
+  number: number;
+  carrier: string;
+  code: string;
+  rfic: string;
+  rfisc: string;
+  description: string;
+  /** Chargeable-element position the TSM was built from. */
+  elementRef: number;
+  origin?: string;
+  destination?: string;
+  passenger: string;
+  issued: boolean;
+}

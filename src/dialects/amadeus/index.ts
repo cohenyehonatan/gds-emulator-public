@@ -1123,6 +1123,33 @@ function renderAmadeusEwh(e: import('../../models/emd.js').EmdRecord): string {
   return lines.join('\n');
 }
 
+const RFIC_NAMES: Record<string, string> = {
+  A: 'AIR TRANSPORTATION', C: 'BAGGAGE', D: 'FINANCIAL IMPACT',
+  E: 'AIRPORT SERVICES', G: 'IN-FLIGHT SERVICES',
+};
+
+/**
+ * TSM-P mask — layout VERBATIM from solution 823571:
+ *
+ *   TSM    1  TYPE P     NCEXXXXXX AA/07JAN 11       EMD-A CARR AF
+ *     1.SMITH/KATY MS
+ *   RFIC-C/U   BAGGAGE
+ *       1. RFISC-0C3 EXCESS BAGGAGE                       L   7
+ *          OPERATING CC-AF                  ORIGIN-CDG DEST-JFK
+ */
+function renderAmadeusTsmMask(t: import('../../models/emd.js').TsmRecord, pcc: string, agent?: string): string {
+  const now = new Date();
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const stamp = `${agent ?? '--'}/${String(now.getUTCDate()).padStart(2, '0')}${months[now.getUTCMonth()]}`;
+  return [
+    `TSM    ${t.number}  TYPE P     ${pcc} ${stamp} ${t.elementRef}       EMD-A CARR ${t.carrier}`,
+    `  1.${t.passenger}`,
+    `RFIC-${t.rfic}/U   ${RFIC_NAMES[t.rfic] ?? ''}`,
+    `    1. RFISC-${t.rfisc} ${t.description.padEnd(50)} L   ${t.elementRef}`,
+    `       OPERATING CC-${t.carrier}${t.origin ? `                                     ORIGIN-${t.origin} DEST-${t.destination}` : ''}`,
+  ].join('\n');
+}
+
 /** Expand "1-2,4" into [1,2,4]. */
 function expandSelection(spec: string): number[] {
   const out: number[] = [];
@@ -3213,8 +3240,66 @@ export class AmadeusDialect implements Dialect {
     //   EWDRL / EWDRT                  redisplay list / record
     // The EMD list screen is verbatim (873296); the record screen is
     // reconstructed on the TWD pattern (no published sample), flagged.
+    // --- polish: TSM-P flow (TMC create / TQM index / TTM/M issue) ---
+    // TMC mask layout VERBATIM from solution 823571; TQM wording
+    // reconstructed (the QRG documents the entry, not the screen).
+    const tmcMatch = /^TMC\/V([A-Z0-9]{2})\/L(\d{1,2})$/.exec(entry);
+    if (tmcMatch) {
+      const charge = chargeableSsrs(wa.pnr, ctx).filter((c) => c.service.carrier === tmcMatch[1]);
+      const item = charge[parseInt(tmcMatch[2], 10) - 1];
+      if (!item) return 'INVALID LINE';
+      const paxName = `${wa.pnr.names[0]?.surname ?? ''}/${wa.pnr.names[0]?.passengers[0]?.firstName ?? ''}`;
+      const tsm: import('../../models/emd.js').TsmRecord = {
+        number: wa.pnr.tsms.length + 1,
+        carrier: item.service.carrier,
+        code: item.service.code,
+        rfic: item.service.rfic,
+        rfisc: item.service.rfisc,
+        description: item.service.description.toUpperCase(),
+        elementRef: item.index,
+        origin: wa.pnr.segments[0]?.origin,
+        destination: wa.pnr.segments[0]?.destination,
+        passenger: paxName,
+        issued: false,
+      };
+      wa.pnr.tsms.push(tsm);
+      return renderAmadeusTsmMask(tsm, ctx.pcc, wa.agent);
+    }
+    if (entry === 'TQM') {
+      if (wa.pnr.tsms.length === 0) return 'NO TSM RECORD';
+      return ['TSM INDEX', ...wa.pnr.tsms.map((t) =>
+        ` ${t.number}  TYPE P  ${t.carrier} ${t.code} ${t.rfic}/${t.rfisc}  ${t.issued ? 'ISSUED' : 'OPEN'}`,
+      )].join('\n');
+    }
+
     if (entry === 'TTM' || entry.startsWith('TTM/')) {
       if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      // TTM/M<n>[-<m>,…] — issue specific TSM-Ps (QRG p.172; the TSM
+      // number comes from the TQM index).
+      const mSel = /^TTM\/M([\d,-]+)/.exec(entry);
+      if (mSel) {
+        const nums = expandSelection(mSel[1]);
+        const targets = wa.pnr.tsms.filter((t) => nums.includes(t.number) && !t.issued);
+        if (targets.length === 0) return 'NO TSM RECORD';
+        const issuedRecs: import('../../models/emd.js').EmdRecord[] = [];
+        for (const t of targets) {
+          const svcRow = ctx.backend.inventory.emdServicesFor(t.carrier).find((e2) => e2.code === t.code);
+          const tn = ticketNumber(t.carrier, ctx.backend.nextTicketSerial());
+          issuedRecs.push({
+            number: `${tn.slice(0, 3)}-${tn.slice(3)}`,
+            carrier: t.carrier, serviceCode: t.code, rfic: t.rfic, rfisc: t.rfisc,
+            emdType: 'A', passenger: t.passenger, elementRef: t.elementRef,
+            amount: svcRow?.amount ?? 0, currency: svcRow?.currency ?? '',
+            status: 'OPEN', issuedAt: new Date(), pcc: ctx.pcc,
+            history: [{ coupon: 1, rfisc: t.rfisc, status: 'O', office: ctx.pcc, sign: wa.agent ?? 'GS', at: new Date() }],
+          });
+          t.issued = true;
+        }
+        wa.pnr.emds.push(...issuedRecs);
+        recordHistory(wa.pnr, `TTM/M ${issuedRecs.length} EMD(S) ISSUED`);
+        const ok = ['OK EMD', ...issuedRecs.map((e) => `  ${e.number} ${e.serviceCode} ${e.rfic}/${e.rfisc} ${e.currency}${e.amount.toFixed(2)}`)].join('\n');
+        return entry.includes('/RT') ? `${ok}\n${renderAmadeusPnr(wa.pnr, ctx.pcc, wa.agent)}` : ok;
+      }
       const charge = chargeableSsrs(wa.pnr, ctx);
       // SVC segments issue too — booking method SVC rows of the
       // carrier's EMD guide (QRG: "Issue the EMDs for all SSR

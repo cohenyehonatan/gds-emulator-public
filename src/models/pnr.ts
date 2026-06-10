@@ -16,7 +16,7 @@ import type { RemarkElement } from './remark.js';
 import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
-import type { EmdRecord, SvcSegment } from './emd.js';
+import type { EmdRecord, SvcSegment, TsmRecord } from './emd.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import type { AddressElement } from './address.js';
 import type { HotelSegment } from './hotel.js';
@@ -78,6 +78,8 @@ export class Pnr {
   emds: EmdRecord[] = [];
   /** Auxiliary service segments (Amadeus IU, chunk 36). */
   svcSegments: SvcSegment[] = [];
+  /** TSM-P records (Amadeus TMC/TQM; EMDs issue from them). */
+  tsms: TsmRecord[] = [];
   /**
    * Manually-entered air accounting lines (`AC/<carrier>/<tkt>/…`).
    * Rendered alongside the auto-generated lines from tickets in *PAC.
@@ -142,6 +144,7 @@ export class Pnr {
     p.tickets = this.tickets.map((t) => ({ ...t }));
     p.emds = this.emds.map((e) => ({ ...e }));
     p.svcSegments = this.svcSegments.map((e) => ({ ...e }));
+    p.tsms = this.tsms.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
     p.accountingHistory = this.accountingHistory.map((h) => ({ ...h }));
     p.history = this.history.map((h) => ({ ...h }));

@@ -381,3 +381,47 @@ describe('polish — the XBAG worked example (solution 823571 verbatim)', () => 
     expect(await h.process('TTM', wa)).toBe('NO CHARGEABLE SERVICES');
   });
 });
+
+describe('polish — TSM-P flow: TMC mask / TQM index / TTM/M issue (823571)', () => {
+  async function withXbag(h: GdsHost) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN20JUNCDGJFK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    await h.process('SRXBAG-PDBG-10KGS-60x80x50/S2/P1', wa);
+    return wa;
+  }
+
+  it('TMC/V<cxr>/L<n> renders the verbatim TSM-P mask and stores the TSM', async () => {
+    const h = makeHost();
+    const wa = await withXbag(h);
+    const resp = await h.process('TMC/VAF/L1', wa);
+    expect(resp).toMatch(/^TSM {4}1 {2}TYPE P {5}NCE1A0900 HA\/\d{2}[A-Z]{3} 1 {7}EMD-A CARR AF$/m);
+    expect(resp).toContain('RFIC-C/U   BAGGAGE');
+    expect(resp).toMatch(/1\. RFISC-0C3 EXCESS BAGGAGE +L {3}1/);
+    expect(resp).toContain('OPERATING CC-AF');
+    expect(resp).toContain('ORIGIN-CDG DEST-JFK');
+    expect(wa.pnr.tsms).toHaveLength(1);
+  });
+
+  it('TQM lists TSMs with OPEN/ISSUED state; TTM/M<n> issues and consumes', async () => {
+    const h = makeHost();
+    const wa = await withXbag(h);
+    expect(await h.process('TQM', wa)).toBe('NO TSM RECORD');
+    await h.process('TMC/VAF/L1', wa);
+    expect(await h.process('TQM', wa)).toContain('1  TYPE P  AF XBAG C/0C3  OPEN');
+    const issue = await h.process('TTM/M1', wa);
+    expect(issue).toContain('XBAG C/0C3 EUR60.00');
+    expect(wa.pnr.emds[0].number).toMatch(/^057-/);
+    expect(await h.process('TQM', wa)).toContain('ISSUED');
+    expect(await h.process('TTM/M1', wa)).toBe('NO TSM RECORD'); // consumed
+  });
+
+  it('TMC with no matching chargeable line → INVALID LINE', async () => {
+    const h = makeHost();
+    const wa = await withXbag(h);
+    expect(await h.process('TMC/VAF/L9', wa)).toBe('INVALID LINE');
+    expect(await h.process('TMC/VLH/L1', wa)).toBe('INVALID LINE'); // wrong carrier
+  });
+});
