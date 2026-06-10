@@ -769,9 +769,15 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
     const dowNum = sgm.dayOfWeekNum >= 1 && sgm.dayOfWeekNum <= 7
       ? sgm.dayOfWeekNum
       : isoDowFor(sgm.date);
+    // Passive/ghost segments show the airline locator where active
+    // segments show *1A/E* (875906 verbatim: "UA 323 Q 10APR 4
+    // MIAEWR PK1          0800 1058   RECLOC").
+    const trailer = ['PK', 'PL', 'GK'].includes(sgm.status)
+      ? (sgm.airlineLocator ?? '')
+      : '*1A/E*';
     itin.push({
       seg: sgm.segmentNumber,
-      text: `  ${sgm.carrier}${sgm.flightNumber.padStart(4)} ${sgm.bookingClass} ${sgm.date} ${dowNum} ${sgm.origin}${sgm.destination} ${sgm.status}${sgm.seats}  ${dep} ${arr}   *1A/E*`,
+      text: `  ${sgm.carrier}${sgm.flightNumber.padStart(4)} ${sgm.bookingClass} ${sgm.date} ${dowNum} ${sgm.origin}${sgm.destination} ${sgm.status}${sgm.seats}  ${dep} ${arr}   ${trailer}`.trimEnd(),
     });
   }
   for (const h of pnr.hotelSegments) {
@@ -1856,6 +1862,87 @@ export class AmadeusDialect implements Dialect {
       wa.lastRailAvail = undefined;
       // Availability is a read-side operation; no state-machine event.
       return renderAmadeusAn(avail, lines);
+    }
+
+    // --- polish: passive + ghost segments (Service Hub 875906) ---
+    // Short sell from availability with a passive/ghost status code:
+    //   SS1Q2/PK/RECLOC   PK = confirmed passive (airline locator
+    //                     required — "include the record locator")
+    //   SS1Q2/PL/RECLOC   PL = waitlisted passive
+    //   SS1Y1/GK          GK = ghost segment (price-only, no message
+    //                     to the airline, no locator)
+    // Long sell when the flight is known:
+    //   SS UA 1316 Q 12APR EWRMIA PK1/11201428/RECLOC
+    // Passive/ghost statuses never flip to HK at commit (only SS
+    // does), and the RT display shows the airline locator where
+    // active segments show *1A/E* — both per the published response.
+    const passiveShort = /^SS(\d{1,2})([A-Z])(\d{1,2})\/(PK|PL|GK)(?:\/([A-Z0-9]{5,8}))?$/.exec(entry);
+    const passiveLong = /^SS ([A-Z0-9]{2}) ?(\d{1,4}) ([A-Z]) (\d{1,2}[A-Z]{3}) ([A-Z]{3})([A-Z]{3}) (PK|PL|GK)(\d)(?:\/(\d{8}))?(?:\/([A-Z0-9]{5,8}))?$/.exec(entry);
+    if (passiveShort || passiveLong) {
+      let seg: import('../../models/segment.js').AirSegment;
+      if (passiveShort) {
+        const avail = wa.lastAvailability;
+        if (!avail) return NO_AVAIL;
+        const line = avail.lines[parseInt(passiveShort[3], 10) - 1];
+        if (!line) return NO_AVAIL;
+        const status = passiveShort[4];
+        if (status !== 'GK' && !passiveShort[5]) return 'RECORD LOCATOR REQUIRED';
+        seg = {
+          segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+            wa.pnr.carSegments.length + wa.pnr.railSegments.length +
+            wa.pnr.svcSegments.length + 1,
+          carrier: line.carrier, flightNumber: line.flightNumber,
+          bookingClass: passiveShort[2], date: avail.date,
+          dayOfWeek: '?', dayOfWeekNum: 0,
+          origin: line.origin, destination: line.destination,
+          status, seats: parseInt(passiveShort[1], 10),
+          departTime: line.departTime, arriveTime: line.arriveTime,
+          airlineLocator: passiveShort[5],
+        };
+      } else {
+        const m2 = passiveLong!;
+        const status = m2[7];
+        if (status !== 'GK' && !m2[10]) return 'RECORD LOCATOR REQUIRED';
+        // Optional /HHMMHHMM times ("only enter flight times if they
+        // are different from those stored in Amadeus").
+        const dep = m2[9] ? `${m2[9].slice(0, 4)}` : '';
+        const arr = m2[9] ? `${m2[9].slice(4)}` : '';
+        seg = {
+          segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+            wa.pnr.carSegments.length + wa.pnr.railSegments.length +
+            wa.pnr.svcSegments.length + 1,
+          carrier: m2[1], flightNumber: m2[2], bookingClass: m2[3],
+          date: m2[4], dayOfWeek: '?', dayOfWeekNum: 0,
+          origin: m2[5], destination: m2[6],
+          status, seats: parseInt(m2[8], 10),
+          departTime: dep ? `${parseInt(dep.slice(0, 2), 10) % 12 || 12}${dep.slice(2)}${parseInt(dep.slice(0, 2), 10) >= 12 ? 'P' : 'A'}` : '',
+          arriveTime: arr ? `${parseInt(arr.slice(0, 2), 10) % 12 || 12}${arr.slice(2)}${parseInt(arr.slice(0, 2), 10) >= 12 ? 'P' : 'A'}` : '',
+          airlineLocator: m2[10],
+        };
+      }
+      wa.pnr.segments.push(seg);
+      recordHistory(wa.pnr, `SELL ${seg.status} ${seg.carrier}${seg.flightNumber}`);
+      try { wa.machine.transition(SessionEvent.SELL); } catch { /* */ }
+      return ` ${seg.segmentNumber}. ${seg.carrier} ${seg.flightNumber} ${seg.bookingClass} ${seg.date} ${seg.origin} ${seg.destination} ${seg.status}${seg.seats}${seg.airlineLocator ? ' ' + seg.airlineLocator : ''}`;
+    }
+
+    // GGPCA<cxr> — Participating Carrier Access page. Layout VERBATIM
+    // from 875906's UA sample; the per-carrier flag VALUES for our
+    // seeded carriers are reconstructed (all standard-access).
+    const ggpcaMatch = /^GGPCA([A-Z0-9]{2})$/.exec(entry);
+    if (ggpcaMatch) {
+      const cxr = ggpcaMatch[1];
+      return [
+        'PARTICIPATING CARRIER ACCESS AND FUNCTION LEVEL',
+        `${cxr}  -  CARRIER ${cxr}`,
+        '',
+        '     ACCESS INDICATOR :  /       RECORD LOCATOR RETURN :  ALL',
+        '      STANDARD ACCESS :          BOOKING RANGE IN DAYS :  336',
+        '  AMADEUS ACCESS SELL :  YES      INTERACTIVE SEAT MAP :  YES',
+        '',
+        ' PASSIVE SEGMENT: Y      PASSIVE NOTIFY: Y         PNR CLAIM: Y',
+        ' SERVICE SEGMENT: Y      DELETE SEGMENT: Y        TICKETLESS:',
+      ].join('\n');
     }
 
     if (entry.startsWith('SS')) {
