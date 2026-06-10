@@ -1001,7 +1001,12 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       to-end. Still open: the unmined-solutions table in the delta
       doc (passive segments, EMD re-association, XBAG example…).
 
-- [ ] **Worldspan native calibration** — unlocked 2026-06-10: the
+- [ ] **Worldspan native calibration** (IN PROGRESS — commit 1
+      landed: the neutral-availability display renders natively from
+      the Go! Res manual layout — header + alliance/participation
+      sigils + 7-cap + #1 + continuation legs; dispatch still flows
+      through the Galileo translator so sell-from-display semantics
+      are unchanged) — unlocked 2026-06-10: the
       dead globallearningcenter.wspan.com was recovered from the
       Wayback Machine; `references/worldspan/Worldspan-Go-Res-
       Manual-4022-Argentina-2007.pdf` is a first-party Go! Res

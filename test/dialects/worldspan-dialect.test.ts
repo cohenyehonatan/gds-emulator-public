@@ -84,7 +84,9 @@ describe('WorldspanDialect — full PNR lifecycle through the translator', () =>
     });
     const wa = host.newWorkArea();
     expect(await host.process('BSI$5467AB/GS', wa)).toContain('AB SIGNED ON');
-    expect(await host.process('A21NOVJFKLAX', wa)).toContain('JFK-LAX');
+    // Native availability render (calibration arc commit 1) — the
+    // Go! Res manual's header, not Galileo's.
+    expect(await host.process('A21NOVJFKLAX', wa)).toContain('JFKLAX ** ** WL-PLUS');
     expect(await host.process('01Y1', wa)).toContain('SS 1');
     await host.process('-WATKINS/OSCAR MR', wa);
     await host.process('9*DEN3035551234-A', wa);

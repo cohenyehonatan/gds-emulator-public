@@ -202,6 +202,99 @@ function splitWorldspanChain(raw: string): string[] {
   return out.filter((e) => e.length > 0);
 }
 
+/**
+ * Alliance indicator per the Go! Res manual's verbatim legend
+ * (*A Star Alliance, *O OneWorld, *S SkyTeam; blank = none).
+ * Membership for our seeded carriers reconstructed from public
+ * alliance rosters.
+ */
+const WS_ALLIANCE: Record<string, string> = {
+  UA: '*A', LH: '*A', AA: '*O', BA: '*O', DL: '*S', AF: '*S', AZ: '*S',
+};
+
+/**
+ * Participation-level indicator (verbatim legend: blank = Full
+ * Service, $ = Venta Directa/direct sell, # = Airline Source/Host,
+ * * = Acceso Directo/direct access). Per-carrier values
+ * reconstructed — majors as Airline Source.
+ */
+const WS_PARTICIPATION: Record<string, string> = {
+  UA: '#', LH: '#', AA: '#', BA: '#', DL: '#', AF: '#', AZ: '#',
+  B6: '$', FI: '$', '6X': '#',
+};
+
+/**
+ * Native Worldspan neutral-availability display — layout VERBATIM
+ * from the Go! Res manual (references/worldspan/, p.25):
+ *
+ *   29OCT-SA-0700 BUEROM ** ** WL-PLUS
+ *   1*S#AZ 681 J7 D7 I7 Y7 B7 M7 H7 K7 EZEFCO 1445 0735 #1   772 0E
+ *              V7 T7 N7 L1 W.
+ *
+ * Header: <date>-<DOW>-<time> <citypair> ** ** WL-PLUS (** ** = the
+ * timezone indicator outside the US; MT/ET/PT/CT inside — we render
+ * the non-US form). Lines: number + alliance + participation marks,
+ * carrier+flight, EIGHT class pairs per row (counts cap at 7 — the
+ * manual's "J7 = max bookable in one transaction"), citypair, 24h
+ * times, #1 next-day, equipment, stops digit + E e-ticket flag.
+ * Waitlist-state glyphs (B0 open / W. closed / H- carrier-controlled)
+ * aren't modeled — our classes carry plain counts.
+ */
+function renderWorldspanAvailability(avail: import('../../models/availability-result.js').AvailabilityResult): string {
+  const dow = wsDow(avail.date);
+  const lines: string[] = [`${avail.date}-${dow}-0700 ${avail.origin}${avail.destination} ** ** WL-PLUS`];
+  let lineNo = 0;
+  for (const l of avail.lines) {
+    lineNo += 1;
+    const alliance = WS_ALLIANCE[l.carrier] ?? ' ';
+    const part = WS_PARTICIPATION[l.carrier] ?? ' ';
+    const pairs = Object.entries(l.classes).map(([c, n]) => `${c}${Math.min(n, 7)}`);
+    const first = pairs.slice(0, 8).join(' ');
+    const rest = pairs.slice(8).join(' ');
+    const dep = ws24(l.departTime);
+    const arr = ws24(l.arriveTime);
+    const nextDay = wsClockMin(l.arriveTime) <= wsClockMin(l.departTime) ? ' #1' : '';
+    // Connection continuation legs show only the destination
+    // (manual line 4: `4*A#LH3840 … FCO 0735 0920 #1`).
+    const isContinuation = l.connectionGroup != null && (l.legIndex ?? 0) > 0;
+    const cityBlock = isContinuation ? `   ${l.destination}` : `${l.origin}${l.destination}`;
+    const head = `${lineNo}${alliance.padEnd(2)}${part}${l.carrier}${l.flightNumber.padStart(4)}`;
+    lines.push(`${head} ${first} ${cityBlock} ${dep} ${arr}${nextDay}   ${l.equipment} 0E`);
+    if (rest) lines.push(`${' '.repeat(head.length + 1)}${rest}`);
+  }
+  return lines.join('\n');
+}
+
+function wsDow(date: string): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
+  if (!m) return '--';
+  const mon = months.indexOf(m[2]);
+  const now = new Date();
+  let t = new Date(Date.UTC(now.getUTCFullYear(), mon, parseInt(m[1], 10)));
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (t < today) t = new Date(Date.UTC(now.getUTCFullYear() + 1, mon, parseInt(m[1], 10)));
+  return ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][t.getUTCDay()];
+}
+
+function ws24(t: string): string {
+  const m = /^(\d{1,2})(\d{2})([APN])$/.exec(t);
+  if (!m) return t;
+  let h = parseInt(m[1], 10) % 12;
+  if (m[3] === 'P') h += 12;
+  if (m[3] === 'N') h = 12;
+  return `${String(h).padStart(2, '0')}${m[2]}`;
+}
+
+function wsClockMin(t: string): number {
+  const m = /^(\d{1,2})(\d{2})([APN])$/.exec(t);
+  if (!m) return 0;
+  let h = parseInt(m[1], 10) % 12;
+  if (m[3] === 'P') h += 12;
+  if (m[3] === 'N') h = 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+
 const WS_HELP_BANNER =
   'EMULATOR HELP — Worldspan forms this terminal accepts (host help screens are not public)';
 
@@ -291,7 +384,18 @@ export class WorldspanDialect implements Dialect {
       if (err instanceof ParseError) return GalileoResponse.FORMAT;
       throw err;
     }
-    return dispatchGalileo(entry, wa, ctx);
+    const result = dispatchGalileo(entry, wa, ctx);
+    // Native availability render (Worldspan-native-calibration arc,
+    // commit 1): availability requests still dispatch through
+    // Galileo so wa.lastAvailability is populated (keeping the
+    // sell-from-display semantics), but the SCREEN is the Go! Res
+    // manual's verbatim layout, not Galileo's.
+    if (entry.kind === 'availability' && wa.lastAvailability && wa.lastAvailability.lines.length > 0) {
+      return Promise.resolve(result).then((r) =>
+        this.isErrorResponse(r) ? r : renderWorldspanAvailability(wa.lastAvailability!),
+      );
+    }
+    return result;
   }
 
   isErrorResponse(response: string): boolean {
