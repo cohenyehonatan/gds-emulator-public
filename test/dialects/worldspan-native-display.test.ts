@@ -140,3 +140,30 @@ describe('encode/decode — Worldspan KC/KD/KAC/KAD (manual p.25) + Galileo .C/.
     expect(await h.process('KD/ZZZ', wa)).toBe('CODE NOT FOUND');
   });
 });
+
+describe('native sold-segment response (manual p.31, verbatim shape)', () => {
+  it('sell renders the Worldspan line: concatenated cxr+flt+cls, DOW, citypair, /O + part + E', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    await h.process('A15JANHELBKK', wa);
+    const resp = await h.process('01Y1', wa);
+    // `1 6X 089Y 15JAN FR HELBKK SS1    1650   0735 #1/O #   E`
+    expect(resp).toMatch(/^1 6X {1,2}089Y 15JAN [A-Z]{2} HELBKK SS1 {4}1650 {3}0735 #1\/O #   E$/);
+  });
+
+  it('multi-seat sell + non-overnight leg render correctly', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    await h.process('A15JULJFKLAX', wa);
+    const resp = await h.process('02Y2', wa);
+    expect(resp).toMatch(/SS2 {4}0800 {3}1100\/O/);
+    expect(resp).not.toContain('#1');
+  });
+
+  it('failed sells pass through untouched', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    const resp = await h.process('01Y1', wa); // no display
+    expect(h.dialect.isErrorResponse(resp) || !resp.includes('/O')).toBe(true);
+  });
+});

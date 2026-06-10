@@ -1001,12 +1001,16 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       to-end. Still open: the unmined-solutions table in the delta
       doc (passive segments, EMD re-association, XBAG example…).
 
-- [ ] **Worldspan native calibration** (IN PROGRESS — commit 1
-      landed: the neutral-availability display renders natively from
-      the Go! Res manual layout — header + alliance/participation
-      sigils + 7-cap + #1 + continuation legs; dispatch still flows
-      through the Galileo translator so sell-from-display semantics
-      are unchanged) — unlocked 2026-06-10: the
+- [ ] **Worldspan native calibration** (IN PROGRESS — commits 1-4
+      landed: native availability display, the HELP AVAILCONT
+      continuation family (AD/A*/AT/AY/A<n>D/A<date>/A-<cxr>/A/R/
+      A@A/A@D), encode/decode KC/KD/KAC/KAD across all three
+      Travelport-family dialects — which also fixed Galileo's
+      over-claiming H/DECODE help topic — and the native sold-
+      segment response. Remaining in the manual: the S schedule
+      display (needs frequency/EFF-DIS data we don't model), the
+      PNR display, waitlist ∅L sells, seats chapter) — unlocked
+      2026-06-10: the
       dead globallearningcenter.wspan.com was recovered from the
       Wayback Machine; `references/worldspan/Worldspan-Go-Res-
       Manual-4022-Argentina-2007.pdf` is a first-party Go! Res

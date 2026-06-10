@@ -282,6 +282,21 @@ function wsAddDays(date: string, n: number): string {
   return `${t.getUTCDate()}${months[t.getUTCMonth()]}`;
 }
 
+/**
+ * Verbatim sold-segment line (Go! Res manual p.31). The /O marker
+ * appears on every published sample (undocumented in the legend —
+ * rendered literally); $ /# is the participation mark; E flags
+ * e-ticket acceptance.
+ */
+function renderWorldspanSoldSegment(seg: import('../../models/segment.js').AirSegment): string {
+  const part = WS_PARTICIPATION[seg.carrier] ?? ' ';
+  const dep = ws24(seg.departTime);
+  const arr = ws24(seg.arriveTime);
+  const nextDay = seg.departTime && seg.arriveTime && wsClockMin(seg.arriveTime) <= wsClockMin(seg.departTime) ? ' #1' : '';
+  const dow = wsDow(seg.date);
+  return `${seg.segmentNumber} ${seg.carrier}${seg.flightNumber.padStart(4)}${seg.bookingClass} ${seg.date} ${dow} ${seg.origin}${seg.destination} ${seg.status}${seg.seats}    ${dep}   ${arr}${nextDay}/O ${part}   E`;
+}
+
 function wsDow(date: string): string {
   const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
@@ -446,7 +461,24 @@ export class WorldspanDialect implements Dialect {
       if (err instanceof ParseError) return GalileoResponse.FORMAT;
       throw err;
     }
+    const segsBefore = wa.pnr.segments.length;
     const result = dispatchGalileo(entry, wa, ctx);
+    // Native sold-segment response (calibration arc commit 4) —
+    // verbatim line shape from the Go! Res manual p.31:
+    //   1 IB6842Y 20MAY EZEMAD SS1     1310   0510 /O $   E
+    //   1 DL 100Y 10SEP SA EZEATL SS1    2145   0655 #1/O $ E
+    // (segment number, carrier+flight+class concatenated, date,
+    // 2-letter DOW, concatenated city pair, status+seats, 24h
+    // times, #1 next-day, the /O marker, participation mark, E.)
+    if (entry.kind === 'sell') {
+      return Promise.resolve(result).then((r) => {
+        if (this.isErrorResponse(r) || wa.pnr.segments.length <= segsBefore) return r;
+        return wa.pnr.segments
+          .slice(segsBefore)
+          .map((seg) => renderWorldspanSoldSegment(seg))
+          .join('\n');
+      });
+    }
     // Native availability render (Worldspan-native-calibration arc,
     // commit 1): availability requests still dispatch through
     // Galileo so wa.lastAvailability is populated (keeping the

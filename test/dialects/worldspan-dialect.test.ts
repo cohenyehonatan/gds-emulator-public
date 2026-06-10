@@ -87,7 +87,8 @@ describe('WorldspanDialect — full PNR lifecycle through the translator', () =>
     // Native availability render (calibration arc commit 1) — the
     // Go! Res manual's header, not Galileo's.
     expect(await host.process('A21NOVJFKLAX', wa)).toContain('JFKLAX ** ** WL-PLUS');
-    expect(await host.process('01Y1', wa)).toContain('SS 1');
+    // Native sold-segment line (calibration arc commit 4).
+    expect(await host.process('01Y1', wa)).toMatch(/^1 B6 {1,2}615Y 21NOV [A-Z]{2} JFKLAX SS1/);
     await host.process('-WATKINS/OSCAR MR', wa);
     await host.process('9*DEN3035551234-A', wa);
     await host.process('6JACKIE', wa);
