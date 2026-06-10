@@ -261,3 +261,21 @@ describe('Apollo seat map — 9V/ proper Apollo cryptic + SA*/SM* Galileo-style 
     expect(resp).toContain('LEGEND');
   });
 });
+
+describe('77W / 359 equipment seat maps (live-session gap)', () => {
+  it('SA*S1 on the AF 77W and 6X 359 flights renders a map instead of NO SEAT MAP AVAILABLE', async () => {
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'A0UC' });
+    for (const [avail, expectEq] of [
+      ['A01JULCDGJFK', 'EQP 77W'],
+      ['A15JANHELBKK', 'EQP 359'],
+    ] as const) {
+      const wa = host.newWorkArea();
+      await host.process('SON/Z01UC', wa);
+      await host.process(avail, wa);
+      await host.process('N1F1', wa);
+      const resp = await host.process('SA*S1', wa);
+      expect(resp, avail).toContain(expectEq);
+      expect(resp, avail).not.toContain('NO SEAT MAP');
+    }
+  });
+});

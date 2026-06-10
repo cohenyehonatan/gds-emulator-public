@@ -139,4 +139,11 @@ export const SEAT_MAP_SEED: Record<string, Cabin[]> = {
   '75W': B757300,
   '76W': B767300,
   '777': B777,
+  // 777-300ER + A350-900 — both 3-3-3 economy widebodies; reuse the
+  // B777 structural layout (these are synthetic layouts either way).
+  // Added when a live session hit NO SEAT MAP AVAILABLE on AF 002
+  // (77W) — the AF/6X flights were seeded for the EMD arcs without
+  // seat-map equipment keys.
+  '77W': B777,
+  '359': B777,
 };
