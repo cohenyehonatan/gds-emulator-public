@@ -863,13 +863,54 @@ different upside.
       placeholder creds when TVP_REPLAY is set, so verifier scripts
       run from a recording without shell-env setup.
 
-## v6 — Available arcs (surveyed 2026-06-09)
+## v6 — Available arcs (surveyed + COMPLETED 2026-06-09)
 
-State of the union after v4 chunk 30: the Sabre v1-v3 core, the
-seat-map arc (12/12 parity fixes), the v4 Amadeus surface (30
-chunks, ~150 verbs), the hotel/car domains, and the behavior layer
-(NUC/EMS/HIP/BHC/MCT/EU-ranking) are all landed. What remains falls
-into four buckets.
+🏁 **MILESTONE (2026-06-09): everything buildable from public sources
+is built.** Final state: 5 dialects (Sabre, Galileo 1G live-validated,
+Apollo 1V, Amadeus ~150 verbs, Worldspan 1P), 3 non-air domains
+(hotel / car / rail) with cross-dialect cryptic, the full documented
+IATA fare-construction sequence (NUC/EMS/HIP/BHC, chunks 27+30),
+EU-Reg-80/2009-compliant display ranking, the OAG-shaped layered MCT
+model, live 1G wire with capture/replay + 3-dialect diff oracle, and
+CRT both local and over TCP. 1469 tests. Every checkbox below is
+either done or annotated with exactly what blocks it.
+
+What remains, by blocker:
+
+**Blocked on third parties (not effort):**
+- Production Travelport tenant — five live behaviors wired
+  canonically but silently broken on the 7K9S trial (commission
+  `documentoverrides`, reservation comments, fare rules from fare
+  display, per-offer cancel, `CancelSelectedOffers`). Ready to
+  validate the day production access exists.
+- Licensed datasets — real IROE table (IATA subscription), real OAG
+  MCT records (OAG license). Synthetic stand-ins flagged at their
+  definitions.
+- Commercial alliance ranking — unpublished industry-wide; we ship
+  the EU-mandated neutral display (Annex I) instead.
+
+**Blocked on sources (formats no public document pins):**
+- Sabre: WFR refund variants (name-selected / redisplay / list-pick),
+  `WPPL`/`WPPV`/`WPB`/`WP¥TC` pricing qualifiers, OB/baggage fees,
+  validating-carrier alternates, segment-specific SSR format, the
+  spaced-vs-concatenated carrier+flight ambiguity, and the HOT/CF
+  hotel-car column (sparsest in the Comparison Guide; the in-tree
+  Sabre QRs don't cover hotel/car).
+- Worldspan: `H0/R-` hotel sell + `CRD` descriptions, `B$` area
+  display, `AD` more-availability — single modifier-heavy guide
+  examples, not decomposable into a grammar.
+- These can move the way FFA/FFR and HIP did: a future source-hunting
+  dig (agency PDFs, Smartpoint Cloud Help, GDS-help blogs) is the one
+  repeatable lever left.
+
+**Optional / out of repo:**
+- BHS integration — lives in the aviation-suite repo; explicitly
+  "possible v4, optional."
+- Amadeus verbatim screens — more Service Hub solution pages can be
+  scraped one-by-one to upgrade reconstructed response wording (the
+  FFA / seat-map extraction pattern). Open-ended polish, not a gap.
+
+The original survey (all items now resolved or annotated):
 
 ### Real gaps, closable now
 
