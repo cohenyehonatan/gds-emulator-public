@@ -476,3 +476,35 @@ describe('polish — EMD record body + EWA association (866006 verbatim)', () =>
     expect(await h.process('EWA/ASC/E1/TKT057-1234567890/E1', wa)).toBe('NO EMD RECORD DISPLAYED');
   });
 });
+
+describe('polish — TGAD interline agreements (2318986 verbatim)', () => {
+  it('TGAD-BA renders the published table rows byte-for-byte', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    const resp = await h.process('TGAD-BA', wa);
+    const lines = resp.split('\n');
+    expect(lines[0]).toBe('--AIRLINES HAVING AGREEMENT WITH: BA');
+    expect(lines[1]).toBe('AA  TPED - AC  TPED - AE  TPE  - AF  TPE');
+    expect(lines[2]).toBe('AH  TPE  - AI  T E  - AM  TPE  - AS  TPED');
+  });
+
+  it('TGAD-BA/IB shows the spaced pair form; unknown pair → NO AGREEMENT', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    const resp = await h.process('TGAD-BA/IB', wa);
+    expect(resp).toBe('--AIRLINES HAVING AGREEMENT WITH: BA\nIB  T P E D');
+    expect(await h.process('TGAD-BA/ZZ', wa)).toBe('NO AGREEMENT');
+  });
+
+  it('carriers without a published table fall back to the reconstructed grid', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    const resp = await h.process('TGAD-6X', wa);
+    expect(resp).toContain('--AIRLINES HAVING AGREEMENT WITH: 6X');
+    expect(resp).toContain('TPED');
+    expect(resp).not.toMatch(/^6X {2}/m); // self excluded
+  });
+});

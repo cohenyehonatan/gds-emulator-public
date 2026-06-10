@@ -1141,6 +1141,31 @@ function renderAmadeusEwh(e: import('../../models/emd.js').EmdRecord): string {
   return lines.join('\n');
 }
 
+/**
+ * Interline agreement tables (TGAD) — BA's rows VERBATIM from
+ * Service Hub solution 2318986 (T ticketing / P prepaid / E
+ * electronic ticket / D EMD). Carriers without a published table
+ * fall back to a reconstructed all-TPED grid.
+ */
+const TGAD_AGREEMENTS: Record<string, [string, string][]> = {
+  BA: [
+    ['AA', 'TPED'], ['AC', 'TPED'], ['AE', 'TPE'], ['AF', 'TPE'],
+    ['AH', 'TPE'], ['AI', 'T E'], ['AM', 'TPE'], ['AS', 'TPED'],
+    ['AT', 'TPE'], ['AV', 'TPE'], ['AY', 'TPED'], ['AZ', 'TPE'],
+    ['A3', 'T E'], ['BA', 'TP'], ['BG', 'T E'], ['BI', 'TPED'],
+    ['BP', 'TPE'], ['BR', 'TPE'], ['BT', 'TPE'], ['BW', 'TPE'],
+    ['B6', 'T E'], ['CA', 'TPE'], ['CI', 'TPE'], ['CM', 'TPE'],
+    ['CX', 'TPED'], ['CZ', 'TPE'], ['DL', 'TPE'], ['DT', 'TPE'],
+    ['EI', 'TPED'], ['ET', 'TPE'], ['EY', 'TPE'], ['EZ', 'TP'],
+    ['FB', 'TPE'], ['FI', 'TPE'], ['FJ', 'TPE'], ['GA', 'TPE'],
+    ['GF', 'TPE'], ['GK', 'TPE'], ['G3', 'TPE'], ['HA', 'TPE'],
+    ['HM', 'TPE'], ['HX', 'TPE'], ['IB', 'TPED'], ['IC', 'TPE'],
+    ['IZ', 'TPE'], ['JJ', 'TPE'], ['JL', 'TPED'], ['JM', 'TPE'],
+    ['JQ', 'TPE'], ['JU', 'TPED'], ['JY', 'TPE'], ['KC', 'TPE'],
+    ['KE', 'TPED'], ['KL', 'TPE'], ['KM', 'TPE'], ['KP', 'TPE'],
+  ],
+};
+
 const RFIC_NAMES: Record<string, string> = {
   A: 'AIR TRANSPORTATION', C: 'BAGGAGE', D: 'FINANCIAL IMPACT',
   E: 'AIRPORT SERVICES', G: 'IN-FLIGHT SERVICES',
@@ -3310,6 +3335,29 @@ export class AmadeusDialect implements Dialect {
     //   EWDRL / EWDRT                  redisplay list / record
     // The EMD list screen is verbatim (873296); the record screen is
     // reconstructed on the TWD pattern (no published sample), flagged.
+    // --- polish: ticketing/EMD interline agreements (TGAD) ---
+    // Forms + screen VERBATIM from Service Hub solution 2318986.
+    // BA's table is the published data; other carriers fall back to
+    // a reconstructed all-TPED grid over our seeded carriers.
+    const tgadMatch = /^TGAD-([A-Z0-9]{2})(?:\/([A-Z0-9]{2}))?$/.exec(entry);
+    if (tgadMatch) {
+      const rows = TGAD_AGREEMENTS[tgadMatch[1]] ??
+        ['AA', 'AF', 'B6', 'BA', 'DL', 'FI', 'LH', 'UA', '6X'].filter((c) => c !== tgadMatch[1]).map((c) => [c, 'TPED'] as [string, string]);
+      if (tgadMatch[2]) {
+        const pair = rows.find(([c]) => c === tgadMatch[2]);
+        if (!pair) return 'NO AGREEMENT';
+        // Pair display spaces the flag letters (verbatim: IB  T P E D).
+        return `--AIRLINES HAVING AGREEMENT WITH: ${tgadMatch[1]}\n${pair[0]}  ${pair[1].split('').join(' ')}`;
+      }
+      // Verbatim cell join: flags padded to 4, ' - ' separator.
+      const cells = rows.map(([c, f]) => `${c}  ${f.padEnd(4)}`);
+      const lines: string[] = [`--AIRLINES HAVING AGREEMENT WITH: ${tgadMatch[1]}`];
+      for (let i = 0; i < cells.length; i += 4) {
+        lines.push(cells.slice(i, i + 4).join(' - ').trimEnd());
+      }
+      return lines.join('\n');
+    }
+
     // --- polish: TSM-P flow (TMC create / TQM index / TTM/M issue) ---
     // TMC mask layout VERBATIM from solution 823571; TQM wording
     // reconstructed (the QRG documents the entry, not the screen).
