@@ -155,6 +155,9 @@ export class WorkAreaSlot {
   /** Index into pnr.emds of the last EWD-displayed record (EWDRT). */
   lastEmdIndex?: number;
 
+  /** Last Worldspan schedule request — S-continuations re-run it. */
+  lastSchedule?: { date: string; origin: string; destination: string; carrier?: string };
+
   /** Last FXK ancillary catalog — FWK<n> books from it (chunk 36b). */
   lastFxkCatalog?: { carrier: string; code: string; passenger: number }[];
 
@@ -219,6 +222,7 @@ export class WorkAreaSlot {
     this.lastFailedEntry = undefined;
     this.lastEmdIndex = undefined;
     this.lastFxkCatalog = undefined;
+    this.lastSchedule = undefined;
     this.lastHelpScreen = undefined;
   }
 }
@@ -417,6 +421,12 @@ export class WorkArea {
   }
   set lastRailAvail(v: WorkAreaSlot['lastRailAvail']) {
     this.s.lastRailAvail = v;
+  }
+  get lastSchedule(): WorkAreaSlot['lastSchedule'] {
+    return this.s.lastSchedule;
+  }
+  set lastSchedule(v: WorkAreaSlot['lastSchedule']) {
+    this.s.lastSchedule = v;
   }
   get lastFxkCatalog(): WorkAreaSlot['lastFxkCatalog'] {
     return this.s.lastFxkCatalog;

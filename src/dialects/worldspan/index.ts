@@ -230,6 +230,62 @@ const WS_PARTICIPATION: Record<string, string> = {
   B6: '$', FI: '$', '6X': '#',
 };
 
+/** Destination-timezone indicator for the schedule header (manual:
+ *  MT/ET/PT/CT inside the US, ** outside). */
+const WS_TZ: Record<string, string> = {
+  JFK: 'ET', LAX: 'PT', SFO: 'PT', ORD: 'CT', DEN: 'MT', DFW: 'CT',
+};
+
+/**
+ * Schedule display (S entry) — Go! Res manual pp.27-28 verbatim
+ * layout. Classes render WITHOUT availability counts; frequency,
+ * EFF/DIS and meal codes are synthesized (daily year-round seed),
+ * flagged in the dispatch comment.
+ */
+function renderWorldspanSchedule(
+  wa: WorkArea,
+  ctx: HandlerContext,
+  origin: string,
+  destination: string,
+  date: string,
+  carrier?: string,
+): string {
+  const dow = wsDow(date);
+  const all = ctx.backend.inventory.availability(
+    date, { letter: dow[0], num: 1 }, origin, destination, {},
+  );
+  const lines = carrier ? all.filter((l) => l.carrier === carrier) : all;
+  if (lines.length === 0) return 'NO FLIGHTS';
+  wa.lastSchedule = { date, origin, destination, carrier };
+  const tz = WS_TZ[destination] ?? '**';
+  const out: string[] = [`${date}-${dow}-0700 ${origin}${destination} ** ${tz}`];
+  let n = 0;
+  for (const l of lines) {
+    n += 1;
+    const part = WS_PARTICIPATION[l.carrier] ?? ' ';
+    const classes = Object.keys(l.classes).join(' ');
+    const dep = ws24(l.departTime);
+    const arr = ws24(l.arriveTime);
+    const nextDay = wsClockMin(l.arriveTime) <= wsClockMin(l.departTime) ? ' #1' : '';
+    const isCont = l.connectionGroup != null && (l.legIndex ?? 0) > 0;
+    const cityBlock = isCont ? `   ${l.destination}` : `${l.origin}${l.destination}`;
+    const meal = wsMeal(l.departTime);
+    out.push(`${n}.DLY  ${part}${l.carrier}${l.flightNumber.padStart(4)} ${classes}   ${cityBlock} ${dep} ${arr}${nextDay}    ${l.equipment} ${meal}0`);
+    out.push('         EFF 01JAN DIS 31DEC');
+  }
+  return out.join('\n');
+}
+
+/** Meal code from departure hour (synthetic): B breakfast, L lunch,
+ *  D dinner, S snack. */
+function wsMeal(dep: string): string {
+  const mins = wsClockMin(dep);
+  if (mins >= 360 && mins < 600) return 'BB';
+  if (mins >= 660 && mins < 840) return 'LL';
+  if (mins >= 1020 && mins < 1260) return 'DD';
+  return 'SS';
+}
+
 /**
  * Native Worldspan neutral-availability display — layout VERBATIM
  * from the Go! Res manual (references/worldspan/, p.25):
@@ -446,6 +502,36 @@ export class WorldspanDialect implements Dialect {
     if (helpMatch) {
       return renderWorldspanHelp(helpMatch[1]);
     }
+    // Schedule display — S<date><org><dst>[-<cxr>] + continuations
+    // (Go! Res manual pp.27-28, layout + legend verbatim):
+    //   10NOV-TH-0700 BUEMIA ** ET
+    //   1.DLY  #AA 900 J D S Y W B H M   EZEMIA 2145 0440 #1   763 DD0
+    //            EFF 06NOV DIS 26MAR
+    // Shows operating classes WITHOUT counts, frequency (DLY / 246 /
+    // X7 notation), EFF/DIS effectivity, meals + stops. Our seeded
+    // flights are all daily year-round, so freq renders DLY and
+    // EFF 01JAN DIS 31DEC (SYNTHETIC — no effectivity data); meal
+    // codes derive from departure hour (synthetic, flagged).
+    // Continuations (verbatim forms): S-DL · S5OCT · SD/SU redisplay
+    // · S/R[<date>] return · SC1/SC2 class paging (single screen —
+    // both redisplay).
+    const schedReq = /^S(\d{1,2}[A-Z]{3})([A-Z]{3})([A-Z]{3})(?:-([A-Z0-9]{2}))?$/.exec(u);
+    if (schedReq) {
+      return renderWorldspanSchedule(wa, ctx, schedReq[2], schedReq[3], schedReq[1], schedReq[4]);
+    }
+    const sched = wa.lastSchedule;
+    if (sched) {
+      if (u === 'SD' || u === 'SU' || u === 'SC1' || u === 'SC2') {
+        return renderWorldspanSchedule(wa, ctx, sched.origin, sched.destination, sched.date, sched.carrier);
+      }
+      const sCxr = /^S-([A-Z0-9]{2})$/.exec(u);
+      if (sCxr) return renderWorldspanSchedule(wa, ctx, sched.origin, sched.destination, sched.date, sCxr[1] === 'YY' ? undefined : sCxr[1]);
+      const sDate = /^S(\d{1,2}[A-Z]{3})$/.exec(u);
+      if (sDate) return renderWorldspanSchedule(wa, ctx, sched.origin, sched.destination, sDate[1], sched.carrier);
+      const sRet = /^S\/R(\d{1,2}[A-Z]{3})?$/.exec(u);
+      if (sRet) return renderWorldspanSchedule(wa, ctx, sched.destination, sched.origin, sRet[1] ?? sched.date, sched.carrier);
+    }
+
     // Availability continuation entries (calibration arc commit 2)
     // — forms VERBATIM from the Go! Res manual's HELP AVAILCONT
     // table (p.26). Each re-runs the cached request with a delta and

@@ -214,3 +214,38 @@ describe('native PNR display (manual p.45 ER walkthrough, verbatim layout)', () 
     expect(resp).not.toContain('1P- ');
   });
 });
+
+describe('schedule display — S entry (manual pp.27-28, layout verbatim)', () => {
+  it('S<date><pair> renders header with destination timezone + DLY/EFF/DIS rows', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    const resp = await h.process('S15JULJFKLAX', wa);
+    const lines = resp.split('\n');
+    expect(lines[0]).toMatch(/^15JUL-[A-Z]{2}-0700 JFKLAX \*\* PT$/); // LAX = Pacific
+    // Classes WITHOUT counts; meal+stops trailer.
+    expect(lines[1]).toMatch(/^1\.DLY {2}\$B6 {1,2}615 Y B M {3}JFKLAX 0700 1015 {4}32A BB0$/);
+    expect(lines[2]).toBe('         EFF 01JAN DIS 31DEC');
+    expect(resp).not.toMatch(/Y\d/); // no availability counts
+  });
+
+  it('continuations: S-<cxr> filters, S/R swaps (ET dest), S<date> re-dates, SD redisplays', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    await h.process('S15JULJFKLAX', wa);
+    const filtered = await h.process('S-AA', wa);
+    expect(filtered).toContain('AA');
+    expect(filtered).not.toContain('B6');
+    expect((await h.process('S/R', wa)).split('\n')[0]).toContain('LAXJFK ** ET');
+    expect((await h.process('S22JUL', wa)).split('\n')[0]).toContain('22JUL');
+    expect((await h.process('SD', wa)).split('\n')[0]).toContain('22JUL'); // redisplay keeps state
+  });
+
+  it('meal codes track departure hour; unknown market → NO FLIGHTS', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    const resp = await h.process('S15JULJFKLAX', wa);
+    expect(resp).toContain('1300 1600    320 LL0'); // midday = lunch
+    expect(resp).toContain('1800 2100    32B DD0'); // evening = dinner
+    expect(await h.process('S15JULXXXYYY', wa)).toBe('NO FLIGHTS');
+  });
+});
