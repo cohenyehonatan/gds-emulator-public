@@ -97,3 +97,42 @@ describe('unified element numbering', () => {
     expect(display).toContain('1650 0735+1');
   });
 });
+
+describe('chunk 35 — post-issuance e-ticket lines + invariants (906462)', () => {
+  async function ticketed(h: GdsHost) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN15JANHELBKK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    await h.process('AP NCE 555-1212-H', wa);
+    await h.process('TKOK', wa);
+    await h.process('RF AGT', wa);
+    await h.process('FXP', wa);
+    await h.process('TTP', wa);
+    return wa;
+  }
+
+  it('ticketed PNR carries the verbatim ET FA/FB/FM/FV line family', async () => {
+    const h = makeHost();
+    const wa = await ticketed(h);
+    const er = await h.process('ER', wa);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)![1];
+    const wa2 = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa2);
+    const display = await h.process(`RT${locator}`, wa2);
+    expect(display).toMatch(/FA PAX 172-\d{10}\/ET6X\/\d+\.\d{2}\/\d{1,2}[A-Z]{3}\d{2}\/NCE1A0900\/\d{8}\/S2/);
+    expect(display).toMatch(/FB PAX \d{10} TTP\/RT OK ETICKET\/S2/);
+    expect(display).toMatch(/FM PAX \*C\*0\.00\/S2/);
+    expect(display).toMatch(/FV PAX 6X\/S2/);
+    // TK element gains the //ET<cxr> suffix once ticketed (906462).
+    expect(display).toMatch(/TK OK\/NCE1A0900\/\/ET6X/);
+  });
+
+  it('name modify is blocked after issuance (the published invariant)', async () => {
+    const h = makeHost();
+    const wa = await ticketed(h);
+    expect(await h.process('NU1/1JONES/KATY MS', wa)).toBe('NAME CHANGE NOT ALLOWED - TICKET ISSUED');
+    expect(wa.pnr.names[0].surname).toBe('SMITH');
+  });
+});

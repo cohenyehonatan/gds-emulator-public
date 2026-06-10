@@ -808,7 +808,23 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
     push(` RM ${rm.text}`);
   }
 
-  // 8. Document elements — FA/FB shapes VERBATIM from 797696
+  // 8. E-ticket document elements — chunk 35, shapes VERBATIM from
+  //    906462 ("How to issue an e-ticket"): FA PAX <num>/ET<cxr>/
+  //    <cur><amt>/<date>/<office>/<iata>/S<segs> + FB AIR number +
+  //    FM commission + FV validating carrier. (FE endorsement not
+  //    modeled — no endorsement text on TicketRecord.)
+  const segRange = pnr.segments.length > 1 ? `S2-${pnr.segments.length + 1}` : 'S2';
+  pnr.tickets.forEach((t, i) => {
+    const d = t.issuedAt;
+    const date = `${d.getUTCDate()}${months[d.getUTCMonth()]}${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
+    const dashed = `${t.number.slice(0, 3)}-${t.number.slice(3)}`;
+    push(` FA PAX ${dashed}/ET${t.validatingCarrier}/${t.total.toFixed(2)}/${date}/${pcc}/${String(i + 1).padStart(8, '0')}/${segRange}`);
+    push(` FB PAX ${String(i).padStart(10, '0')} TTP/RT OK ETICKET/${segRange}`);
+    push(` FM PAX *C*${(t.commission ?? 0).toFixed(2)}/${segRange}`);
+    push(` FV PAX ${t.validatingCarrier}/${segRange}`);
+  });
+
+  // 9. EMD document elements — FA/FB shapes VERBATIM from 797696
   //    (DT prefix = EMD vs ET = e-ticket; /E<n> element assoc).
   pnr.emds.forEach((e, i) => {
     if (e.manual) {
@@ -2400,6 +2416,10 @@ export class AmadeusDialect implements Dialect {
     // first, then bare-given-name-only.
     const nuMatch = /^NU([1-9]\d?)\/(.+)$/.exec(entry);
     if (nuMatch) {
+      // 906462 post-issuance rule (verbatim rule, reconstructed
+      // wording): "you cannot change the name element" once an
+      // e-ticket exists.
+      if (wa.pnr.tickets.length > 0) return 'NAME CHANGE NOT ALLOWED - TICKET ISSUED';
       const idx = parseInt(nuMatch[1], 10) - 1;
       if (idx < 0 || idx >= wa.pnr.names.length) return 'NAME NOT IN PNR';
       const body = nuMatch[2];

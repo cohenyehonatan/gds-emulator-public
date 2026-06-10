@@ -985,8 +985,9 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       across names/segments/AP/TK/SSR/OSI/RM/FA/FB, 24h times + +1,
       *1A/E*, SS→HK flip at commit; still unmodeled: MSC tag, OPW/
       OPC elements, OPERATED BY sublines, RT<n>/RT0 list nav),
-      the TTP post-issuance PNR mutation (35 — ET FA/FB/FE/FM/FV
-      lines + post-ticket invariants), and SVC segments + FXK
+      the TTP post-issuance PNR mutation (35 — LANDED: ET FA/FB/FM/FV
+      lines + TK //ET suffix + the no-name-change invariant; FE
+      endorsement + no-FA-cancel still open), and SVC segments + FXK
       ancillary catalogue (36 — unlocks the SVC-method EMD rows
       already seeded). Plus a table of unmined solutions.
 
