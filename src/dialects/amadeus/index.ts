@@ -783,6 +783,10 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
   for (const r of pnr.railSegments) {
     itin.push({ seg: r.segmentNumber, text: ` TRN ${r.provider} ${r.trainNumber} ${r.bookingClass} ${r.date} ${r.origin} ${r.destination} ${r.status}${r.seats} ${r.departTime} ${r.arriveTime} ${r.confirmationNumber ?? ''}`.trimEnd() });
   }
+  for (const v of pnr.svcSegments) {
+    // Verbatim line shape (843687): ` /SVC 6X HK1 LOUS JFK 15APR-VIP XXX`
+    itin.push({ seg: v.segmentNumber, text: ` /SVC ${v.carrier} ${v.status}${v.count} ${v.code}${v.origin ? ' ' + v.origin : ''}${v.date ? ' ' + v.date : ''}${v.text ? '-' + v.text : ''}` });
+  }
   itin.sort((a, b) => a.seg - b.seg).forEach((e) => push(e.text));
 
   // 3. Contact (AP) family.
@@ -3103,6 +3107,21 @@ export class AmadeusDialect implements Dialect {
     if (entry === 'TTM' || entry.startsWith('TTM/')) {
       if (wa.pnr.names.length === 0) return 'NEEDS NAME';
       const charge = chargeableSsrs(wa.pnr, ctx);
+      // SVC segments issue too — booking method SVC rows of the
+      // carrier's EMD guide (QRG: "Issue the EMDs for all SSR
+      // elements/SVC segments"). This is what makes the LH CANC/
+      // DPST/PENF guide rows sellable end-to-end.
+      wa.pnr.svcSegments.forEach((svc, i) => {
+        const svcService = ctx.backend.inventory.emdServicesFor(svc.carrier)
+          .find((e2) => e2.code === svc.code && e2.bookingMethod === 'SVC');
+        if (svcService) {
+          charge.push({
+            ssr: { code: svc.code, carrier: svc.carrier, status: 'HK' },
+            service: { ...svcService, detail: { ...(svcService.detail ?? {}), emdType: 'S' } },
+            index: 100 + i, // distinct elementRef space from SSRs
+          });
+        }
+      });
       if (charge.length === 0) return 'NO CHARGEABLE SERVICES';
       let selected = charge;
       const lMatch = /\/L(\d+)(?:-(\d+))?/.exec(entry);
@@ -3546,6 +3565,36 @@ export class AmadeusDialect implements Dialect {
       recordHistory(wa.pnr, `CS ${rental.company}${rental.vehicleType} ${cached.pickup}-${cached.dropoff}`);
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return renderCarSegment(seg);
+    }
+
+    // --- chunk 36: auxiliary service segment (IU) ---
+    // Entry + PNR line VERBATIM from Service Hub solution 843687:
+    //   IU 6X NN1 LOUS JFK/15APR-VIP XXX/P1
+    //   -> 2 /SVC 6X HK1 LOUS JFK 15APR-VIP XXX
+    // NN confirms to HK immediately (local segment, never sent to a
+    // DCS). Multi-pax PNRs require the /P association (per the
+    // solution). The 4-day purge rule isn't modeled (no clock).
+    const iuMatch = /^IU ([A-Z0-9]{2}) NN(\d) ([A-Z]{4})(?: ([A-Z]{3}))?(?:\/(\d{1,2}[A-Z]{3}))?(?:-([^/]+))?(?:\/P(\d+))?$/.exec(entry);
+    if (iuMatch) {
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const paxCount = wa.pnr.names.reduce((acc, nm) => acc + nm.passengers.length, 0);
+      if (paxCount > 1 && !iuMatch[7]) return 'PASSENGER ASSOCIATION REQUIRED';
+      const seg: import('../../models/emd.js').SvcSegment = {
+        segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+          wa.pnr.carSegments.length + wa.pnr.railSegments.length +
+          wa.pnr.svcSegments.length + 1,
+        carrier: iuMatch[1],
+        count: parseInt(iuMatch[2], 10),
+        code: iuMatch[3],
+        status: 'HK',
+        origin: iuMatch[4],
+        date: iuMatch[5],
+        text: iuMatch[6],
+        passenger: iuMatch[7] ? parseInt(iuMatch[7], 10) : undefined,
+      };
+      wa.pnr.svcSegments.push(seg);
+      recordHistory(wa.pnr, `IU SVC ${seg.carrier} ${seg.code}`);
+      return ` ${seg.segmentNumber} /SVC ${seg.carrier} HK${seg.count} ${seg.code}${seg.origin ? ' ' + seg.origin : ''}${seg.date ? ' ' + seg.date : ''}${seg.text ? '-' + seg.text : ''}`;
     }
 
     // --- chunk 31.1: EMD service guide (EGSD) ---

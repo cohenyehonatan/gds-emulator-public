@@ -123,3 +123,22 @@ export interface EmdRecord {
    */
   manual?: 'FHD' | 'FHP';
 }
+
+/**
+ * Auxiliary service segment — Amadeus `IU` (Service Hub solution
+ * 843687, entry + PNR line verbatim). Standalone services (lounge,
+ * vouchers, deposits) that EMD-issue via booking method SVC. Not
+ * transmitted to any airline DCS — local to the PNR.
+ */
+export interface SvcSegment {
+  segmentNumber: number;
+  carrier: string;
+  /** 4-char service code (LOUS, CANC, DPST…). */
+  code: string;
+  status: string; // NN confirms to HK immediately
+  count: number;
+  origin?: string;
+  date?: string;
+  text?: string;
+  passenger?: number;
+}

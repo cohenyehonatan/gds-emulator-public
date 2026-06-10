@@ -220,3 +220,65 @@ describe('chunk 32 — EWH history, EMR reprint, FHD/FHP manual documents', () =
     expect(viaList).toContain('EMD-');
   });
 });
+
+describe('chunk 36 — auxiliary service segments (IU, solution 843687 verbatim)', () => {
+  it('IU creates an /SVC line with the verbatim shape; NN confirms to HK', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('NM1SMITH/JEN MS', wa);
+    const resp = await h.process('IU 6X NN1 LOUS JFK/15APR-VIP XXX/P1', wa);
+    expect(resp).toBe(' 1 /SVC 6X HK1 LOUS JFK 15APR-VIP XXX');
+    expect(wa.pnr.svcSegments[0]).toMatchObject({ code: 'LOUS', status: 'HK', passenger: 1 });
+  });
+
+  it('multi-passenger PNR requires /P association', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('NM1SMITH/JEN MS', wa);
+    await h.process('NM1SMITH/TOM MR', wa);
+    expect(await h.process('IU 6X NN1 LOUS', wa)).toBe('PASSENGER ASSOCIATION REQUIRED');
+    expect(await h.process('IU 6X NN1 LOUS/P2', wa)).toContain('/SVC 6X HK1 LOUS');
+  });
+
+  it('TTM issues an EMD-S from an SVC-method guide row (LH CANC end-to-end)', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('NM1SMITH/JEN MS', wa);
+    await h.process('IU LH NN1 CANC', wa);
+    const resp = await h.process('TTM', wa);
+    expect(resp).toContain('CANC D/995 EUR100.00');
+    expect(wa.pnr.emds[0].emdType).toBe('S'); // standalone
+    expect(wa.pnr.emds[0].number).toMatch(/^220-/); // LH prefix
+  });
+
+  it('SSR-method rows do not issue from SVC segments (the guide governs)', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('NM1SMITH/JEN MS', wa);
+    await h.process('IU 6X NN1 LOUS', wa); // LOUS is SSR-method on 6X
+    expect(await h.process('TTM', wa)).toBe('NO CHARGEABLE SERVICES');
+  });
+
+  it('SVC segments render in the unified RT element list', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN15JANHELBKK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/JEN MS', wa);
+    await h.process('AP NCE 555-1212-H', wa);
+    await h.process('TKOK', wa);
+    await h.process('RF AGT', wa);
+    await h.process('IU LH NN1 CANC', wa);
+    const er = await h.process('ER', wa);
+    const locator = / - ([A-Z0-9]{6})/.exec(er)![1];
+    const wa2 = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa2);
+    const display = await h.process(`RT${locator}`, wa2);
+    expect(display).toMatch(/^ {2}3 \/SVC LH HK1 CANC$/m);
+  });
+});

@@ -987,9 +987,13 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       OPC elements, OPERATED BY sublines, RT<n>/RT0 list nav),
       the TTP post-issuance PNR mutation (35 — LANDED: ET FA/FB/FM/FV
       lines + TK //ET suffix + the no-name-change invariant; FE
-      endorsement + no-FA-cancel still open), and SVC segments + FXK
-      ancillary catalogue (36 — unlocks the SVC-method EMD rows
-      already seeded). Plus a table of unmined solutions.
+      endorsement + no-FA-cancel still open), and SVC segments (36 —
+      LANDED: IU entry + /SVC PNR line verbatim from 843687, NN→HK,
+      multi-pax /P requirement, TTM issues EMD-S from SVC-method
+      guide rows — LH CANC/DPST/PENF now sellable end-to-end; the
+      TMC/TSM-P intermediate isn't modeled, TTM issues directly).
+      Still open: FXK ancillary catalogue (828431) + the unmined-
+      solutions table in the delta doc.
 
 The original survey (all items now resolved or annotated):
 
