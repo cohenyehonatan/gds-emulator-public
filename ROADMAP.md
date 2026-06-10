@@ -962,9 +962,16 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       /RT + TTP/TTM ordering), verbatim FA/FB PNR lines, EWD family
       (verbatim list screen, reconstructed record body), 6X 089
       HEL-BKK seeded verbatim from the 873296 PNR sample, 6X numeric
-      prefix 172 pinned by the EWD/EMD172- example. Deferred: EWD/O*
-      old-record (needs EMD exchange flow), TJH history report, EMR
-      coupon reprint, FHD/FHP manual document numbers.
+      prefix 172 pinned by the EWD/EMD172- example. Chunk 32 closed
+      the deferreds: EWH history (verbatim screen from solution
+      828612 — the standard verb; TJH is the airline-agent variant),
+      EMR coupon reprint (full QRG selector family /P /L /EMD,
+      response reconstructed), FHD/FHP manual document numbers
+      (QRG p.169 grammar, FHD/FHP PAX PNR lines, EWD/EWDRL pick
+      them up, EMR + EWH correctly skip them). Still deferred:
+      EWD/O* old-record — the TA-side EMD exchange entry is
+      unpublished (the reissue solution is login-gated; the QRG
+      documents only airline-agent TTM/IVI / TTM/OVNE).
 
 The original survey (all items now resolved or annotated):
 

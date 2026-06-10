@@ -79,6 +79,23 @@ export const EMD_DETAIL_DEFAULTS: EmdServiceDetail = {
   taAssociateDisassociate: false,
 };
 
+/**
+ * One coupon-status event in an EMD record's history — the rows of
+ * the EWH screen (verbatim layout from Service Hub solution 828612:
+ * CPN RFISC ST SAC OFFICE ID SIGN TIME/DATE, most recent first).
+ */
+export interface EmdCouponEvent {
+  coupon: number;
+  rfisc: string;
+  /** O open, R refunded, V voided, E exchanged, U used. */
+  status: string;
+  /** Settlement Authorization Code, when present. */
+  sac?: string;
+  office: string;
+  sign: string;
+  at: Date;
+}
+
 export interface EmdRecord {
   /** 13-digit document number (airline numeric prefix + serial). */
   number: string;
@@ -96,4 +113,13 @@ export interface EmdRecord {
   status: 'OPEN' | 'USED' | 'REFUNDED' | 'VOIDED' | 'EXCHANGED';
   issuedAt: Date;
   pcc: string;
+  /** Coupon-status history (EWH). Seeded with the issuance event. */
+  history?: EmdCouponEvent[];
+  /**
+   * Set for manually-entered document numbers (QRG p.169 FHD/FHP):
+   * FHD = an EMD that exists elsewhere; FHP = a miscellaneous
+   * document for which no EMD exists. Manual records carry no
+   * amount and no history.
+   */
+  manual?: 'FHD' | 'FHP';
 }

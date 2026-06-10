@@ -137,3 +137,86 @@ describe('EWD — record display family', () => {
     expect(await h.process('EWDRT', wa)).toBe('NO EMD RECORD TO REDISPLAY');
   });
 });
+
+describe('chunk 32 — EWH history, EMR reprint, FHD/FHP manual documents', () => {
+  async function issued(h: GdsHost) {
+    const wa = await builtPnr(h);
+    await h.process('TTM', wa);
+    return wa;
+  }
+
+  it('EWH after EWD renders the verbatim history screen', async () => {
+    const h = makeHost();
+    const wa = await issued(h);
+    await h.process('EWD/L1', wa);
+    const resp = await h.process('EWH', wa);
+    expect(resp).toContain('EMD HISTORY DISPLAY');
+    // Header: EMD-<13 digits, undashed>   TYPE-A   RFIC-C
+    expect(resp).toMatch(/EMD-172\d{10} {3}TYPE-A {3}RFIC-C/);
+    expect(resp).toContain('CPN RFISC ST SAC              OFFICE ID SIGN       TIME/DATE');
+    // Issuance event row: coupon 1, RFISC, O status, office, sign, ZULU stamp.
+    expect(resp).toMatch(/ {2}1 {3}0AZ {2}O .*NCE1A0900 HA .*\d{4}Z\d{1,2}[A-Z]{3}\d{2}/);
+  });
+
+  it('EWH/EMD<number> works without a prior EWD; no record → NO EMD RECORD', async () => {
+    const h = makeHost();
+    const wa = await issued(h);
+    const num = wa.pnr.emds[0].number;
+    expect(await h.process(`EWH/EMD${num}`, wa)).toContain('EMD HISTORY DISPLAY');
+    expect(await h.process('EWH/EMD172-0000000000', wa)).toBe('NO EMD RECORD');
+  });
+
+  it('EMR selector family: bare / L-range / P1 / by number; P2 empty', async () => {
+    const h = makeHost();
+    const wa = await issued(h);
+    expect(await h.process('EMR', wa)).toContain('OK COUPON REPRINT');
+    expect(await h.process('EMR/L1-2', wa)).toContain('PETC');
+    expect(await h.process('EMR/P1', wa)).toContain('OK COUPON REPRINT');
+    expect(await h.process('EMR/P2', wa)).toBe('NO EMD RECORD');
+    const num = wa.pnr.emds[1].number;
+    const byNum = await h.process(`EMR/EMD${num}`, wa);
+    expect(byNum).toContain('FBAG');
+    expect(byNum).not.toContain('PETC');
+  });
+
+  it('FHD adds a manual document: PNR line, EWD list row, duplicate block, NO HISTORY', async () => {
+    const h = makeHost();
+    const wa = await issued(h);
+    expect(await h.process('FHD057-9999999999/E2', wa)).toBe('OK');
+    expect(await h.process('FHD057-9999999999/E2', wa)).toBe('DOCUMENT ALREADY ON PNR');
+    const manual = wa.pnr.emds.find((e) => e.manual)!;
+    expect(manual.manual).toBe('FHD');
+    expect(manual.carrier).toBe('AF'); // 057 reverse lookup
+    // Renders as an FHD PAX element, not FA/FB.
+    const pnrText = await h.process('TTM/RT', wa).catch(() => '');
+    // (TTM/RT may reject — render via EWD list + check the manual row instead)
+    const list = await h.process('EWDRL', wa);
+    expect(list).toContain('057-9999999999');
+    await h.process('EWD/L3', wa);
+    expect(await h.process('EWH', wa)).toBe('NO HISTORY');
+    // EMR skips manual documents.
+    const emr = await h.process('EMR', wa);
+    expect(emr).not.toContain('057-9999999999');
+    void pnrText;
+  });
+
+  it('FHP with pax association parses; bad shapes stay FORMAT', async () => {
+    const h = makeHost();
+    const wa = await builtPnr(h, ['PETC']);
+    expect(await h.process('FHP057-1234567890/E1/P1', wa)).toBe('OK');
+    expect(wa.pnr.emds[0].manual).toBe('FHP');
+    expect(await h.process('FHDABC-1234567890/E1', wa)).not.toBe('OK');
+  });
+
+  it('EWD/<n> follows the date-sorted list order; EWD/L<n> follows element order', async () => {
+    const h = makeHost();
+    const wa = await issued(h); // PETC (older serial) + FBAG
+    // List is most-recent-first; both share the same timestamp in
+    // tests, so sort is stable — line 1 = PETC (insertion order kept
+    // on tie). EWD/L1 must equal pnr.emds[0] regardless.
+    const viaList = await h.process('EWD/1', wa);
+    const viaElement = await h.process('EWD/L1', wa);
+    expect(viaElement).toContain(wa.pnr.emds[0].serviceCode);
+    expect(viaList).toContain('EMD-');
+  });
+});

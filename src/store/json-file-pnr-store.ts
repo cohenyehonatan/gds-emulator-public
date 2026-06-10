@@ -170,6 +170,7 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.emds = ((plain.emds as Pnr['emds']) ?? []).map((e) => ({
     ...e,
     issuedAt: new Date(e.issuedAt),
+    history: e.history?.map((ev) => ({ ...ev, at: new Date(ev.at) })),
   }));
   p.manualAccountingLines = (plain.manualAccountingLines as Pnr['manualAccountingLines']) ?? [];
   p.accountingHistory = (plain.accountingHistory as Pnr['accountingHistory']) ?? [];

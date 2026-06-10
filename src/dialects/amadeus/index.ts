@@ -596,6 +596,12 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
   // (DT prefix = EMD document, vs ET for e-tickets; /E<n> associates
   // the chargeable element.)
   pnr.emds.forEach((e, i) => {
+    if (e.manual) {
+      // Manual document element (QRG FHD/FHP; the 873296 PNR sample
+      // shows the manual-ET sibling as "FHE PAX XXX-XXXXXXXXXX").
+      lines.push(`  ${e.manual} PAX ${e.number}/E${e.elementRef ?? ''}`);
+      return;
+    }
     const date = `${e.issuedAt.getUTCDate()}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][e.issuedAt.getUTCMonth()]}${String(e.issuedAt.getUTCFullYear() % 100).padStart(2, '0')}`;
     lines.push(`  FA PAX ${e.number}/DT${e.carrier}/${e.currency}${e.amount.toFixed(2)}/${date}/${pcc}/${String(i + 1).padStart(8, '0')}/E${e.elementRef ?? ''}`);
     lines.push(`  FB PAX ${String(i).padStart(10, '0')} TTP/O/TTM/RT OK ETICKET/EMD/E${e.elementRef ?? ''}`);
@@ -825,6 +831,60 @@ function renderAmadeusEwdRecord(e: import('../../models/emd.js').EmdRecord, line
     `VALUE ${e.currency}${e.amount.toFixed(2)}`,
     e.elementRef ? `IN CONNECTION WITH SSR ELEMENT ${e.elementRef}` : '',
   ].filter(Boolean).join('\n');
+}
+
+/**
+ * EWH screen — layout VERBATIM from Service Hub solution 828612:
+ *
+ *   EMD HISTORY DISPLAY
+ *   EMD-0571234567890   TYPE-A   RFIC-C
+ *   CPN RFISC ST SAC              OFFICE ID SIGN       TIME/DATE
+ *     1   0CC  O                  NCEXXXXXX A0032AAGS  1335Z20JAN25
+ *
+ * Rows ordered by coupon, most recent status first per coupon.
+ */
+function renderAmadeusEwh(e: import('../../models/emd.js').EmdRecord): string {
+  const lines = [
+    'EMD HISTORY DISPLAY',
+    `EMD-${e.number.replace('-', '')}   TYPE-${e.emdType}   RFIC-${e.rfic}`,
+    'CPN RFISC ST SAC              OFFICE ID SIGN       TIME/DATE',
+  ];
+  const events = [...(e.history ?? [])].sort(
+    (a, b) => a.coupon - b.coupon || b.at.getTime() - a.at.getTime(),
+  );
+  for (const ev of events) {
+    const hh = String(ev.at.getUTCHours()).padStart(2, '0');
+    const mm = String(ev.at.getUTCMinutes()).padStart(2, '0');
+    const stamp = `${hh}${mm}Z${formatDdmonyy(ev.at)}`;
+    lines.push(
+      `  ${ev.coupon}   ${ev.rfisc.padEnd(4)} ${ev.status.padEnd(2)} ${(ev.sac ?? '').padEnd(16)} ${ev.office.padEnd(9)} ${ev.sign.padEnd(10)} ${stamp}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+/** Expand "1-2,4" into [1,2,4]. */
+function expandSelection(spec: string): number[] {
+  const out: number[] = [];
+  for (const part of spec.split(',')) {
+    const range = /^(\d+)-(\d+)$/.exec(part);
+    if (range) {
+      for (let i = parseInt(range[1], 10); i <= parseInt(range[2], 10); i++) out.push(i);
+    } else if (/^\d+$/.test(part)) {
+      out.push(parseInt(part, 10));
+    }
+  }
+  return out;
+}
+
+/** Reverse lookup of the airline numeric prefix (FHD057- → AF).
+ *  Mirror of models/ticket.ts AIRLINE_NUMERIC. */
+function numericToCarrier(prefix: string): string {
+  const known: Record<string, string> = {
+    '001': 'AA', '016': 'UA', '006': 'DL', '279': 'B6', '125': 'BA',
+    '220': 'LH', '027': 'AS', '526': 'WN', '057': 'AF', '172': '6X',
+  };
+  return known[prefix] ?? prefix;
 }
 
 function formatDdmonyy(d: Date): string {
@@ -2840,6 +2900,14 @@ export class AmadeusDialect implements Dialect {
           status: 'OPEN',
           issuedAt: new Date(),
           pcc: ctx.pcc,
+          history: [{
+            coupon: 1,
+            rfisc: c.service.rfisc,
+            status: 'O',
+            office: ctx.pcc,
+            sign: wa.agent ?? 'GS',
+            at: new Date(),
+          }],
         });
       }
       wa.pnr.emds.push(...issued);
@@ -2870,12 +2938,25 @@ export class AmadeusDialect implements Dialect {
         wa.lastEmdIndex = idx;
         return renderAmadeusEwdRecord(wa.pnr.emds[idx], idx + 1);
       }
-      const byLine = /^EWD\/(?:L)?(\d+)$/.exec(entry);
-      if (byLine) {
-        const idx = parseInt(byLine[1], 10) - 1;
+      // EWD/L<n> — by FA/FHD element position (insertion order);
+      // EWD/<n> — by EMD-list line, which is date-sorted most recent
+      // first (873296: "enter the line number of the EMD record
+      // that you want to display" from the list).
+      const byElement = /^EWD\/L(\d+)$/.exec(entry);
+      if (byElement) {
+        const idx = parseInt(byElement[1], 10) - 1;
         if (!wa.pnr.emds[idx]) return 'NO EMD RECORD';
         wa.lastEmdIndex = idx;
         return renderAmadeusEwdRecord(wa.pnr.emds[idx], idx + 1);
+      }
+      const byListLine = /^EWD\/(\d+)$/.exec(entry);
+      if (byListLine) {
+        const sorted = [...wa.pnr.emds].sort((a, b) => b.issuedAt.getTime() - a.issuedAt.getTime());
+        const rec = sorted[parseInt(byListLine[1], 10) - 1];
+        if (!rec) return 'NO EMD RECORD';
+        const idx = wa.pnr.emds.indexOf(rec);
+        wa.lastEmdIndex = idx;
+        return renderAmadeusEwdRecord(rec, parseInt(byListLine[1], 10));
       }
       // Bare EWD: one record displays directly; several show the
       // list, "sorted by issue date, from the most recent" (873296).
@@ -2884,6 +2965,90 @@ export class AmadeusDialect implements Dialect {
         return renderAmadeusEwdRecord(wa.pnr.emds[0], 1);
       }
       return renderAmadeusEwdList(wa.pnr.emds);
+    }
+
+    // --- chunk 32: EMD history (EWH) + coupon reprint (EMR) +
+    //     manual document numbers (FHD/FHP) ---
+    // EWH forms + screen VERBATIM from Service Hub solution 828612;
+    // EMR + FHD/FHP forms verbatim from QRG pp.169/172 (EMR response
+    // wording reconstructed — not published). The TA-side EMD
+    // exchange entry is unpublished (reissue solution login-gated;
+    // QRG documents only airline-agent TTM/IVI / TTM/OVNE), so
+    // EWD/O* old-record display stays deferred.
+    if (entry === 'EWH' || entry.startsWith('EWH/')) {
+      let rec: import('../../models/emd.js').EmdRecord | undefined;
+      const byNumber = /^EWH\/EMD(\d{3}-\d{10})$/.exec(entry);
+      if (byNumber) {
+        rec = wa.pnr.emds.find((e) => e.number === byNumber[1]);
+      } else if (entry === 'EWH') {
+        // From the displayed EMD record (the 873296/828612 flow:
+        // EWD … then EWH).
+        rec = wa.lastEmdIndex != null ? wa.pnr.emds[wa.lastEmdIndex] : undefined;
+      } else {
+        return FORMAT_ERROR;
+      }
+      if (!rec) return 'NO EMD RECORD';
+      if (rec.manual || !rec.history || rec.history.length === 0) return 'NO HISTORY';
+      return renderAmadeusEwh(rec);
+    }
+
+    if (entry === 'EMR' || entry.startsWith('EMR/')) {
+      const real = wa.pnr.emds.filter((e) => !e.manual);
+      if (real.length === 0) return 'NO EMD RECORD';
+      let selected = real;
+      const byNumber = /^EMR\/EMD(\d{3}-\d{10})$/.exec(entry);
+      const pSel = /^EMR\/P([\d,-]+)$/.exec(entry);
+      const lSel = /^EMR\/L([\d,-]+)$/.exec(entry);
+      if (byNumber) {
+        selected = real.filter((e) => e.number === byNumber[1]);
+      } else if (pSel) {
+        const paxes = expandSelection(pSel[1]);
+        // Passenger selection: our EMDs carry the lead passenger only;
+        // P1 selects all, higher numbers select nothing (single-pax
+        // approximation, flagged).
+        selected = paxes.includes(1) ? real : [];
+      } else if (lSel) {
+        const linesSel = expandSelection(lSel[1]);
+        selected = linesSel.map((n) => real[n - 1]).filter(Boolean);
+      } else if (entry !== 'EMR') {
+        return FORMAT_ERROR;
+      }
+      if (selected.length === 0) return 'NO EMD RECORD';
+      // Response reconstructed (the QRG documents the entries, not
+      // the reprint acknowledgement).
+      return ['OK COUPON REPRINT', ...selected.map((e) => `  ${e.number} ${e.serviceCode} ACCOUNTING COUPON REPRINTED`)].join('\n');
+    }
+
+    // FHD/FHP — manually enter a document number (QRG p.169):
+    //   FHD057-1234567890/E6-7   EMD number + SSR element association
+    //   FHD057-1234567890/S2     + SVC/segment association
+    //   FHP…/E6-7/P1             misc doc (no EMD exists) + pax assoc
+    const fhMatch = /^FH([DP])(\d{3})-(\d{10})\/([ES])(\d+)(?:-(\d+))?(?:\/P(\d+))?$/.exec(entry);
+    if (fhMatch) {
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const kind = fhMatch[1] === 'D' ? 'FHD' : 'FHP';
+      const number = `${fhMatch[2]}-${fhMatch[3]}`;
+      if (wa.pnr.emds.some((e) => e.number === number)) return 'DOCUMENT ALREADY ON PNR';
+      const elementRef = parseInt(fhMatch[5], 10);
+      const paxName = `${wa.pnr.names[0].surname}/${wa.pnr.names[0].passengers[0]?.firstName ?? ''}`;
+      wa.pnr.emds.push({
+        number,
+        carrier: numericToCarrier(fhMatch[2]),
+        serviceCode: 'MANL',
+        rfic: '-',
+        rfisc: '-',
+        emdType: 'A',
+        passenger: paxName,
+        elementRef,
+        amount: 0,
+        currency: '',
+        status: 'OPEN',
+        issuedAt: new Date(),
+        pcc: ctx.pcc,
+        manual: kind as 'FHD' | 'FHP',
+      });
+      recordHistory(wa.pnr, `${kind} ${number} MANUAL DOCUMENT ADDED`);
+      return 'OK';
     }
 
     // --- v4 chunk 21: document output (INV / INE / IBP / IEP) ---
