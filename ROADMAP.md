@@ -875,6 +875,14 @@ model, live 1G wire with capture/replay + 3-dialect diff oracle, and
 CRT both local and over TCP. 1469 tests. Every checkbox below is
 either done or annotated with exactly what blocks it.
 
+Live-oracle validation (2026-06-09, pre-prod 7K9S): all three
+dialect variants run clean — Galileo, Apollo, and Worldspan each at
+22 IDENTICAL + 5 expected-STRUCTURAL (availability/pricing synth vs
+live offers), zero unexpected divergences. The Worldspan run is the
+translator's first live workout: BSI$ sign-on, .1HK status, 01Y1
+sell and the 19 shared verbs all match the emulated path verbatim
+through the rewrite layer.
+
 What remains, by blocker:
 
 **Blocked on third parties (not effort):**
