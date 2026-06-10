@@ -1078,19 +1078,37 @@ function renderAmadeusEwdList(emds: import('../../models/emd.js').EmdRecord[]): 
 }
 
 /**
- * EWD record screen — RECONSTRUCTED on the TWD pattern (the Service
- * Hub solutions show the list and the PNR integration but not the
- * record body). Fields from the EmdRecord model.
+ * EWD record screen — coupon-block layout VERBATIM from Service Hub
+ * solution 866006 ("How to re-associate an EMD to a ticket"):
+ *
+ *   RFIC-C  BAGGAGE
+ *   REMARKS-
+ *   CPN-1  RFISC-0CC  AF CDGARN  S-O
+ *    DESCRIPTION-1ST ADDITIONAL BAG
+ *    NON-REFUNDABLE
+ *    PRESENT TO-
+ *    PRESENT AT-
+ *    ICW-0575417737101E1           (A)
+ *   FARE   F    EUR         100.00
+ *
+ * Header line reconstructed (the solution starts at the RFIC row).
  */
 function renderAmadeusEwdRecord(e: import('../../models/emd.js').EmdRecord, line: number): string {
-  return [
-    `EMD-${e.number}  TYPE ${e.emdType}  ${line}`,
-    `${e.passenger}`,
-    `RFIC ${e.rfic}  RFISC ${e.rfisc}  ${e.serviceCode}`,
-    `STATUS ${e.status}  ISSUED ${formatDdmonyy(e.issuedAt)}  ${e.pcc}`,
-    `VALUE ${e.currency}${e.amount.toFixed(2)}`,
-    e.elementRef ? `IN CONNECTION WITH SSR ELEMENT ${e.elementRef}` : '',
-  ].filter(Boolean).join('\n');
+  const lines = [
+    `EMD-${e.number}  TYPE ${e.emdType}  ${line}  ${e.passenger}`,
+    `RFIC-${e.rfic}  ${RFIC_NAMES[e.rfic] ?? ''}`,
+    'REMARKS-',
+    `CPN-1  RFISC-${e.rfisc}  ${e.carrier}  S-${e.status === 'OPEN' ? 'O' : e.status[0]}`,
+    ` DESCRIPTION-${e.serviceCode}`,
+    ' NON-REFUNDABLE',
+    ' PRESENT TO-',
+    ' PRESENT AT-',
+  ];
+  if (e.icwTicket) {
+    lines.push(` ICW-${e.icwTicket}E1           (${e.icwAssociated ? 'A' : 'D'})`);
+  }
+  lines.push(`FARE   F    ${e.currency}         ${e.amount.toFixed(2)}`);
+  return lines.join('\n');
 }
 
 /**
@@ -3348,8 +3366,13 @@ export class AmadeusDialect implements Dialect {
         // EMD numbers render with the 3-digit prefix dashed off
         // (FA-line verbatim: 057-1812899556).
         const tn = ticketNumber(c.service.carrier, ctx.backend.nextTicketSerial());
+        // EMD-A: associate to the e-ticket when one exists (866006's
+        // ICW line — auto-association at issuance).
+        const icw = wa.pnr.tickets[0]?.number;
         issued.push({
           number: `${tn.slice(0, 3)}-${tn.slice(3)}`,
+          icwTicket: icw,
+          icwAssociated: icw != null,
           carrier: c.service.carrier,
           serviceCode: c.service.code,
           rfic: c.service.rfic,
@@ -3382,6 +3405,22 @@ export class AmadeusDialect implements Dialect {
         return `${ok}\n${renderAmadeusPnr(wa.pnr, ctx.pcc, wa.agent)}`;
       }
       return ok;
+    }
+
+    // EWA/ASC — re-associate an EMD to a ticket (866006 verbatim:
+    //   EWA/ASC/E1-2/TKT057-5417737101/E1-2
+    //   → AF EMD:  OK EMD RECORD UPDATED).
+    // Operates on the displayed EMD record (the solution's flow is
+    // EWD → check ICW (D) → EWA). The disassociation code isn't
+    // shown in the published page — only ASC is implemented.
+    const ewaMatch = /^EWA\/ASC\/E[\d-]+\/TKT(\d{3})-(\d{10})\/E[\d-]+$/.exec(entry);
+    if (ewaMatch) {
+      const idx = wa.lastEmdIndex;
+      if (idx == null || !wa.pnr.emds[idx]) return 'NO EMD RECORD DISPLAYED';
+      const rec = wa.pnr.emds[idx];
+      rec.icwTicket = `${ewaMatch[1]}${ewaMatch[2]}`;
+      rec.icwAssociated = true;
+      return `${rec.carrier} EMD:  OK EMD RECORD UPDATED`;
     }
 
     if (entry === 'EWD' || entry.startsWith('EWD/') || entry === 'EWDRL' || entry === 'EWDRT') {

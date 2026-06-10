@@ -109,7 +109,10 @@ describe('EWD — record display family', () => {
     await h.process('TTM', wa);
     const resp = await h.process('EWD', wa);
     expect(resp).toContain('EMD-172-');
-    expect(resp).toContain('RFIC C  RFISC 0AZ  PETC');
+    // Record body verbatim per 866006 (upgraded from the old
+    // reconstructed screen).
+    expect(resp).toContain('RFIC-C  BAGGAGE');
+    expect(resp).toContain('CPN-1  RFISC-0AZ  6X  S-O');
   });
 
   it('EWD/<n> from the list, EWDRT redisplay, EWDRL relist', async () => {
@@ -423,5 +426,53 @@ describe('polish — TSM-P flow: TMC mask / TQM index / TTM/M issue (823571)', (
     const wa = await withXbag(h);
     expect(await h.process('TMC/VAF/L9', wa)).toBe('INVALID LINE');
     expect(await h.process('TMC/VLH/L1', wa)).toBe('INVALID LINE'); // wrong carrier
+  });
+});
+
+describe('polish — EMD record body + EWA association (866006 verbatim)', () => {
+  async function ticketedWithEmd(h: GdsHost) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN20JUNCDGJFK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    await h.process('AP NCE 555-1212-H', wa);
+    await h.process('TKOK', wa);
+    await h.process('RF AGT', wa);
+    await h.process('FXP', wa);
+    await h.process('TTP', wa);
+    await h.process('SR ABAG', wa);
+    await h.process('TTM', wa);
+    return wa;
+  }
+
+  it('the record body carries the verbatim coupon block with auto-ICW (A)', async () => {
+    const h = makeHost();
+    const wa = await ticketedWithEmd(h);
+    const resp = await h.process('EWD', wa);
+    expect(resp).toContain('RFIC-C  BAGGAGE');
+    expect(resp).toContain('REMARKS-');
+    expect(resp).toMatch(/CPN-1 {2}RFISC-0CC {2}AF {2}S-O/);
+    expect(resp).toContain(' PRESENT TO-');
+    // Issued while a ticket existed → auto-associated ICW (A).
+    expect(resp).toMatch(/ ICW-057\d{10}E1 {11}\(A\)/);
+    expect(resp).toMatch(/FARE {3}F {4}EUR {9}40\.00/);
+  });
+
+  it('EWA/ASC re-points the ICW and confirms with the verbatim response', async () => {
+    const h = makeHost();
+    const wa = await ticketedWithEmd(h);
+    await h.process('EWD', wa); // sets lastEmdIndex
+    const resp = await h.process('EWA/ASC/E1/TKT057-9999999999/E1', wa);
+    expect(resp).toBe('AF EMD:  OK EMD RECORD UPDATED');
+    expect(wa.pnr.emds[0].icwTicket).toBe('0579999999999');
+    expect((await h.process('EWDRT', wa))).toContain('ICW-0579999999999E1');
+  });
+
+  it('EWA without a displayed record → specific error', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    expect(await h.process('EWA/ASC/E1/TKT057-1234567890/E1', wa)).toBe('NO EMD RECORD DISPLAYED');
   });
 });

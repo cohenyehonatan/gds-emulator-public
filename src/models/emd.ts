@@ -117,6 +117,12 @@ export interface EmdRecord {
   pcc: string;
   /** Coupon-status history (EWH). Seeded with the issuance event. */
   history?: EmdCouponEvent[];
+  /** "Issued in connection with" — the associated e-ticket number
+   *  (13 digits, undashed) + coupon, shown on the EWD coupon block
+   *  as ICW-<num>E<cpn> (A)/(D). Set at TTM issuance when tickets
+   *  exist; EWA/ASC re-associates. */
+  icwTicket?: string;
+  icwAssociated?: boolean;
   /**
    * Set for manually-entered document numbers (QRG p.169 FHD/FHP):
    * FHD = an EMD that exists elsewhere; FHP = a miscellaneous
