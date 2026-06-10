@@ -18,6 +18,8 @@ import { resolveMct, connectionTypeFor } from '../models/mct.js';
 import { MCT_SEED } from './mct-seed.js';
 import type { RailService } from '../models/rail.js';
 import { RAIL_SEED } from './rail-seed.js';
+import type { EmdService } from '../models/emd.js';
+import { EMD_SEED } from './emd-seed.js';
 
 export interface ScheduledFlight {
   carrier: string;
@@ -134,6 +136,11 @@ export class Inventory {
    * since these are all non-stop services). Empty for unseeded pairs
    * so callers surface "NO RAIL SERVICES".
    */
+  /** A carrier's EMD service guide (EGSD). Empty for unseeded carriers. */
+  emdServicesFor(carrier: string): EmdService[] {
+    return EMD_SEED.filter((e) => e.carrier === carrier);
+  }
+
   railBetween(origin: string, destination: string): RailService[] {
     return RAIL_SEED
       .filter((r) => r.origin === origin && r.destination === destination)

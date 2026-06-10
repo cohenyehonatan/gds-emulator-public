@@ -64,6 +64,7 @@ import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
 import { RAIL_PROVIDER_NAMES } from '../../models/rail.js';
+import { EMD_DETAIL_DEFAULTS } from '../../models/emd.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { connectionTypeFor } from '../../models/mct.js';
@@ -704,6 +705,61 @@ function splitAmadeusChain(raw: string): string[] {
  * system list — pre-prod Amadeus would reject unknown systems, but
  * since we ship no live backend, we accept any.
  */
+/**
+ * EGSD list screen — layout VERBATIM from the Service Hub sample:
+ *
+ *   LIST OF EMD SERVICES FOR AIRLINE: 6X
+ *
+ *       CODE  RFIC/SC  BOOK  TA ISS. DESCRIPTION
+ *
+ *   1   BULK   A/C03   SSR     YES   Bulk
+ */
+function renderEgsdList(carrier: string, services: import('../../models/emd.js').EmdService[]): string {
+  const lines = [`LIST OF EMD SERVICES FOR AIRLINE: ${carrier}`, ''];
+  lines.push('    CODE  RFIC/SC  BOOK  TA ISS. DESCRIPTION');
+  lines.push('');
+  services.forEach((s2, i) => {
+    lines.push(
+      `${String(i + 1).padEnd(3)} ${s2.code.padEnd(6)} ${(s2.rfic + '/' + s2.rfisc).padEnd(8)} ${s2.bookingMethod.padEnd(5)} ${(s2.taIssuable ? 'YES' : 'NO').padEnd(5)} ${s2.description}`,
+    );
+  });
+  return lines.join('\n');
+}
+
+/**
+ * EGSD detail screen — field set VERBATIM from the Service Hub FBAG
+ * sample (every line below appears in the published screen).
+ */
+function renderEgsdDetail(svc: import('../../models/emd.js').EmdService): string {
+  const d = { ...EMD_DETAIL_DEFAULTS, ...(svc.detail ?? {}) };
+  const yn = (b: boolean) => (b ? 'YES' : 'NO');
+  return [
+    `${svc.code}: ${svc.description}`,
+    `VALIDATING CARRIER:${svc.carrier} RFIC:${svc.rfic} RFISC:${svc.rfisc} EMD TYPE:${d.emdType}`,
+    '',
+    `BOOKING METHOD: ${svc.bookingMethod}`,
+    '',
+    `MONOCOUPON EMD: ${yn(d.monocoupon)}`,
+    `CONSUMED AT ISSUANCE: ${yn(d.consumedAtIssuance)}`,
+    `ADDITIONAL DOCUMENT IN EXCHANGE: ${yn(d.additionalDocInExchange)}`,
+    `RESIDUAL VALUE: ${yn(d.residualValue)}`,
+    '',
+    `ROUTING INFORMATION MANDATORY FOR ISSUANCE: ${yn(d.routingMandatory)}`,
+    `ISSUED IN CONNECTION WITH MANDATORY FOR ISSUANCE: ${yn(d.issuedInConnectionMandatory)}`,
+    `EXCESS BAGGAGE INFORMATION MANDATORY FOR ISSUANCE: ${yn(d.excessBaggageMandatory)}`,
+    '',
+    `REFUNDABLE (ONLY FOR MANUAL PRICING): ${yn(d.refundable)}`,
+    `EXCHANGEABLE (ONLY FOR MANUAL PRICING): ${yn(d.exchangeable)}`,
+    `INTERLINEABLE: ${yn(d.interlineable)}`,
+    `ENDORSABLE: ${yn(d.endorsable)}`,
+    '',
+    `ISSUABLE BY TRAVEL AGENT: ${yn(svc.taIssuable)}`,
+    `DISPLAYABLE BY TRAVEL AGENT IF ISSUED BY AIRLINE AGENT: ${yn(d.displayableByTaIfAirlineIssued)}`,
+    `REFUNDABLE/EXCHANGEABLE BY T/A IF ISSUED BY AIRLINE AGENT: ${yn(d.refundExchangeByTaIfAirlineIssued)}`,
+    `TRAVEL AGENT ALLOWED TO ASSOCIATE AND DISASSOCIATE: ${yn(d.taAssociateDisassociate)}`,
+  ].join('\n');
+}
+
 const AMADEUS_HELP_BANNER =
   'EMULATOR HELP — implemented verb surface (host help pages are not public)';
 
@@ -2879,6 +2935,44 @@ export class AmadeusDialect implements Dialect {
       recordHistory(wa.pnr, `CS ${rental.company}${rental.vehicleType} ${cached.pickup}-${cached.dropoff}`);
       try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
       return renderCarSegment(seg);
+    }
+
+    // --- chunk 31.1: EMD service guide (EGSD) ---
+    // Verbs + screen layouts VERBATIM from Amadeus Service Hub
+    // solution 848456 (see docs note in ROADMAP chunk 31):
+    //   EGSD/V<cxr>              list of EMD services for an airline
+    //   EGSD/V<cxr>/L<n>         go to a specific line (detail)
+    //   EGSD/V<cxr>/BM-<method>  filter by booking method (SSR/SVC)
+    //   EGSD/V<cxr>/SC-<code>    detail by service code
+    //   EGSD/V<cxr>/RFIC-<ltr>   filter by RFIC letter
+    const egsdMatch = /^EGSD\/V([A-Z0-9]{2})(?:\/(L\d+|BM-[A-Z]+|SC-[A-Z0-9]{3,4}|RFIC-[A-Z]))?$/.exec(entry);
+    if (egsdMatch) {
+      const carrier = egsdMatch[1];
+      const services = ctx.backend.inventory.emdServicesFor(carrier);
+      if (services.length === 0) return 'NO EMD GUIDE FOR AIRLINE';
+      const qual = egsdMatch[2];
+      if (!qual) return renderEgsdList(carrier, services);
+      if (qual.startsWith('L')) {
+        const svc = services[parseInt(qual.slice(1), 10) - 1];
+        if (!svc) return 'INVALID LINE';
+        return renderEgsdDetail(svc);
+      }
+      if (qual.startsWith('BM-')) {
+        const method = qual.slice(3);
+        const filtered = services.filter((x) => x.bookingMethod === method);
+        if (filtered.length === 0) return 'NO SERVICES FOR BOOKING METHOD';
+        return renderEgsdList(carrier, filtered);
+      }
+      if (qual.startsWith('SC-')) {
+        const svc = services.find((x) => x.code === qual.slice(3));
+        if (!svc) return 'SERVICE CODE NOT FOUND';
+        return renderEgsdDetail(svc);
+      }
+      // RFIC-<letter>
+      const letter = qual.slice(5);
+      const filtered = services.filter((x) => x.rfic === letter);
+      if (filtered.length === 0) return 'NO SERVICES FOR RFIC';
+      return renderEgsdList(carrier, filtered);
     }
 
     const cxMatch = /^CX(\d+)$/.exec(entry);
