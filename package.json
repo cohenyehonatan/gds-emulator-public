@@ -9,6 +9,7 @@
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts directory",
     "start:server": "tsx src/index.ts server",
+    "start:client": "tsx src/index.ts terminal:tcp",
     "start:terminal": "tsx src/index.ts terminal",
     "start:terminal:sabre": "tsx src/index.ts terminal sabre",
     "start:terminal:galileo": "tsx src/index.ts terminal galileo",

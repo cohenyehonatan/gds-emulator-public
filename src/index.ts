@@ -115,9 +115,10 @@ TERMINALS (interactive REPL, full-screen CRT on a TTY)
 
 CLIENT / SERVER
   npm run start:server               GDS host on TCP (port 9600)
-  npm run start:terminal:tcp         connect a terminal to a remote host
+  npm run start:client               connect a terminal to a remote host
                                      (GDS_HOST / GDS_PORT env; CRT status bar
                                      negotiates automatically)
+                                     alias: start:terminal:tcp
 
 DEMO / TESTS
   npm run dev                        scripted demo: host + terminal + booking
