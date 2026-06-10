@@ -53,6 +53,7 @@ import { ParseError } from '../../protocol/errors.js';
 import { parseGalileoEntry } from '../galileo/parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js';
 import { GalileoResponse } from '../galileo/responses.js';
+import { renderEncodeDecode } from '../galileo/encode-decode.js';
 
 /**
  * Worldspan→Galileo entry translation. Order matters where prefixes
@@ -140,6 +141,12 @@ export function translateWorldspanToGalileo(raw: string): string {
   // SM*A<line><class>.
   const seatMap = /^4(\d{1,2})\*([A-Z])$/.exec(s);
   if (seatMap) return `SM*A${seatMap[1]}${seatMap[2]}`;
+
+  // Encode/decode (Go! Res manual p.25, forms verbatim):
+  //   KC/LONDON → .CE LONDON     KD/CDG → .CD CDG
+  //   KAC/DELTA → .AE DELTA      KAD/EI → .AD EI
+  const kcd = /^K(A?)(C|D)\/(.+)$/.exec(s);
+  if (kcd) return `.${kcd[1] ? 'A' : 'C'}${kcd[2] === 'C' ? 'E' : 'D'} ${kcd[3]}`;
 
   // Hotel family (Comparison Guide "Hotels" 5-way table, Worldspan
   // column):
@@ -428,6 +435,10 @@ export class WorldspanDialect implements Dialect {
     }
 
     const translated = translateWorldspanToGalileo(raw);
+    // Encode/decode family — handled pre-parse (the shared renderer
+    // lives outside the Galileo parser's entry union).
+    const edm = /^\.(C|A)(D|E) (.+)$/.exec(translated.trim().toUpperCase());
+    if (edm) return renderEncodeDecode(edm[1] as 'C' | 'A', edm[2] as 'D' | 'E', edm[3]);
     let entry;
     try {
       entry = parseGalileoEntry(translated);

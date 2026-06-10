@@ -128,3 +128,15 @@ describe('continuation entries (manual HELP AVAILCONT table, verbatim forms)', (
     expect(h.dialect.isErrorResponse(await h.process('AT', wa))).toBe(true);
   });
 });
+
+describe('encode/decode — Worldspan KC/KD/KAC/KAD (manual p.25) + Galileo .C/.A family', () => {
+  it('Worldspan forms translate and resolve', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    expect(await h.process('KD/CDG', wa)).toBe('CDG  PARIS CH DE GAULLE');
+    expect(await h.process('KC/LONDON', wa)).toBe('LHR  LONDON HEATHROW');
+    expect(await h.process('KAD/LH', wa)).toBe('LH  LUFTHANSA');
+    expect(await h.process('KAC/DELTA', wa)).toBe('DL  DELTA AIR LINES');
+    expect(await h.process('KD/ZZZ', wa)).toBe('CODE NOT FOUND');
+  });
+});

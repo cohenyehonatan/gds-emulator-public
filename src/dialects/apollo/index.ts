@@ -65,6 +65,7 @@ import { ParseError } from '../../protocol/errors.js';
 import { parseGalileoEntry } from '../galileo/parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js';
 import { GalileoResponse } from '../galileo/responses.js';
+import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderGalileoHelp } from '../galileo/help.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
@@ -196,6 +197,10 @@ export class ApolloDialect implements Dialect {
       return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;
     }
     const translated = translateApolloToGalileo(raw);
+    // Encode/decode family — handled pre-parse (the shared renderer
+    // lives outside the Galileo parser's entry union).
+    const edm = /^\.(C|A)(D|E) (.+)$/.exec(translated.trim().toUpperCase());
+    if (edm) return renderEncodeDecode(edm[1] as 'C' | 'A', edm[2] as 'D' | 'E', edm[3]);
     let entry;
     try {
       entry = parseGalileoEntry(translated);

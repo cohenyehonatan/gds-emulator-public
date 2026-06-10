@@ -34,6 +34,7 @@ import { ParseError } from '../../protocol/errors.js';
 import { parseGalileoEntry } from './parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from './dispatch.js';
 import { GalileoResponse } from './responses.js';
+import { renderEncodeDecode } from './encode-decode.js';
 
 /** Galileo's "combine entries" operator (Mini Format Guide v2, Symbols page). */
 const COMBINE = '+';
@@ -95,6 +96,15 @@ export class GalileoDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
+    // Encode/decode family — .CD/.CE (city) and .AD/.AE (airline),
+    // the forms the help table has always listed (previously
+    // unimplemented — the Worldspan calibration arc surfaced the
+    // gap). Response wording reconstructed.
+    const ed = /^\.(C|A)(D|E) (.+)$/.exec(raw.trim().toUpperCase());
+    if (ed) {
+      return renderEncodeDecode(ed[1] as 'C' | 'A', ed[2] as 'D' | 'E', ed[3]);
+    }
+
     let entry;
     try {
       entry = parseGalileoEntry(raw);

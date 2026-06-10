@@ -191,3 +191,15 @@ describe('Amadeus help-meta family (QRG p.5 "Amadeus Online Help Pages", verbati
     expect(resp).toContain('NM<n><sur>');
   });
 });
+
+describe('Galileo encode/decode — the help table no longer over-claims', () => {
+  it('.CD/.CE/.AD/.AE resolve (previously FORMAT despite the H/DECODE listing)', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+    const wa = h.newWorkArea();
+    await h.process('SON/ZGS', wa);
+    expect(await h.process('.CD JFK', wa)).toBe('JFK  NEW YORK JFK');
+    expect(await h.process('.CE LONDON', wa)).toBe('LHR  LONDON HEATHROW');
+    expect(await h.process('.AD AA', wa)).toBe('AA  AMERICAN AIRLINES');
+    expect((await h.process('.AE AIR', wa)).split('\n').length).toBeGreaterThan(3);
+  });
+});
