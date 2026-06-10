@@ -1001,6 +1001,17 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       to-end. Still open: the unmined-solutions table in the delta
       doc (passive segments, EMD re-association, XBAG example…).
 
+- [ ] **Worldspan native calibration** — unlocked 2026-06-10: the
+      dead globallearningcenter.wspan.com was recovered from the
+      Wayback Machine; `references/worldspan/Worldspan-Go-Res-
+      Manual-4022-Argentina-2007.pdf` is a first-party Go! Res
+      course with VERBATIM host screens (availability display with
+      access-level sigils + WL-PLUS header, sign-on, encode/decode,
+      seats, full PNR course). Our Worldspan dialect currently
+      renders Galileo wording through the translator — this manual
+      enables native render overrides, availability first (the
+      chunk-33 playbook). See the delta doc's "Worldspan Go! find".
+
 The original survey (all items now resolved or annotated):
 
 ### Real gaps, closable now
