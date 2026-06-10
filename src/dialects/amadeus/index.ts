@@ -1051,7 +1051,9 @@ function chargeableSsrs(
     const svc = ctx.backend.inventory.emdServicesFor(carrier).find(
       (e) => e.code === ssr.code && e.bookingMethod === 'SSR',
     );
-    if (svc) out.push({ ssr, service: svc, index: i + 1 });
+    // TA ISS. NO rows (823571: HBAG, BBEV…) never issue from a
+    // travel-agent terminal.
+    if (svc && svc.taIssuable) out.push({ ssr, service: svc, index: i + 1 });
   });
   return out;
 }
@@ -2474,6 +2476,24 @@ export class AmadeusDialect implements Dialect {
     // SSR — SR <code>[/P<n>] [text]. QRG p.34: e.g. `SR LSML` (low-salt
     // meal, all pax) or `SR VGML/P1-3` (vegetarian, pax 1-3) or
     // `SR INFT-JONES/TOM 02FEB06/P2` (infant data on pax 2).
+    // SR<code>-<freetext>[/S<n>][/P<n>] — the 823571 verbatim form:
+    //   SRXBAG-PDBG-10KGS-60x80x50/S2/P1
+    // → SSR XBAG AF HK1 PDBG-10KGS-60X80X50/S2 (text uppercased,
+    // segment suffix kept on the text; carrier defaults to the
+    // first air segment's).
+    const srFree = /^SR([A-Z]{4})-([^/]+)(\/S\d{1,2})?(?:\/P(\d{1,2}))?$/.exec(entry);
+    if (srFree) {
+      wa.pnr.ssrs.push({
+        code: srFree[1],
+        carrier: wa.pnr.segments[0]?.carrier ?? 'YY',
+        text: `${srFree[2].toUpperCase()}${srFree[3] ?? ''}`,
+        nameRef: srFree[4] ? { item: parseInt(srFree[4], 10) } : undefined,
+        status: 'NN',
+      });
+      try { wa.machine.transition(SessionEvent.ADD_FIELD); } catch { /* */ }
+      return 'OK';
+    }
+
     if (entry.startsWith('SR ')) {
       const ssr = parseSsr(entry.slice(3));
       if (!ssr) return FORMAT_ERROR;
@@ -3203,7 +3223,7 @@ export class AmadeusDialect implements Dialect {
       wa.pnr.svcSegments.forEach((svc, i) => {
         const svcService = ctx.backend.inventory.emdServicesFor(svc.carrier)
           .find((e2) => e2.code === svc.code && e2.bookingMethod === 'SVC');
-        if (svcService) {
+        if (svcService && svcService.taIssuable) {
           charge.push({
             ssr: { code: svc.code, carrier: svc.carrier, status: 'HK' },
             service: { ...svcService, detail: { ...(svcService.detail ?? {}), emdType: 'S' } },
@@ -3681,7 +3701,7 @@ export class AmadeusDialect implements Dialect {
         for (const sgm of wa.pnr.segments) {
           if (segSel && !segSel.includes(sgm.segmentNumber)) continue;
           for (const svc of ctx.backend.inventory.emdServicesFor(sgm.carrier)) {
-            if (svc.bookingMethod !== 'SSR') continue;
+            if (svc.bookingMethod !== 'SSR' || !svc.taIssuable) continue;
             catalog.push({ carrier: svc.carrier, code: svc.code, passenger: pax });
             cur = svc.currency;
             const line = String(catalog.length).padStart(3, '0');

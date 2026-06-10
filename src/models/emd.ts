@@ -27,8 +27,10 @@ export interface EmdService {
   rfic: string;
   /** Reason For Issuance Sub Code (3 char). */
   rfisc: string;
-  /** Booking method — which PNR element carries the request. */
-  bookingMethod: 'SSR' | 'SVC';
+  /** Booking method — which PNR element carries the request. SEAT
+   *  rows (chargeable seats) book via the ST family, not modeled
+   *  for issuance. */
+  bookingMethod: 'SSR' | 'SVC' | 'SEAT';
   /** Issuable by travel agents. */
   taIssuable: boolean;
   description: string;

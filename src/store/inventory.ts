@@ -41,6 +41,13 @@ const SCHEDULE: ScheduledFlight[] = [
   { carrier: 'DL', flightNumber: '422', origin: 'LAX', destination: 'JFK', departTime: '900A', arriveTime: '520P', equipment: '76W', classSeats: { F: 4, J: 6, Y: 9, B: 9, M: 4 } },
   { carrier: 'AA', flightNumber: '118', origin: 'LAX', destination: 'JFK', departTime: '300P', arriveTime: '1130P', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 0 } },
   { carrier: 'BA', flightNumber: '192', origin: 'DFW', destination: 'LHR', departTime: '520P', arriveTime: '800A', equipment: '777', classSeats: { F: 4, J: 9, Y: 9, B: 5, M: 0 } },
+  // AF 002 CDG-JFK + AF 001 JFK-CDG — VERBATIM from the Service Hub
+  // PNR samples in solutions 797696 + 823571 ("AF 002 R 20JUN 5
+  // CDGJFK HK1  0730 2E 0830 1030", "AF 001 V 30JUN 1 JFKCDG HK1
+  // 1530 1  1630 0555+1"). Pairs with the AF EMD guide seed so the
+  // XBAG worked example runs end-to-end.
+  { carrier: 'AF', flightNumber: '002', origin: 'CDG', destination: 'JFK', departTime: '830A', arriveTime: '1030A', equipment: '77W', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 9 } },
+  { carrier: 'AF', flightNumber: '001', origin: 'JFK', destination: 'CDG', departTime: '430P', arriveTime: '555A', equipment: '77W', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 9 } },
   // 6X 089 HEL-BKK — VERBATIM from the Service Hub EMD-display PNR
   // sample (solution 873296: "6X 089 Y 15JAN 5 HELBKK HK1 2 1650
   // 0735+1"). 6X is Amadeus's test airline; this flight pairs with

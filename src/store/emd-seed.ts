@@ -55,4 +55,21 @@ export const EMD_SEED: EmdService[] = [
   { carrier: 'LH', code: 'DPST', rfic: 'D', rfisc: '997', bookingMethod: 'SVC', taIssuable: true, description: 'DEPOSITS DOWN PAYMENTS', amount: 200, currency: 'EUR' },
   { carrier: 'LH', code: 'PENF', rfic: 'D', rfisc: '993', bookingMethod: 'SVC', taIssuable: true, description: 'REBOOKING FEE', amount: 150, currency: 'EUR' },
   { carrier: 'LH', code: 'RSVR', rfic: 'D', rfisc: '996', bookingMethod: 'SVC', taIssuable: true, description: 'RESIDUAL VALUE FOR REFUNDABLE', amount: 0, currency: 'EUR' },
+  // --- AF — the 14 rows of solution 823571's EGSD/VAF screen,
+  // verbatim (incl. the blank-code chargeable-seat SEAT row and the
+  // TA ISS. NO rows, which TTM must refuse to issue) ---
+  { carrier: 'AF', code: '', rfic: 'A', rfisc: '0B5', bookingMethod: 'SEAT', taIssuable: true, description: 'chargeable seat', amount: 30, currency: 'EUR' },
+  { carrier: 'AF', code: 'DSKI', rfic: 'A', rfisc: '0BV', bookingMethod: 'SSR', taIssuable: true, description: 'DISCOUNT SKI RENTAL', amount: 55, currency: 'EUR' },
+  { carrier: 'AF', code: 'PJET', rfic: 'A', rfisc: 'JET', bookingMethod: 'SVC', taIssuable: true, description: 'Air France Additional Flight S', amount: 250, currency: 'EUR' },
+  { carrier: 'AF', code: 'ABAG', rfic: 'C', rfisc: '0CC', bookingMethod: 'SSR', taIssuable: true, description: '1st additional bag', amount: 40, currency: 'EUR' },
+  { carrier: 'AF', code: 'AVIH', rfic: 'C', rfisc: '0BS', bookingMethod: 'SSR', taIssuable: true, description: 'PET IN HOLD', amount: 200, currency: 'EUR' },
+  { carrier: 'AF', code: 'BBAG', rfic: 'C', rfisc: '0CD', bookingMethod: 'SSR', taIssuable: true, description: '2nd additional bag', amount: 70, currency: 'EUR' },
+  { carrier: 'AF', code: 'BIKE', rfic: 'C', rfisc: '0EC', bookingMethod: 'SSR', taIssuable: true, description: 'BICYCLE', amount: 55, currency: 'EUR' },
+  { carrier: 'AF', code: 'CBAG', rfic: 'C', rfisc: '0CE', bookingMethod: 'SSR', taIssuable: true, description: '3rd or more additional bag', amount: 100, currency: 'EUR' },
+  { carrier: 'AF', code: 'HBAG', rfic: 'C', rfisc: '0IK', bookingMethod: 'SSR', taIssuable: false, description: 'HEAVY DC SOLD BAG', amount: 80, currency: 'EUR' },
+  { carrier: 'AF', code: 'PETC', rfic: 'C', rfisc: '0BT', bookingMethod: 'SSR', taIssuable: true, description: 'PET IN CABIN', amount: 125, currency: 'EUR' },
+  { carrier: 'AF', code: 'XBAG', rfic: 'C', rfisc: '0C3', bookingMethod: 'SSR', taIssuable: true, description: 'Excess Baggage', amount: 60, currency: 'EUR' },
+  { carrier: 'AF', code: 'BBEV', rfic: 'D', rfisc: 'BEV', bookingMethod: 'SVC', taIssuable: false, description: 'BlueBiz Exchange Voucher', amount: 0, currency: 'EUR' },
+  { carrier: 'AF', code: 'CNLR', rfic: 'D', rfisc: 'CLR', bookingMethod: 'SVC', taIssuable: false, description: 'IRG-Cancellation Refundable', amount: 0, currency: 'EUR' },
+  { carrier: 'AF', code: 'CNLT', rfic: 'D', rfisc: 'CLT', bookingMethod: 'SVC', taIssuable: false, description: 'IRG-Cancellation Non Refundabl', amount: 0, currency: 'EUR' },
 ];

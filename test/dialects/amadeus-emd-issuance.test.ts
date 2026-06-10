@@ -340,3 +340,44 @@ describe('chunk 36b — ancillary catalogue (FXK) + book (FWK), solution 828431 
     expect(await h.process('FXK', empty)).toBe('NO ITINERARY');
   });
 });
+
+describe('polish — the XBAG worked example (solution 823571 verbatim)', () => {
+  it('EGSD/VAF renders the 14 published rows incl. the SEAT method + TA ISS. NO', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    const resp = await h.process('EGSD/VAF', wa);
+    expect(resp).toContain('LIST OF EMD SERVICES FOR AIRLINE: AF');
+    expect(resp).toMatch(/A\/0B5 +SEAT +YES +chargeable seat/);
+    expect(resp).toMatch(/HBAG +C\/0IK +SSR +NO +HEAVY DC SOLD BAG/);
+    expect(resp).toMatch(/XBAG +C\/0C3 +SSR +YES +Excess Baggage/);
+  });
+
+  it('SRXBAG-…/S2/P1 → SSR XBAG AF with uppercased text + segment suffix → TTM issues', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN20JUNCDGJFK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    expect(await h.process('SRXBAG-PDBG-10KGS-60x80x50/S2/P1', wa)).toBe('OK');
+    expect(wa.pnr.ssrs[0]).toMatchObject({
+      code: 'XBAG', carrier: 'AF', text: 'PDBG-10KGS-60X80X50/S2', nameRef: { item: 1 },
+    });
+    const ttm = await h.process('TTM', wa);
+    expect(ttm).toContain('XBAG C/0C3 EUR60.00');
+    expect(wa.pnr.emds[0].number).toMatch(/^057-/); // AF prefix
+  });
+
+  it('TA ISS. NO rows never issue (HBAG via SSR, BBEV via SVC)', async () => {
+    const h = makeHost();
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN20JUNCDGJFK', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    await h.process('SR HBAG', wa);
+    await h.process('IU AF NN1 BBEV', wa);
+    expect(await h.process('TTM', wa)).toBe('NO CHARGEABLE SERVICES');
+  });
+});
