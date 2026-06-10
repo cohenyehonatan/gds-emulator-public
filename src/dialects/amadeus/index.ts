@@ -1229,7 +1229,8 @@ const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] 
   { keys: ['JI', 'SIGNON'], title: 'SIGN ON / OFF', lines: [
     'JI<num><agent>/<duty>   sign on', 'JO / JD                 sign off / display'] },
   { keys: ['AN', 'AVAIL'], title: 'AVAILABILITY', lines: [
-    'AN<date><org><dst>      neutral availability', 'R/AD <date><org><dst>   rail availability'] },
+    'AN<date><org><dst>      neutral availability', 'R/AD <date><org><dst>   rail availability',
+    '(seeded city pairs: HE MARKETS)'] },
   { keys: ['SS', 'SELL'], title: 'SELL', lines: [
     'SS<seats><class><line>  sell from displayed availability (air or rail)'] },
   { keys: ['NM', 'NAME'], title: 'NAMES', lines: [
@@ -1334,7 +1335,8 @@ function renderAmadeusSteps(): string {
 function renderAmadeusHelp(topic?: string): string {
   if (!topic) {
     return [AMADEUS_HELP_BANNER, '', 'TOPICS — HE <topic>:',
-      ...AMADEUS_HELP_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`)].join('\n');
+      ...AMADEUS_HELP_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`),
+      '  MARKETS  SEEDED INVENTORY — what this emulator serves'].join('\n');
   }
   let t = AMADEUS_HELP_TOPICS.find((x) => x.keys.includes(topic));
   if (!t && topic.includes(' ')) {
@@ -1873,6 +1875,12 @@ export class AmadeusDialect implements Dialect {
     if (heMatch) {
       const topic = heMatch[1].trim();
       let screen: string;
+      if (topic === 'MARKETS') {
+        // Live from the inventory — see the Galileo help twin.
+        screen = ctx.backend.inventory.marketsSummary().join('\n');
+        wa.lastHelpScreen = screen;
+        return screen;
+      }
       if (topic === 'HE' || topic === 'HELP') {
         screen = renderAmadeusHelpOnHelp();
       } else if (topic === 'STEPS') {

@@ -35,6 +35,7 @@ const TOPICS: HelpTopic[] = [
     title: 'AVAILABILITY',
     lines: [
       'A<date><org><dst>          city-pair availability',
+      '(seeded city pairs: HELP MARKETS)',
       'A<date><org><dst>/<cxr>    carrier-filtered',
       'TTL<n>                     flight details for line n',
     ],
@@ -159,6 +160,7 @@ export function renderGalileoHelp(topic?: string): string {
     for (const t of TOPICS) {
       lines.push(`  ${t.keys[0].padEnd(8)} ${t.title}`);
     }
+    lines.push('  MARKETS  SEEDED INVENTORY — what this emulator serves');
     return lines.join('\n');
   }
   const t = TOPICS.find((x) => x.keys.includes(topic));

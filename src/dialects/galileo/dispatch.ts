@@ -254,6 +254,12 @@ export function dispatchGalileo(
         return handleGalileoSeatMap(entry, wa, ctx);
 
       case 'help':
+        // MARKETS renders live from the inventory — operators can
+        // discover what the emulated seed actually serves instead
+        // of guessing city pairs into NO FLIGHTS.
+        if (entry.topic === 'MARKETS') {
+          return ctx.backend.inventory.marketsSummary().join('\n');
+        }
         return renderGalileoHelp(entry.topic);
 
       case 'seat_request':

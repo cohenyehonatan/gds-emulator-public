@@ -64,6 +64,7 @@ function backendAdvisory(host: GdsHost): string[] {
   return [
     '── BACKEND: EMULATED (local Inventory + PnrStore) ──',
     '  No live REST calls. All state synthesized in-process.',
+    '  Seeded markets: HELP MARKETS (Galileo/Apollo/Worldspan) or HE MARKETS (Amadeus).',
   ];
 }
 

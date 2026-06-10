@@ -153,6 +153,32 @@ export class Inventory {
     return EMD_SEED.filter((e) => e.carrier === carrier);
   }
 
+  /**
+   * Human-readable summary of every seeded market — the HELP MARKETS
+   * / HE MARKETS topic, so operators can discover what this emulated
+   * inventory actually serves instead of guessing city pairs.
+   */
+  marketsSummary(): string[] {
+    const byPair = new Map<string, Set<string>>();
+    for (const f of SCHEDULE) {
+      const key = `${f.origin}-${f.destination}`;
+      if (!byPair.has(key)) byPair.set(key, new Set());
+      byPair.get(key)!.add(f.carrier);
+    }
+    const lines: string[] = ['AIR (city pair — carriers):'];
+    for (const [pair, cxrs] of [...byPair.entries()].sort()) {
+      lines.push(`  ${pair}  ${[...cxrs].sort().join(' ')}`);
+    }
+    lines.push('  (+ connections auto-built via hubs, e.g. JFK-SFO, DEN-FRA)');
+    const hotelCities = [...new Set(HOTEL_SEED.map((h) => h.city))].sort();
+    const carCities = [...new Set(CAR_SEED.map((c) => c.city))].sort();
+    const railPairs = [...new Set(RAIL_SEED.map((r) => `${r.origin}-${r.destination} (${r.provider})`))].sort();
+    lines.push(`HOTELS: ${hotelCities.join(' ')}`);
+    lines.push(`CARS: ${carCities.join(' ')}`);
+    lines.push(`RAIL: ${railPairs.join(', ')}`);
+    return lines;
+  }
+
   railBetween(origin: string, destination: string): RailService[] {
     return RAIL_SEED
       .filter((r) => r.origin === origin && r.destination === destination)

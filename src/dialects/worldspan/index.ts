@@ -484,7 +484,8 @@ const WS_TOPICS: { keys: string[]; title: string; lines: string[] }[] = [
 function renderWorldspanHelp(topic?: string): string {
   if (!topic) {
     return [WS_HELP_BANNER, '', 'TOPICS — HELP <topic>:',
-      ...WS_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`)].join('\n');
+      ...WS_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`),
+      '  MARKETS  SEEDED INVENTORY — what this emulator serves'].join('\n');
   }
   const t = WS_TOPICS.find((x) => x.keys.includes(topic));
   if (!t) {
@@ -527,6 +528,9 @@ export class WorldspanDialect implements Dialect {
     const u = raw.trim().toUpperCase();
     const helpMatch = /^(?:HELP|INFO)(?:\s+([A-Z0-9.@*]{1,12}))?$/.exec(u);
     if (helpMatch) {
+      if (helpMatch[1] === 'MARKETS') {
+        return ctx.backend.inventory.marketsSummary().join('\n');
+      }
       return renderWorldspanHelp(helpMatch[1]);
     }
     // Whole-itinerary seat assignment — 4RA family (manual p.52,

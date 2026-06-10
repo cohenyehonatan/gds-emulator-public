@@ -203,3 +203,28 @@ describe('Galileo encode/decode — the help table no longer over-claims', () =>
     expect((await h.process('.AE AIR', wa)).split('\n').length).toBeGreaterThan(3);
   });
 });
+
+describe('HELP MARKETS / HE MARKETS — seeded-inventory discovery', () => {
+  it('renders live from the Inventory across all four help-bearing dialects', async () => {
+    for (const [dialect, entry, pcc] of [
+      [new GalileoDialect(), 'HELP MARKETS', 'AB'],
+      [new ApolloDialect(), 'HELP MARKETS', 'AB'],
+      [new WorldspanDialect(), 'HELP MARKETS', '1P'],
+      [new AmadeusDialect(), 'HE MARKETS', 'A0UC'],
+    ] as const) {
+      const h = new GdsHost({ port: 0, logLevel: 'error', dialect, pcc });
+      const resp = await h.process(entry, h.newWorkArea());
+      expect(resp, entry).toContain('AIR (city pair — carriers):');
+      expect(resp, entry).toContain('JFK-LAX  AA B6 UA');
+      expect(resp, entry).toContain('RAIL:');
+    }
+  });
+
+  it('the help indexes and AVAIL topics point at MARKETS', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+    expect(await h.process('HELP', h.newWorkArea())).toContain('MARKETS');
+    expect(await h.process('H/AVAIL', h.newWorkArea())).toContain('HELP MARKETS');
+    const a = new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
+    expect(await a.process('HE AN', a.newWorkArea())).toContain('HE MARKETS');
+  });
+});

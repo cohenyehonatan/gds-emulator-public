@@ -193,6 +193,9 @@ export class ApolloDialect implements Dialect {
     // Apollo column (`HELP <topic>`, e.g. HELP CA / HELP HOI).
     const helpMatch = /^(?:H\/|HELP)\s?([A-Z0-9.@*]{1,12})?$/.exec(raw.trim().toUpperCase());
     if (helpMatch && (raw.trim().toUpperCase().startsWith('H/') || raw.trim().toUpperCase().startsWith('HELP'))) {
+      if (helpMatch[1] === 'MARKETS') {
+        return ctx.backend.inventory.marketsSummary().join('\n');
+      }
       const body = renderGalileoHelp(helpMatch[1]);
       return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;
     }
