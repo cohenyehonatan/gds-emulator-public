@@ -930,6 +930,20 @@ host help screens aren't public. Sabre deliberately gets NO help
 verb: both first-party courses point at the Format Finder web system
 and document no cryptic form.
 
+Help-screen dig follow-up (2026-06-10): "maybe we haven't looked
+hard enough for the real host help screens?" — partially right
+again. The verbatim help-page BODIES remain unpublished, but the
+dig surfaced the complete Amadeus help-META family that the first
+pass missed, documented verbatim in the in-tree QRG p.5 ("Amadeus
+Online Help Pages" table) + the newly-saved Complete Amadeus Manual
+(references/amadeus/Complete-Amadeus-Manual-Jasir-Alavi.pdf,
+verbatim-third-party bar): HE HE help-on-help, HE STEPS, HE/ (help
+on the entry that just format-errored — the manual pins the
+semantics), MP HE redisplay, multi-word topics (HE PNR NAME), and
+help-screen scrolling. All landed. The 2006 Amadeus QRG (flyingway,
+Cloudflare-bypassed) corroborates the table; the Service Hub EMD-
+guide solution provided verbatim EGSD screens as a bonus reference.
+
 The original survey (all items now resolved or annotated):
 
 ### Real gaps, closable now

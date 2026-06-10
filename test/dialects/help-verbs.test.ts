@@ -124,3 +124,70 @@ describe('Sabre — deliberately no help verb', () => {
     expect(h.dialect.isErrorResponse(resp)).toBe(true);
   });
 });
+
+describe('Amadeus help-meta family (QRG p.5 "Amadeus Online Help Pages", verbatim forms)', () => {
+  const host = () => new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
+
+  async function signedIn(h: GdsHost) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    return wa;
+  }
+
+  it('HE HE renders help-on-help with the full QRG meta table', async () => {
+    const h = host();
+    const resp = await h.process('HE HE', h.newWorkArea());
+    expect(resp).toContain('AMADEUS ONLINE HELP PAGES');
+    expect(resp).toContain('HE/');
+    expect(resp).toContain('MP HE');
+    expect(resp).toContain('HE STEPS');
+  });
+
+  it('HE STEPS renders the step-by-step PNR walkthrough', async () => {
+    const h = host();
+    const resp = await h.process('HE STEPS', h.newWorkArea());
+    expect(resp).toContain('BUILD AND TICKET A PNR');
+    expect(resp).toContain('JI2345HA/GS');
+    expect(resp).toContain('TTP');
+  });
+
+  it('HE/ surfaces help for the last failed entry (manual: after a format error)', async () => {
+    const h = host();
+    const wa = await signedIn(h);
+    await h.process('TTPGARBAGE!!', wa);
+    const resp = await h.process('HE/', wa);
+    expect(resp).toContain('LAST ENTRY: TTPGARBAGE!!');
+    expect(resp).toContain('PRICING / TICKETING'); // TTP prefix inferred
+  });
+
+  it('HE/ with no failed entry points at the index', async () => {
+    const h = host();
+    const wa = await signedIn(h);
+    expect(await h.process('HE/', wa)).toContain('NO FAILED ENTRY');
+  });
+
+  it('a successful entry does not overwrite the failed-entry memory', async () => {
+    const h = host();
+    const wa = await signedIn(h);
+    await h.process('FFNGARBAGE!!', wa);          // fails
+    await h.process('AN15JULJFKLAX', wa);          // succeeds
+    const resp = await h.process('HE/', wa);
+    expect(resp).toContain('LAST ENTRY: FFNGARBAGE!!');
+  });
+
+  it('MPHE redisplays the last help screen; nothing cached → pointer to index', async () => {
+    const h = host();
+    const wa = await signedIn(h);
+    expect(await h.process('MPHE', wa)).toContain('NO HELP SCREEN');
+    const first = await h.process('HE FF', wa);
+    expect(await h.process('MPHE', wa)).toBe(first);
+    expect(await h.process('MP HE', wa)).toBe(first);
+  });
+
+  it('HE PNR NAME (multi-word topic, QRG verbatim example) resolves to the NAMES topic', async () => {
+    const h = host();
+    const resp = await h.process('HE PNR NAME', h.newWorkArea());
+    expect(resp).toContain('NAMES');
+    expect(resp).toContain('NM<n><sur>');
+  });
+});

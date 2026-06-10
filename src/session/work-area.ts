@@ -144,6 +144,21 @@ export class WorkAreaSlot {
   };
 
   /**
+   * Last entry that produced a FORMAT error — drives the Amadeus
+   * `HE/` meta-verb ("Display online help for your attempted command
+   * when you receive a format error", Complete Amadeus Manual /
+   * QRG p.5 "Help on the last transaction entered"). Set by the
+   * Amadeus dialect on FORMAT responses; cleared on reset().
+   */
+  lastFailedEntry?: string;
+
+  /**
+   * Last rendered help screen — drives `MP HE` ("Redisplay the last
+   * help screen", QRG p.5). Cleared on reset().
+   */
+  lastHelpScreen?: string;
+
+  /**
    * Server-assigned traveler UUIDs returned by `addTraveler`,
    * order-aligned with `pnr.names` flattened by `passengers[]`. Used
    * by SSR / remarks live wiring to reference passengers via
@@ -195,6 +210,8 @@ export class WorkAreaSlot {
     this.lastHotelAvail = undefined;
     this.lastCarAvail = undefined;
     this.lastRailAvail = undefined;
+    this.lastFailedEntry = undefined;
+    this.lastHelpScreen = undefined;
   }
 }
 
@@ -392,5 +409,17 @@ export class WorkArea {
   }
   set lastRailAvail(v: WorkAreaSlot['lastRailAvail']) {
     this.s.lastRailAvail = v;
+  }
+  get lastFailedEntry(): string | undefined {
+    return this.s.lastFailedEntry;
+  }
+  set lastFailedEntry(v: string | undefined) {
+    this.s.lastFailedEntry = v;
+  }
+  get lastHelpScreen(): string | undefined {
+    return this.s.lastHelpScreen;
+  }
+  set lastHelpScreen(v: string | undefined) {
+    this.s.lastHelpScreen = v;
   }
 }

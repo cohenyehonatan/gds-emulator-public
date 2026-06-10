@@ -758,12 +758,70 @@ const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] 
     '  carrier exceptions)        DMI   continuity check'] },
 ];
 
+/**
+ * HE HE — help on help. The content here IS source-grounded: the
+ * forms are the QRG p.5 "Amadeus Online Help Pages" table + the
+ * Complete Amadeus Manual's Help System chapter, verbatim.
+ */
+function renderAmadeusHelpOnHelp(): string {
+  return [
+    AMADEUS_HELP_BANNER,
+    '',
+    'AMADEUS ONLINE HELP PAGES',
+    '  HE              main subject index',
+    '  HE HE           help on help (this page)',
+    '  HE <letter>     help index by letter',
+    '  HE <code>       help on a specific transaction (HE NM)',
+    '  HE <topic>      help on a specific topic (HE PNR NAME)',
+    '  HE STEPS        step-by-step instructions for common tasks',
+    '  HE/             help on the last transaction after a format error',
+    '  MP HE           redisplay the last help screen',
+    '',
+    'SCROLLING: MD MU MT MB (help screens scroll like AIS pages)',
+  ].join('\n');
+}
+
+/**
+ * HE STEPS — step-by-step guide for key functionality (QRG p.5 /
+ * manual "Step wise guide"). Emulator-native walkthrough of the
+ * core PNR build this terminal supports.
+ */
+function renderAmadeusSteps(): string {
+  return [
+    AMADEUS_HELP_BANNER,
+    '',
+    'STEPS — BUILD AND TICKET A PNR',
+    '  1. JI2345HA/GS              sign on',
+    '  2. AN15JULJFKLAX            availability',
+    '  3. SS1Y1                    sell from line 1',
+    '  4. NM1SMITH/JOHN MR         name',
+    '  5. AP020 555-1212-A         phone',
+    '  6. TKOK                     ticketing arrangement',
+    '  7. RF AGT                   received from',
+    '  8. FXP                      price',
+    '  9. ER                       end transact + retrieve (locator)',
+    ' 10. TTP                      issue tickets   TWD  display them',
+    '',
+    'HE <code> FOR ANY STEP (HE SS, HE NM, HE FXP, HE TTP…)',
+  ].join('\n');
+}
+
 function renderAmadeusHelp(topic?: string): string {
   if (!topic) {
     return [AMADEUS_HELP_BANNER, '', 'TOPICS — HE <topic>:',
       ...AMADEUS_HELP_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`)].join('\n');
   }
-  const t = AMADEUS_HELP_TOPICS.find((x) => x.keys.includes(topic));
+  let t = AMADEUS_HELP_TOPICS.find((x) => x.keys.includes(topic));
+  if (!t && topic.includes(' ')) {
+    // Multi-word topic (QRG: "Help on a specific topic — HE PNR
+    // NAME"): match any word against the topic keys.
+    const words = topic.split(/\s+/);
+    t = AMADEUS_HELP_TOPICS.find((x) => x.keys.some((k) => words.includes(k)));
+    if (!t) {
+      t = AMADEUS_HELP_TOPICS.find((x) =>
+        words.some((w) => x.title.split(/[\s/]+/).includes(w)));
+    }
+  }
   if (!t) {
     const matches = AMADEUS_HELP_TOPICS.filter((x) => x.keys.some((k) => k.startsWith(topic)));
     if (matches.length > 0) {
@@ -1228,22 +1286,77 @@ export class AmadeusDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string {
+    const result = this.dispatchEntry(raw, wa, ctx);
+    // HE/ support: remember the last FORMAT-rejected entry (but not
+    // help entries themselves, so HE/ after a failed HE typo doesn't
+    // chase its own tail). Manual: "Display online help for your
+    // attempted command when you receive a format error."
+    const trimmed = raw.trim().toUpperCase();
+    const failed = result === FORMAT_ERROR || result === NOT_IMPLEMENTED;
+    if (failed && !trimmed.startsWith('HE') && trimmed !== 'HELP' && trimmed !== 'MPHE') {
+      wa.lastFailedEntry = raw.trim();
+    }
+    return result;
+  }
+
+  private dispatchEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string {
     const entry = raw.trim();
     if (entry.length === 0) return FORMAT_ERROR;
 
     // Sign-on family. JI prefix → sign-in; JO[*] → sign-out; JD → status.
-    // --- Help: HE <code> / HE<code> / HELP (QRG intro, verbatim:
-    // "enter HE followed by the relevant transaction code"; topic
-    // cites throughout: HE SM, HE FF, HE ACCESRAIL, HE HOT OPT…).
-    // Content is emulator-native — Amadeus's real help pages aren't
-    // public; each topic lists the verb surface this emulator
+    // --- Help: the Amadeus Online Help Pages family, forms verbatim
+    // from the in-tree QRG p.5 + the Complete Amadeus Manual (Jasir
+    // Alavi, references/amadeus/) Help System chapter:
+    //   HE              main subject index        HELP   (same)
+    //   HE HE / HE HELP help on help
+    //   HE <letter>     index by letter (prefix match)
+    //   HE <code>       help on a transaction (HE NM, HE SM…)
+    //   HE <topic …>    multi-word topic (HE PNR NAME)
+    //   HE STEPS        step-by-step guide for key functionality
+    //   HE/             help for your attempted command after a
+    //                   FORMAT error (manual, verbatim semantics)
+    //   MP HE / MPHE    redisplay the last help screen
+    // Content is emulator-native — Amadeus's real help page BODIES
+    // aren't public; each topic lists the verb surface this emulator
     // implements, and the banner says so.
     if (entry === 'HELP' || entry === 'HE') {
-      return renderAmadeusHelp();
+      const screen = renderAmadeusHelp();
+      wa.lastHelpScreen = screen;
+      return screen;
     }
-    const heMatch = /^HE\s?([A-Z0-9/]{1,12})$/.exec(entry);
+    if (entry === 'MPHE' || entry === 'MP HE') {
+      return wa.lastHelpScreen ?? 'NO HELP SCREEN TO REDISPLAY - HE FOR THE INDEX';
+    }
+    if (entry === 'HE/') {
+      // Help on the last FORMAT-rejected entry. Infer the topic by
+      // the longest topic key the failed entry starts with.
+      const failed = wa.lastFailedEntry;
+      if (!failed) return 'NO FAILED ENTRY - HE FOR THE INDEX';
+      let best: string | undefined;
+      for (const t of AMADEUS_HELP_TOPICS) {
+        for (const k of t.keys) {
+          if (failed.toUpperCase().startsWith(k) && (best == null || k.length > best.length)) {
+            best = k;
+          }
+        }
+      }
+      const screen = renderAmadeusHelp(best); // undefined → index
+      wa.lastHelpScreen = screen;
+      return `LAST ENTRY: ${failed}\n${screen}`;
+    }
+    const heMatch = /^HE\s?([A-Z0-9/ .]{1,20})$/.exec(entry);
     if (heMatch) {
-      return renderAmadeusHelp(heMatch[1]);
+      const topic = heMatch[1].trim();
+      let screen: string;
+      if (topic === 'HE' || topic === 'HELP') {
+        screen = renderAmadeusHelpOnHelp();
+      } else if (topic === 'STEPS') {
+        screen = renderAmadeusSteps();
+      } else {
+        screen = renderAmadeusHelp(topic);
+      }
+      wa.lastHelpScreen = screen;
+      return screen;
     }
 
     if (entry.startsWith('JI')) {
