@@ -1001,7 +1001,7 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       to-end. Still open: the unmined-solutions table in the delta
       doc (passive segments, EMD re-association, XBAG example…).
 
-- [ ] **Worldspan native calibration** (IN PROGRESS — commits 1-4
+- [x] **Worldspan native calibration** (COMPLETE, 8 commits — commits 1-4
       landed: native availability display, the HELP AVAILCONT
       continuation family (AD/A*/AT/AY/A<n>D/A<date>/A-<cxr>/A/R/
       A@A/A@D), encode/decode KC/KD/KAC/KAD across all three
@@ -1009,10 +1009,17 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       over-claiming H/DECODE help topic — the native sold-
       segment response, and the native PNR display (1P- header,
       *ADT names, P-/T-/G- fields, ITEMS SUPPRESSED trailer — ER/
-      retrieve/by-name all render it). Remaining in the manual: the
-      S schedule display (needs frequency/EFF-DIS data we don't
-      model), *DR airline acknowledgments (needs airline-locator
-      synthesis), waitlist ∅L sells, the seats chapter) — unlocked
+      retrieve/by-name all render it). The deferred manual items
+      landed too (commits 6-8): the S schedule display + its
+      continuation table (frequency/EFF-DIS/meals synthesized,
+      flagged), 0L waitlist sells (LL status) + *DR airline
+      acknowledgments (deterministic synthetic airline locators) +
+      ER retaining the PNR on screen per the manual, and the 4RA
+      whole-itinerary seating family with the ALL SEATS RESERVED
+      response, SR segment markers, /S trailer, and one-line
+      multi-pax names. Still unmodeled from the manual: ER-vs-IR
+      acknowledgment state (/DR trailer), TKG FAX advisories,
+      DI items) — unlocked
       2026-06-10: the
       dead globallearningcenter.wspan.com was recovered from the
       Wayback Machine; `references/worldspan/Worldspan-Go-Res-

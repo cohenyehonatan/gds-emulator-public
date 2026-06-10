@@ -361,15 +361,20 @@ function wsAddDays(date: string, n: number): string {
  */
 function renderWorldspanPnr(pnr: import('../../models/pnr.js').Pnr): string {
   const lines: string[] = [`1P- ${pnr.locator ?? ''}`.trimEnd()];
+  // Names share ONE line (manual p.52 verbatim:
+  // ` 1.1MAC.DERMOTT/LUCAS*ADT 2.1FOX/MARGARITA*ADT`).
+  const nameTokens: string[] = [];
   let paxNo = 0;
   for (const nm of pnr.names) {
     for (const pax of nm.passengers) {
       paxNo += 1;
-      lines.push(` ${paxNo}.1${nm.surname}/${pax.firstName}${pax.title ? ' ' + pax.title : ''}*ADT`);
+      nameTokens.push(`${paxNo}.1${nm.surname}/${pax.firstName}${pax.title ? ' ' + pax.title : ''}*ADT`);
     }
   }
+  if (nameTokens.length > 0) lines.push(` ${nameTokens.join(' ')}`);
+  const seated = pnr.seatRequests.length > 0;
   for (const seg of pnr.segments) {
-    lines.push(` ${renderWorldspanSoldSegment(seg)}`);
+    lines.push(` ${renderWorldspanSoldSegment(seg, seated)}`);
   }
   pnr.phones.forEach((ph, i) => {
     lines.push(`P- ${i + 1}.${ph.city ? ph.city + ' ' : ''}${ph.number}${ph.type ? '-' + ph.type[0].toUpperCase() : ''}`);
@@ -388,7 +393,10 @@ function renderWorldspanPnr(pnr: import('../../models/pnr.js').Pnr): string {
     gNo += 1;
     lines.push(`G- ${gNo}.SSR ${ssr.code} ${ssr.carrier} ${ssr.status}1${ssr.text ? ' ' + ssr.text : ''}`);
   }
-  lines.push('**** ITEMS SUPPRESSED ****/ML');
+  // Trailer codes (manual p.52): /S once seats are assigned. The
+  // /DR acknowledgment suffix (post-IR) isn't tracked — ER-vs-IR
+  // acknowledgment state is unmodeled.
+  lines.push(`**** ITEMS SUPPRESSED ****/ML${seated ? '/S' : ''}`);
   return lines.join('\n');
 }
 
@@ -398,13 +406,16 @@ function renderWorldspanPnr(pnr: import('../../models/pnr.js').Pnr): string {
  * rendered literally); $ /# is the participation mark; E flags
  * e-ticket acceptance.
  */
-function renderWorldspanSoldSegment(seg: import('../../models/segment.js').AirSegment): string {
+function renderWorldspanSoldSegment(seg: import('../../models/segment.js').AirSegment, seated = false): string {
   const part = WS_PARTICIPATION[seg.carrier] ?? ' ';
   const dep = ws24(seg.departTime);
   const arr = ws24(seg.arriveTime);
   const nextDay = seg.departTime && seg.arriveTime && wsClockMin(seg.arriveTime) <= wsClockMin(seg.departTime) ? ' #1' : '';
   const dow = wsDow(seg.date);
-  return `${seg.segmentNumber} ${seg.carrier}${seg.flightNumber.padStart(4)}${seg.bookingClass} ${seg.date} ${dow} ${seg.origin}${seg.destination} ${seg.status}${seg.seats}    ${dep}   ${arr}${nextDay}/O ${part}   E`;
+  // ` SR ` marks seat requests on the segment (manual p.52:
+  // `… #1/O $ SR E` after 4RA + ER).
+  const sr = seated ? ' SR' : '  ';
+  return `${seg.segmentNumber} ${seg.carrier}${seg.flightNumber.padStart(4)}${seg.bookingClass} ${seg.date} ${dow} ${seg.origin}${seg.destination} ${seg.status}${seg.seats}    ${dep}   ${arr}${nextDay}/O ${part}${sr} E`;
 }
 
 function wsDow(date: string): string {
@@ -518,6 +529,26 @@ export class WorldspanDialect implements Dialect {
     if (helpMatch) {
       return renderWorldspanHelp(helpMatch[1]);
     }
+    // Whole-itinerary seat assignment — 4RA family (manual p.52,
+    // entry forms + response verbatim):
+    //   4RA      seats, all segments + all passengers
+    //   4RA$A    same, aisle preference
+    //   4RA$W    same, window preference
+    //   → ALL SEATS RESERVED
+    // (4RA$W previously translated to Galileo S.NW; the manual's
+    // native response supersedes it. Specific-seat 4RS<seg>$<seat>
+    // keeps its W.2 translation.) After seating, the PNR display
+    // marks each segment ` SR ` and the trailer gains /S.
+    const fourRa = /^4RA(?:\$([AW]))?$/.exec(u);
+    if (fourRa) {
+      if (wa.pnr.segments.length === 0) return 'NO ITIN';
+      const pref = fourRa[1] === 'W' ? 'W' : fourRa[1] === 'A' ? 'A' : 'NSST';
+      for (const seg of wa.pnr.segments) {
+        wa.pnr.seatRequests.push({ code: pref, segment: seg.segmentNumber, nameRef: undefined });
+      }
+      return 'ALL SEATS RESERVED';
+    }
+
     // Waitlist sell — ∅L family (manual p.30, forms verbatim; the ∅
     // glyph is the Worldspan 0 sigil):
     //   0L3B2     waitlist 3 seats, class B, availability line 2

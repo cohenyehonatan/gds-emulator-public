@@ -285,3 +285,53 @@ describe('waitlist sells (0L family) + *DR acknowledgments (manual pp.30/46)', (
     expect(await h.process('*DR', wa)).toBe('NO PNR DISPLAYED');
   });
 });
+
+describe('whole-itinerary seating — 4RA family (manual p.52, verbatim)', () => {
+  async function twoPaxPnr(h: GdsHost) {
+    const wa = await signedIn(h);
+    await h.process('A15JULJFKLAX', wa);
+    await h.process('02Y1', wa);
+    await h.process('-MAC.DERMOTT/LUCAS', wa);
+    await h.process('-FOX/MARGARITA', wa);
+    await h.process('9*BUE54114320-T', wa);
+    await h.process('6LUCAS', wa);
+    await h.process('7TAW/00/10SEP', wa);
+    return wa;
+  }
+
+  it('4RA / 4RA$A / 4RA$W answer ALL SEATS RESERVED and store seat requests', async () => {
+    const h = makeHost();
+    const wa = await twoPaxPnr(h);
+    expect(await h.process('4RA$W', wa)).toBe('ALL SEATS RESERVED');
+    expect(wa.pnr.seatRequests).toHaveLength(1); // one air segment
+    expect(wa.pnr.seatRequests[0].code).toBe('W');
+    const wa2 = await twoPaxPnr(h);
+    expect(await h.process('4RA', wa2)).toBe('ALL SEATS RESERVED');
+    expect(wa2.pnr.seatRequests[0].code).toBe('NSST');
+  });
+
+  it('the seated PNR shows one-line names, SR markers, and the /S trailer', async () => {
+    const h = makeHost();
+    const wa = await twoPaxPnr(h);
+    await h.process('4RA$W', wa);
+    const er = await h.process('ER', wa);
+    const lines = er.split('\n');
+    expect(lines[1]).toBe(' 1.1MAC.DERMOTT/LUCAS*ADT 2.1FOX/MARGARITA*ADT');
+    expect(lines[2]).toMatch(/\/O \$ SR E$/);
+    expect(lines.pop()).toBe('**** ITEMS SUPPRESSED ****/ML/S');
+  });
+
+  it('unseated PNRs keep the plain trailer and no SR marker', async () => {
+    const h = makeHost();
+    const wa = await twoPaxPnr(h);
+    const er = await h.process('ER', wa);
+    expect(er).not.toContain(' SR E');
+    expect(er.split('\n').pop()).toBe('**** ITEMS SUPPRESSED ****/ML');
+  });
+
+  it('4RA without an itinerary → NO ITIN', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    expect(await h.process('4RA', wa)).toBe('NO ITIN');
+  });
+});
