@@ -2483,6 +2483,58 @@ export class AmadeusDialect implements Dialect {
       return 'OK';
     }
 
+    // ERK — accept ALL advice codes at once (Service Hub 938974,
+    // verbatim semantics: "changes the advice codes in Air, Hotel,
+    // Car, Auxiliary segments, and in any SSR element. Inactive
+    // advice codes (NO, UN, HX and UC) are automatically transferred
+    // to the history of the PNR" — the sample shows KL1→HK1 and the
+    // UC1 SSR removed). Response: the updated PNR display.
+    if (entry === 'ERK') {
+      const INACTIVE = new Set(['NO', 'UN', 'HX', 'UC']);
+      const ADVICE_TO_HK = new Set(['KK', 'KL', 'TK', 'TL', 'US']);
+      let touched = 0;
+      const allSegs: { status: string }[] = [
+        ...wa.pnr.segments, ...wa.pnr.hotelSegments,
+        ...wa.pnr.carSegments, ...wa.pnr.railSegments, ...wa.pnr.svcSegments,
+      ];
+      for (const seg of allSegs) {
+        if (ADVICE_TO_HK.has(seg.status)) { seg.status = 'HK'; touched++; }
+      }
+      wa.pnr.segments = wa.pnr.segments.filter((seg) => {
+        if (INACTIVE.has(seg.status)) {
+          recordHistory(wa.pnr, `ERK PURGE ${seg.carrier}${seg.flightNumber} ${seg.status}`);
+          touched++;
+          return false;
+        }
+        return true;
+      });
+      wa.pnr.ssrs = wa.pnr.ssrs.filter((ssr) => {
+        if (ADVICE_TO_HK.has(ssr.status)) { ssr.status = 'HK'; touched++; return true; }
+        if (INACTIVE.has(ssr.status)) {
+          recordHistory(wa.pnr, `ERK PURGE SSR ${ssr.code} ${ssr.status}`);
+          touched++;
+          return false;
+        }
+        return true;
+      });
+      if (touched === 0) return 'NO ADVICE CODES TO ACCEPT';
+      recordHistory(wa.pnr, `ERK ${touched} ADVICE CODE(S) ACCEPTED`);
+      try { wa.machine.transition(SessionEvent.MODIFY); } catch { /* */ }
+      return renderAmadeusPnr(wa.pnr, ctx.pcc, wa.agent);
+    }
+
+    // <n>/RR — reconfirm ("You can only use this entry for segments
+    // with a confirmed status code", 938974).
+    const rrMatch = /^([1-9]\d?)\/RR$/.exec(entry);
+    if (rrMatch) {
+      const seg = wa.pnr.segments.find((x) => x.segmentNumber === parseInt(rrMatch[1], 10));
+      if (!seg) return 'SEGMENT NOT IN ITINERARY';
+      if (seg.status !== 'HK') return 'SEGMENT NOT CONFIRMED';
+      seg.status = 'RR';
+      recordHistory(wa.pnr, `RECONFIRM ${seg.carrier}${seg.flightNumber}`);
+      return renderAmadeusItinerary(wa.pnr);
+    }
+
     // Segment status modify: <n>/<status> (QRG p.31 "Change segment status").
     // E.g. `2/HK` sets segment 2 to HK. Valid status codes per the
     // Amadeus QRG status set (shared with the Sabre manual-entry set).

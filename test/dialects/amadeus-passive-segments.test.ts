@@ -74,3 +74,46 @@ describe('GGPCA carrier-access page', () => {
     expect(resp).toContain(' PASSIVE SEGMENT: Y      PASSIVE NOTIFY: Y         PNR CLAIM: Y');
   });
 });
+
+describe('advice-code acceptance (938974): ERK + <n>/RR', () => {
+  async function built(h: GdsHost) {
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    await h.process('AN15JULJFKLAX', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('SS1Y2', wa);
+    await h.process('NM1JONES/JANE MRS', wa);
+    return wa;
+  }
+
+  it('ERK flips advice codes to HK and purges inactive segments/SSRs to history', async () => {
+    const h = makeHost();
+    const wa = await built(h);
+    wa.pnr.segments[0].status = 'TK'; // schedule change
+    wa.pnr.segments[1].status = 'UN'; // inactive
+    wa.pnr.ssrs.push({ code: 'VGML', carrier: '6X', status: 'UC' });
+    wa.pnr.ssrs.push({ code: 'VGML', carrier: '7X', status: 'KK' });
+    const resp = await h.process('ERK', wa);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(wa.pnr.segments[0].status).toBe('HK');
+    expect(wa.pnr.ssrs).toHaveLength(1);
+    expect(wa.pnr.ssrs[0].status).toBe('HK');
+    expect(resp).toContain('JONES/JANE MRS'); // PNR redisplay
+    expect(wa.pnr.history.some((x) => x.text.includes('ERK PURGE'))).toBe(true);
+  });
+
+  it('ERK with nothing to accept → specific message', async () => {
+    const h = makeHost();
+    const wa = await built(h);
+    expect(await h.process('ERK', wa)).toBe('NO ADVICE CODES TO ACCEPT');
+  });
+
+  it('<n>/RR reconfirms only confirmed segments', async () => {
+    const h = makeHost();
+    const wa = await built(h);
+    expect(await h.process('1/RR', wa)).toBe('SEGMENT NOT CONFIRMED'); // SS
+    wa.pnr.segments[0].status = 'HK';
+    expect(await h.process('1/RR', wa)).toContain('RR');
+    expect(wa.pnr.segments[0].status).toBe('RR');
+  });
+});
