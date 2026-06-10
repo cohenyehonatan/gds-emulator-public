@@ -50,6 +50,7 @@ import type { Dialect, DialectId } from '../dialect.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/index.js';
 import { ParseError } from '../../protocol/errors.js';
+import { SessionEvent } from '../../session/session-state.js';
 import { parseGalileoEntry } from '../galileo/parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js';
 import { GalileoResponse } from '../galileo/responses.js';
@@ -274,6 +275,21 @@ function renderWorldspanSchedule(
     out.push('         EFF 01JAN DIS 31DEC');
   }
   return out.join('\n');
+}
+
+/** Deterministic 6-letter airline record locator (DJB2 over our
+ *  locator + carrier — synthetic; flagged at the *DR site). */
+function wsAirlineLocator(locator: string, carrier: string): string {
+  let hash = 5381;
+  const str = `${locator}|${carrier}`;
+  for (let i = 0; i < str.length; i++) hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  let n = Math.abs(hash);
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += String.fromCharCode(65 + (n % 26));
+    n = Math.floor(n / 26) + i;
+  }
+  return out;
 }
 
 /** Meal code from departure hour (synthetic): B breakfast, L lunch,
@@ -502,6 +518,52 @@ export class WorldspanDialect implements Dialect {
     if (helpMatch) {
       return renderWorldspanHelp(helpMatch[1]);
     }
+    // Waitlist sell — ∅L family (manual p.30, forms verbatim; the ∅
+    // glyph is the Worldspan 0 sigil):
+    //   0L3B2     waitlist 3 seats, class B, availability line 2
+    //   0L2M1K2   2 seats waitlisted on M line 1 AND K line 2
+    //             (connection waitlist)
+    // Segments land with LL status (the availability legend's
+    // "waitlist open" path) and render via the native sold-segment
+    // line. Never flipped to HK at commit.
+    const wlMatch = /^0L(\d{1,2})((?:[A-Z]\d{1,2})+)$/.exec(u);
+    if (wlMatch) {
+      const avail = wa.lastAvailability;
+      if (!avail || avail.lines.length === 0) return GalileoResponse.FORMAT;
+      const pairs = [...wlMatch[2].matchAll(/([A-Z])(\d{1,2})/g)];
+      const sold: string[] = [];
+      for (const pr of pairs) {
+        const line = avail.lines[parseInt(pr[2], 10) - 1];
+        if (!line) return 'INVALID LINE';
+        const seg: import('../../models/segment.js').AirSegment = {
+          segmentNumber: wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+            wa.pnr.carSegments.length + wa.pnr.railSegments.length +
+            wa.pnr.svcSegments.length + 1,
+          carrier: line.carrier, flightNumber: line.flightNumber,
+          bookingClass: pr[1], date: avail.date,
+          dayOfWeek: '?', dayOfWeekNum: 0,
+          origin: line.origin, destination: line.destination,
+          status: 'LL', seats: parseInt(wlMatch[1], 10),
+          departTime: line.departTime, arriveTime: line.arriveTime,
+        };
+        wa.pnr.segments.push(seg);
+        sold.push(renderWorldspanSoldSegment(seg));
+      }
+      return sold.join('\n');
+    }
+
+    // *DR — airline acknowledgment display (manual p.46, verbatim):
+    //   1 AR1130N 10MAR FR EZEMAD ACKN HDQAR KIUPWC
+    // (ACKN = acknowledge, HDQ<cxr> = the airline office sending the
+    // confirmation, then the AIRLINE's record locator — synthesized
+    // deterministically from our locator + carrier, flagged.)
+    if (u === '*DR') {
+      if (!wa.pnr.locator || wa.pnr.segments.length === 0) return 'NO PNR DISPLAYED';
+      return wa.pnr.segments
+        .map((seg) => `${seg.segmentNumber} ${seg.carrier}${seg.flightNumber.padStart(4)}${seg.bookingClass} ${seg.date} ${wsDow(seg.date)} ${seg.origin}${seg.destination} ACKN HDQ${seg.carrier} ${wsAirlineLocator(wa.pnr.locator!, seg.carrier)}`)
+        .join('\n');
+    }
+
     // Schedule display — S<date><org><dst>[-<cxr>] + continuations
     // (Go! Res manual pp.27-28, layout + legend verbatim):
     //   10NOV-TH-0700 BUEMIA ** ET
@@ -622,6 +684,11 @@ export class WorldspanDialect implements Dialect {
           const found = loc && ctx.backend.pnrs.get(loc[1]);
           if (!found) return r;
           pnr = found;
+          // ER is end-AND-retrieve ("el PNR se recupera en
+          // pantalla", manual p.45) — keep it on the work area so
+          // follow-ups (*DR, modifications) reference it.
+          wa.pnr = found;
+          try { wa.machine.transition(SessionEvent.RETRIEVE); } catch { /* */ }
         }
         return renderWorldspanPnr(pnr);
       });

@@ -249,3 +249,39 @@ describe('schedule display — S entry (manual pp.27-28, layout verbatim)', () =
     expect(await h.process('S15JULXXXYYY', wa)).toBe('NO FLIGHTS');
   });
 });
+
+describe('waitlist sells (0L family) + *DR acknowledgments (manual pp.30/46)', () => {
+  it('0L<seats><cls><line> waitlists with LL status; multi-pair waitlists connections', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    await h.process('A15JULJFKLAX', wa);
+    const one = await h.process('0L3B2', wa);
+    expect(one).toMatch(/^1 AA {1,2}100B 15JUL [A-Z]{2} JFKLAX LL3/);
+    const two = await h.process('0L2M1Y3', wa);
+    expect(two.split('\n')).toHaveLength(2);
+    expect(two).toContain('LL2');
+    expect(wa.pnr.segments.map((s) => s.status)).toEqual(['LL', 'LL', 'LL']);
+    expect(await h.process('0L1Y99', wa)).toBe('INVALID LINE');
+  });
+
+  it('ER keeps the PNR on screen; *DR renders ACKN HDQ<cxr> + deterministic locator', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    await h.process('A15JULJFKLAX', wa);
+    await h.process('01Y1', wa);
+    await h.process('-WATKINS/OSCAR', wa);
+    await h.process('9*BUE5551212-T', wa);
+    await h.process('6AGT', wa);
+    await h.process('7TAW/00/13AUG', wa);
+    await h.process('ER', wa);
+    const dr = await h.process('*DR', wa);
+    expect(dr).toMatch(/^1 B6 {1,2}615Y 15JUL [A-Z]{2} JFKLAX ACKN HDQB6 [A-Z]{6}$/);
+    expect(await h.process('*DR', wa)).toBe(dr); // deterministic
+  });
+
+  it('*DR without a committed PNR on screen → NO PNR DISPLAYED', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    expect(await h.process('*DR', wa)).toBe('NO PNR DISPLAYED');
+  });
+});
