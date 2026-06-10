@@ -1006,10 +1006,13 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       continuation family (AD/A*/AT/AY/A<n>D/A<date>/A-<cxr>/A/R/
       A@A/A@D), encode/decode KC/KD/KAC/KAD across all three
       Travelport-family dialects — which also fixed Galileo's
-      over-claiming H/DECODE help topic — and the native sold-
-      segment response. Remaining in the manual: the S schedule
-      display (needs frequency/EFF-DIS data we don't model), the
-      PNR display, waitlist ∅L sells, seats chapter) — unlocked
+      over-claiming H/DECODE help topic — the native sold-
+      segment response, and the native PNR display (1P- header,
+      *ADT names, P-/T-/G- fields, ITEMS SUPPRESSED trailer — ER/
+      retrieve/by-name all render it). Remaining in the manual: the
+      S schedule display (needs frequency/EFF-DIS data we don't
+      model), *DR airline acknowledgments (needs airline-locator
+      synthesis), waitlist ∅L sells, the seats chapter) — unlocked
       2026-06-10: the
       dead globallearningcenter.wspan.com was recovered from the
       Wayback Machine; `references/worldspan/Worldspan-Go-Res-

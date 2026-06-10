@@ -283,6 +283,44 @@ function wsAddDays(date: string, n: number): string {
 }
 
 /**
+ * Native PNR display (Go! Res manual p.45, verbatim layout). Fields
+ * not present on our model (TKG FAX advisories, DI items) are
+ * omitted; the ITEMS SUPPRESSED trailer renders verbatim.
+ */
+function renderWorldspanPnr(pnr: import('../../models/pnr.js').Pnr): string {
+  const lines: string[] = [`1P- ${pnr.locator ?? ''}`.trimEnd()];
+  let paxNo = 0;
+  for (const nm of pnr.names) {
+    for (const pax of nm.passengers) {
+      paxNo += 1;
+      lines.push(` ${paxNo}.1${nm.surname}/${pax.firstName}${pax.title ? ' ' + pax.title : ''}*ADT`);
+    }
+  }
+  for (const seg of pnr.segments) {
+    lines.push(` ${renderWorldspanSoldSegment(seg)}`);
+  }
+  pnr.phones.forEach((ph, i) => {
+    lines.push(`P- ${i + 1}.${ph.city ? ph.city + ' ' : ''}${ph.number}${ph.type ? '-' + ph.type[0].toUpperCase() : ''}`);
+  });
+  if (pnr.ticketing) {
+    // Stored Galileo-side as TAU/<date>; Worldspan shows TAW/00/<date>.
+    const date = /(\d{1,2}[A-Z]{3})/.exec(pnr.ticketing)?.[1];
+    lines.push(`T- 1.${date ? `TAW/00/${date}` : pnr.ticketing}`);
+  }
+  let gNo = 0;
+  for (const osi of pnr.osis) {
+    gNo += 1;
+    lines.push(`G- ${gNo}.OSI ${osi.carrier} ${osi.text}`);
+  }
+  for (const ssr of pnr.ssrs) {
+    gNo += 1;
+    lines.push(`G- ${gNo}.SSR ${ssr.code} ${ssr.carrier} ${ssr.status}1${ssr.text ? ' ' + ssr.text : ''}`);
+  }
+  lines.push('**** ITEMS SUPPRESSED ****/ML');
+  return lines.join('\n');
+}
+
+/**
  * Verbatim sold-segment line (Go! Res manual p.31). The /O marker
  * appears on every published sample (undocumented in the legend —
  * rendered literally); $ /# is the participation mark; E flags
@@ -470,6 +508,39 @@ export class WorldspanDialect implements Dialect {
     // (segment number, carrier+flight+class concatenated, date,
     // 2-letter DOW, concatenated city pair, status+seats, 24h
     // times, #1 next-day, the /O marker, participation mark, E.)
+    // Native PNR display (calibration arc commit 5) — verbatim
+    // layout from the Go! Res manual's ER/IR walkthrough (p.45):
+    //   1P- 7UMAHZ
+    //    1.1MAC.DERMOTT/LUCAS*ADT
+    //    1 AR1130N 10MAR FR EZEMAD HK1 1500 0640 #1/O $ E
+    //   P- 1.TQ3 54 11 4320-1111-T/...
+    //   T- 1.TAW/00/13AUG
+    //   G- 1.OSI YY ...
+    //   **** ITEMS SUPPRESSED ****/ML
+    // Rendered for retrieves (*<locator>, *-<name>, *R) and for
+    // ER/IR once a locator exists ("the PNR is retrieved on screen"
+    // per the manual). The *DR acknowledgment display is deferred
+    // (needs airline-locator synthesis).
+    const isRetrieve = entry.kind === 'display' && /^\*(?:[A-Z0-9]{6}|-|R$)/.test(translated);
+    const isEndRetrieve = entry.kind === 'end_transaction' && (u === 'ER' || u === 'IR');
+    if (isRetrieve || isEndRetrieve) {
+      return Promise.resolve(result).then((r) => {
+        if (this.isErrorResponse(r)) return r;
+        let pnr = wa.pnr;
+        if (pnr.names.length === 0 && pnr.segments.length === 0) {
+          // ER commits + resets the work area — recover the
+          // committed PNR through the locator that opens Galileo's
+          // response (`<locator>  <pcc>/<agent>`).
+          if (!isEndRetrieve) return r;
+          const loc = /^([A-Z0-9]{6})\b/.exec(r);
+          const found = loc && ctx.backend.pnrs.get(loc[1]);
+          if (!found) return r;
+          pnr = found;
+        }
+        return renderWorldspanPnr(pnr);
+      });
+    }
+
     if (entry.kind === 'sell') {
       return Promise.resolve(result).then((r) => {
         if (this.isErrorResponse(r) || wa.pnr.segments.length <= segsBefore) return r;

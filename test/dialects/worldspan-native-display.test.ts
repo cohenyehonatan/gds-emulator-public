@@ -167,3 +167,50 @@ describe('native sold-segment response (manual p.31, verbatim shape)', () => {
     expect(h.dialect.isErrorResponse(resp) || !resp.includes('/O')).toBe(true);
   });
 });
+
+describe('native PNR display (manual p.45 ER walkthrough, verbatim layout)', () => {
+  async function builtPnr(h: GdsHost) {
+    const wa = await signedIn(h);
+    await h.process('A15JANHELBKK', wa);
+    await h.process('01Y1', wa);
+    await h.process('-MAC.DERMOTT/LUCAS', wa);
+    await h.process('9*BUE54114320-T', wa);
+    await h.process('6JACKIE', wa);
+    await h.process('7TAW/00/13AUG', wa);
+    await h.process('3OSI YY WORLDSPAN SERVICES ARG', wa);
+    return wa;
+  }
+
+  it('ER answers with the native PNR: 1P- header, *ADT names, P-/T-/G- fields, trailer', async () => {
+    const h = makeHost();
+    const wa = await builtPnr(h);
+    const resp = await h.process('ER', wa);
+    const lines = resp.split('\n');
+    expect(lines[0]).toMatch(/^1P- [A-Z0-9]{6}$/);
+    expect(lines[1]).toBe(' 1.1MAC.DERMOTT/LUCAS*ADT');
+    expect(lines[2]).toMatch(/^ 1 6X {1,2}089Y 15JAN [A-Z]{2} HELBKK SS1/);
+    expect(resp).toContain('P- 1.BUE54114320-T');
+    expect(resp).toContain('T- 1.TAW/00/13AUG');
+    expect(resp).toContain('G- 1.OSI YY WORLDSPAN SERVICES ARG');
+    expect(resp.split('\n').pop()).toBe('**** ITEMS SUPPRESSED ****/ML');
+  });
+
+  it('retrieve by locator + by name render the same native layout', async () => {
+    const h = makeHost();
+    const wa = await builtPnr(h);
+    const er = await h.process('ER', wa);
+    const loc = /^1P- ([A-Z0-9]{6})/.exec(er)![1];
+    const wa2 = await signedIn(h);
+    const byLoc = await h.process(`*${loc}`, wa2);
+    expect(byLoc.split('\n')[0]).toBe(`1P- ${loc}`);
+    const wa3 = await signedIn(h);
+    expect((await h.process('**-MAC.DERMOTT', wa3)).split('\n')[0]).toBe(`1P- ${loc}`);
+  });
+
+  it('failed retrieves pass through (no native render)', async () => {
+    const h = makeHost();
+    const wa = await signedIn(h);
+    const resp = await h.process('*ZZZZZZ', wa);
+    expect(resp).not.toContain('1P- ');
+  });
+});

@@ -99,8 +99,10 @@ describe('WorldspanDialect — full PNR lifecycle through the translator', () =>
     const wa2 = host.newWorkArea();
     await host.process('BSI$5467AB/GS', wa2);
     const byName = await host.process('**-WATKINS', wa2);
-    expect(byName).toContain('WATKINS/OSCAR MR');
-    expect(byName).toContain('T. TAU/21DEC');
+    // Native PNR display (calibration arc commit 5).
+    expect(byName).toContain('1P- ');
+    expect(byName).toContain('1.1WATKINS/OSCAR MR*ADT');
+    expect(byName).toContain('T- 1.TAW/00/21DEC');
     // Status change through the Worldspan sigil.
     expect(await host.process('.1HK', wa2)).toContain('HK');
     expect(await host.process('BSO$', wa2)).toContain('SIGNED OFF');
