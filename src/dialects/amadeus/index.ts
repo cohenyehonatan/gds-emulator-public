@@ -881,6 +881,11 @@ const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] 
   { keys: ['RRN', 'COPY'], title: 'COPY / SPLIT', lines: [
     'RRN[/<n>|/DP<d>|/DM<d>|/C<cls>|/P<list>|/PX<list>|/S<list>|/SX<list>]',
     'RRI[/…]   itinerary only        SP <list> + EF   split'] },
+  { keys: ['EMD', 'TTM', 'EWD', 'EGSD'], title: 'EMD - MISC DOCUMENTS', lines: [
+    'EGSD/V<cxr>[/SC-<code>|/RFIC-<l>|/BM-<m>|/L<n>]   service guide',
+    'TTM[/L<n>][/P<n>][/INF][/RT]   issue EMDs for chargeable SSRs',
+    'TTP/TTM            tickets + EMDs together (TTP first)',
+    'EWD[/<n>|/L<n>|/EMD<num>]   record display    EWDRT EWDRL  redisplay'] },
   { keys: ['DM', 'MCT'], title: 'MIN CONNECT TIME', lines: [
     'DM<apt>[-<apt2>][/<date>]   MCT lookup (layered: standards +',
     '  carrier exceptions)        DMI   continuity check'] },
