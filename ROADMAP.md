@@ -973,6 +973,18 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       unpublished (the reissue solution is login-gated; the QRG
       documents only airline-agent TTM/IVI / TTM/OVNE).
 
+- [ ] **Service Hub delta (chunks 33-36)** — surveyed 2026-06-10,
+      full catalog in `docs/service-hub-delta-2026-06-10.md`. The
+      Service Hub is a per-verb library of verbatim host screens;
+      three more were captured and await landing: the AN
+      availability display (33 — our AN is reconstructed; verbatim
+      header/line/status-codes in hand), the full RT PNR display
+      with unified element numbering + status banner (34 — big),
+      the TTP post-issuance PNR mutation (35 — ET FA/FB/FE/FM/FV
+      lines + post-ticket invariants), and SVC segments + FXK
+      ancillary catalogue (36 — unlocks the SVC-method EMD rows
+      already seeded). Plus a table of unmined solutions.
+
 The original survey (all items now resolved or annotated):
 
 ### Real gaps, closable now
