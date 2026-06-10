@@ -69,6 +69,9 @@ const AIRLINE_NUMERIC: Record<string, string> = {
   AS: '027',
   WN: '526',
   AF: '057',
+  // 6X (Amadeus test airline) — prefix 172 per the Service Hub
+  // EMD-display solution's own example: EWD/EMD172-1234567890.
+  '6X': '172',
 };
 
 export function airlineNumericCode(carrier: string): string {

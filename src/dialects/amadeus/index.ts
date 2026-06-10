@@ -590,6 +590,16 @@ function renderAmadeusPnr(pnr: Pnr, pcc: string, agent?: string): string {
   });
   const itin = renderAmadeusItinerary(pnr);
   if (itin) lines.push(itin);
+  // EMD document lines — shapes VERBATIM from Service Hub 797696:
+  //   FA PAX 057-1812899556/DTAF/EUR250.00/13JAN25/NCE1A0900/00045673/E7
+  //   FB PAX 0000000001 TTP/O/TTM/RT OK ETICKET/EMD/E7
+  // (DT prefix = EMD document, vs ET for e-tickets; /E<n> associates
+  // the chargeable element.)
+  pnr.emds.forEach((e, i) => {
+    const date = `${e.issuedAt.getUTCDate()}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][e.issuedAt.getUTCMonth()]}${String(e.issuedAt.getUTCFullYear() % 100).padStart(2, '0')}`;
+    lines.push(`  FA PAX ${e.number}/DT${e.carrier}/${e.currency}${e.amount.toFixed(2)}/${date}/${pcc}/${String(i + 1).padStart(8, '0')}/E${e.elementRef ?? ''}`);
+    lines.push(`  FB PAX ${String(i).padStart(10, '0')} TTP/O/TTM/RT OK ETICKET/EMD/E${e.elementRef ?? ''}`);
+  });
   return lines.join('\n');
 }
 
@@ -758,6 +768,68 @@ function renderEgsdDetail(svc: import('../../models/emd.js').EmdService): string
     `REFUNDABLE/EXCHANGEABLE BY T/A IF ISSUED BY AIRLINE AGENT: ${yn(d.refundExchangeByTaIfAirlineIssued)}`,
     `TRAVEL AGENT ALLOWED TO ASSOCIATE AND DISASSOCIATE: ${yn(d.taAssociateDisassociate)}`,
   ].join('\n');
+}
+
+/**
+ * The PNR's chargeable SSR elements — those whose code appears in the
+ * carrier's EMD guide (booking method SSR). The EMD carrier is the
+ * SSR's own carrier, falling back to the first air segment's.
+ */
+function chargeableSsrs(
+  pnr: Pnr,
+  ctx: HandlerContext,
+): { ssr: import('../../models/service.js').SpecialServiceRequest; service: import('../../models/emd.js').EmdService; index: number }[] {
+  const out: { ssr: import('../../models/service.js').SpecialServiceRequest; service: import('../../models/emd.js').EmdService; index: number }[] = [];
+  const fallbackCarrier = pnr.segments[0]?.carrier;
+  pnr.ssrs.forEach((ssr, i) => {
+    const carrier = ssr.carrier !== 'YY' ? ssr.carrier : fallbackCarrier;
+    if (!carrier) return;
+    const svc = ctx.backend.inventory.emdServicesFor(carrier).find(
+      (e) => e.code === ssr.code && e.bookingMethod === 'SSR',
+    );
+    if (svc) out.push({ ssr, service: svc, index: i + 1 });
+  });
+  return out;
+}
+
+/**
+ * EWD list screen — layout VERBATIM from Service Hub solution 873296:
+ *
+ *   EMD NBR          NAME         S   DOI      RFI     DESCRIPTION
+ *   1 XXXXXXXXXXXXX  PASSENGER/LINDA  O   21APR1x  C/EXW   EXCESS WEIGHT
+ *
+ * Sorted by issue date, most recent first (per the solution text).
+ */
+function renderAmadeusEwdList(emds: import('../../models/emd.js').EmdRecord[]): string {
+  const lines = ['EMD NBR          NAME         S   DOI      RFI     DESCRIPTION'];
+  const sorted = [...emds].sort((a, b) => b.issuedAt.getTime() - a.issuedAt.getTime());
+  sorted.forEach((e, i) => {
+    const doi = formatDdmonyy(e.issuedAt);
+    const statusChar = e.status === 'OPEN' ? 'O' : e.status[0];
+    lines.push(`${i + 1} ${e.number}  ${e.passenger}  ${statusChar}   ${doi}  ${e.rfic}/${e.rfisc}   ${e.serviceCode}`);
+  });
+  return lines.join('\n');
+}
+
+/**
+ * EWD record screen — RECONSTRUCTED on the TWD pattern (the Service
+ * Hub solutions show the list and the PNR integration but not the
+ * record body). Fields from the EmdRecord model.
+ */
+function renderAmadeusEwdRecord(e: import('../../models/emd.js').EmdRecord, line: number): string {
+  return [
+    `EMD-${e.number}  TYPE ${e.emdType}  ${line}`,
+    `${e.passenger}`,
+    `RFIC ${e.rfic}  RFISC ${e.rfisc}  ${e.serviceCode}`,
+    `STATUS ${e.status}  ISSUED ${formatDdmonyy(e.issuedAt)}  ${e.pcc}`,
+    `VALUE ${e.currency}${e.amount.toFixed(2)}`,
+    e.elementRef ? `IN CONNECTION WITH SSR ELEMENT ${e.elementRef}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function formatDdmonyy(d: Date): string {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return `${d.getUTCDate()}${months[d.getUTCMonth()]}${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
 }
 
 const AMADEUS_HELP_BANNER =
@@ -2646,6 +2718,16 @@ export class AmadeusDialect implements Dialect {
     // TWD/L<n>   specific ticket line
     // TWD/<n>    specific line from list (same shape)
     // TWH        display ET record history (uses pnr.history-style)
+    // TTP/TTM — tickets + EMDs in one entry ("the TTP entry always
+    // comes first", solution 797696). Issue tickets via the normal
+    // TTP path, then chain a TTM for the chargeable SSRs.
+    if (entry === 'TTP/TTM' || entry.startsWith('TTP/TTM/')) {
+      const ttp = this.dispatchEntry(entry.includes('/RT') ? 'TTP' : 'TTP', wa, ctx);
+      if (ttp !== 'OK ETKT' && !ttp.startsWith('OK ETKT')) return ttp;
+      const ttm = this.dispatchEntry(entry.includes('/RT') ? 'TTM/RT' : 'TTM', wa, ctx);
+      return `${ttp}\n${ttm}`;
+    }
+
     if (entry === 'TTP' || entry.startsWith('TTP/')) {
       if (wa.pnr.segments.length === 0) return NO_ITINERARY;
       if (wa.pnr.names.length === 0) return 'NEEDS NAME';
@@ -2687,6 +2769,116 @@ export class AmadeusDialect implements Dialect {
       }
       // TWD / TWDRT — display all from retrieved PNR.
       return renderAmadeusTwd(wa.pnr.tickets, wa.pnr);
+    }
+
+    // --- chunk 31.2: EMD issuance (TTM) + record display (EWD) ---
+    // Entry forms verbatim from the QRG (p.172 issuance, p.214
+    // displays) + Service Hub solutions 797696 ("How to issue an
+    // EMD") and 873296 ("How to display an EMD record"):
+    //   TTM[/P<n>][/L<n>][/INF][/RT]   issue EMDs for chargeable
+    //                                  SSRs (code present in the
+    //                                  carrier's EMD guide)
+    //   TTP/TTM                        tickets + EMDs together (TTP
+    //                                  always first, per the solution)
+    //   EWD / EWD/L<n> / EWD/<n>       record display / by FA element
+    //                                  / from list
+    //   EWD/EMD<3num>-<10num>          by document number
+    //   EWDRL / EWDRT                  redisplay list / record
+    // The EMD list screen is verbatim (873296); the record screen is
+    // reconstructed on the TWD pattern (no published sample), flagged.
+    if (entry === 'TTM' || entry.startsWith('TTM/')) {
+      if (wa.pnr.names.length === 0) return 'NEEDS NAME';
+      const charge = chargeableSsrs(wa.pnr, ctx);
+      if (charge.length === 0) return 'NO CHARGEABLE SERVICES';
+      let selected = charge;
+      const lMatch = /\/L(\d+)(?:-(\d+))?/.exec(entry);
+      if (lMatch) {
+        // /L<n> selects by chargeable-element position. APPROXIMATION:
+        // real Amadeus uses the PNR display line number of the SSR
+        // element; we don't track display line numbers, so n indexes
+        // the chargeable-SSR list. Flagged.
+        const lo = parseInt(lMatch[1], 10);
+        const hi = lMatch[2] ? parseInt(lMatch[2], 10) : lo;
+        selected = charge.slice(lo - 1, hi);
+        if (selected.length === 0) return 'INVALID LINE';
+      }
+      const pMatch = /\/P(\d+)/.exec(entry);
+      if (pMatch) {
+        const pax = parseInt(pMatch[1], 10);
+        selected = selected.filter((c) => !c.ssr.nameRef || c.ssr.nameRef.item === pax);
+        if (selected.length === 0) return 'NO CHARGEABLE SERVICES FOR PASSENGER';
+      }
+      if (entry.includes('/INF')) {
+        selected = selected.filter((c) => c.ssr.code === 'INFT');
+        if (selected.length === 0) return 'NO INFANT SERVICES';
+      }
+      const already = new Set(wa.pnr.emds.map((e) => `${e.serviceCode}|${e.elementRef}`));
+      const fresh = selected.filter((c) => !already.has(`${c.service.code}|${c.index}`));
+      if (fresh.length === 0) return 'EMD ALREADY ISSUED';
+      const issued: import('../../models/emd.js').EmdRecord[] = [];
+      const paxName = `${wa.pnr.names[0].surname}/${wa.pnr.names[0].passengers[0]?.firstName ?? ''}`;
+      for (const c of fresh) {
+        // EMD numbers render with the 3-digit prefix dashed off
+        // (FA-line verbatim: 057-1812899556).
+        const tn = ticketNumber(c.service.carrier, ctx.backend.nextTicketSerial());
+        issued.push({
+          number: `${tn.slice(0, 3)}-${tn.slice(3)}`,
+          carrier: c.service.carrier,
+          serviceCode: c.service.code,
+          rfic: c.service.rfic,
+          rfisc: c.service.rfisc,
+          emdType: (c.service.detail?.emdType ?? 'A') as 'A' | 'S',
+          passenger: paxName,
+          elementRef: c.index,
+          amount: c.service.amount,
+          currency: c.service.currency,
+          status: 'OPEN',
+          issuedAt: new Date(),
+          pcc: ctx.pcc,
+        });
+      }
+      wa.pnr.emds.push(...issued);
+      recordHistory(wa.pnr, `TTM ${issued.length} EMD(S) ISSUED`);
+      // Response: "the PNR is updated with FA/FB lines" (solution
+      // 797696) — TTM/RT shows the PNR; plain TTM gets an OK line
+      // (reconstructed, mirroring the TTP renderer).
+      const ok = ['OK EMD', ...issued.map((e) => `  ${e.number} ${e.serviceCode} ${e.rfic}/${e.rfisc} ${e.currency}${e.amount.toFixed(2)}`)].join('\n');
+      if (entry.includes('/RT')) {
+        return `${ok}\n${renderAmadeusPnr(wa.pnr, ctx.pcc, wa.agent)}`;
+      }
+      return ok;
+    }
+
+    if (entry === 'EWD' || entry.startsWith('EWD/') || entry === 'EWDRL' || entry === 'EWDRT') {
+      if (wa.pnr.emds.length === 0) return 'NO EMD RECORD';
+      if (entry === 'EWDRL') return renderAmadeusEwdList(wa.pnr.emds);
+      if (entry === 'EWDRT') {
+        const idx = wa.lastEmdIndex;
+        if (idx == null || !wa.pnr.emds[idx]) return 'NO EMD RECORD TO REDISPLAY';
+        return renderAmadeusEwdRecord(wa.pnr.emds[idx], idx + 1);
+      }
+      const byNumber = /^EWD\/EMD(\d{3})-(\d{10})$/.exec(entry);
+      if (byNumber) {
+        const full = `${byNumber[1]}-${byNumber[2]}`;
+        const idx = wa.pnr.emds.findIndex((e) => e.number === full);
+        if (idx < 0) return 'NO EMD RECORD';
+        wa.lastEmdIndex = idx;
+        return renderAmadeusEwdRecord(wa.pnr.emds[idx], idx + 1);
+      }
+      const byLine = /^EWD\/(?:L)?(\d+)$/.exec(entry);
+      if (byLine) {
+        const idx = parseInt(byLine[1], 10) - 1;
+        if (!wa.pnr.emds[idx]) return 'NO EMD RECORD';
+        wa.lastEmdIndex = idx;
+        return renderAmadeusEwdRecord(wa.pnr.emds[idx], idx + 1);
+      }
+      // Bare EWD: one record displays directly; several show the
+      // list, "sorted by issue date, from the most recent" (873296).
+      if (wa.pnr.emds.length === 1) {
+        wa.lastEmdIndex = 0;
+        return renderAmadeusEwdRecord(wa.pnr.emds[0], 1);
+      }
+      return renderAmadeusEwdList(wa.pnr.emds);
     }
 
     // --- v4 chunk 21: document output (INV / INE / IBP / IEP) ---

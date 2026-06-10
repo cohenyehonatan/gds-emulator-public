@@ -944,7 +944,7 @@ help-screen scrolling. All landed. The 2006 Amadeus QRG (flyingway,
 Cloudflare-bypassed) corroborates the table; the Service Hub EMD-
 guide solution provided verbatim EGSD screens as a bonus reference.
 
-- [ ] **EMD family (chunk 31)** — surfaced by the help-screen dig:
+- [x] **EMD family (chunk 31)** (landed, 2 commits) — surfaced by the help-screen dig:
       Service Hub solution 848456 yielded VERBATIM EGSD guide screens
       (the `LIST OF EMD SERVICES FOR AIRLINE` layout + the per-service
       detail screen with RFIC/RFISC/booking-method attributes, using
@@ -958,7 +958,13 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       from the 6X/LH screens) + EGSD with the verbatim layouts;
       31.2 TTM issuance + EWD displays on a new EmdRecord model
       (synthetic service amounts, flagged — no public service-fee
-      data).
+      data). DONE: 31.1 EGSD verbatim screens; 31.2 TTM (/L /P /INF
+      /RT + TTP/TTM ordering), verbatim FA/FB PNR lines, EWD family
+      (verbatim list screen, reconstructed record body), 6X 089
+      HEL-BKK seeded verbatim from the 873296 PNR sample, 6X numeric
+      prefix 172 pinned by the EWD/EMD172- example. Deferred: EWD/O*
+      old-record (needs EMD exchange flow), TJH history report, EMR
+      coupon reprint, FHD/FHP manual document numbers.
 
 The original survey (all items now resolved or annotated):
 

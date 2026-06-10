@@ -152,6 +152,9 @@ export class WorkAreaSlot {
    */
   lastFailedEntry?: string;
 
+  /** Index into pnr.emds of the last EWD-displayed record (EWDRT). */
+  lastEmdIndex?: number;
+
   /**
    * Last rendered help screen — drives `MP HE` ("Redisplay the last
    * help screen", QRG p.5). Cleared on reset().
@@ -211,6 +214,7 @@ export class WorkAreaSlot {
     this.lastCarAvail = undefined;
     this.lastRailAvail = undefined;
     this.lastFailedEntry = undefined;
+    this.lastEmdIndex = undefined;
     this.lastHelpScreen = undefined;
   }
 }
@@ -409,6 +413,12 @@ export class WorkArea {
   }
   set lastRailAvail(v: WorkAreaSlot['lastRailAvail']) {
     this.s.lastRailAvail = v;
+  }
+  get lastEmdIndex(): number | undefined {
+    return this.s.lastEmdIndex;
+  }
+  set lastEmdIndex(v: number | undefined) {
+    this.s.lastEmdIndex = v;
   }
   get lastFailedEntry(): string | undefined {
     return this.s.lastFailedEntry;

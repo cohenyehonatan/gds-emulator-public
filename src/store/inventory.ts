@@ -41,6 +41,11 @@ const SCHEDULE: ScheduledFlight[] = [
   { carrier: 'DL', flightNumber: '422', origin: 'LAX', destination: 'JFK', departTime: '900A', arriveTime: '520P', equipment: '76W', classSeats: { F: 4, J: 6, Y: 9, B: 9, M: 4 } },
   { carrier: 'AA', flightNumber: '118', origin: 'LAX', destination: 'JFK', departTime: '300P', arriveTime: '1130P', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 0 } },
   { carrier: 'BA', flightNumber: '192', origin: 'DFW', destination: 'LHR', departTime: '520P', arriveTime: '800A', equipment: '777', classSeats: { F: 4, J: 9, Y: 9, B: 5, M: 0 } },
+  // 6X 089 HEL-BKK — VERBATIM from the Service Hub EMD-display PNR
+  // sample (solution 873296: "6X 089 Y 15JAN 5 HELBKK HK1 2 1650
+  // 0735+1"). 6X is Amadeus's test airline; this flight pairs with
+  // the EMD service guide seed so the TTM/EWD flow is exercisable.
+  { carrier: '6X', flightNumber: '089', origin: 'HEL', destination: 'BKK', departTime: '450P', arriveTime: '735A', equipment: '359', classSeats: { F: 2, J: 6, Y: 9, B: 9, M: 9 } },
   // Hub legs — JFK-SFO has no nonstop, so it builds connections via ORD and DEN.
   { carrier: 'AA', flightNumber: '300', origin: 'JFK', destination: 'ORD', departTime: '800A', arriveTime: '1000A', equipment: '738', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 9 } },
   { carrier: 'AA', flightNumber: '350', origin: 'ORD', destination: 'SFO', departTime: '1130A', arriveTime: '145P', equipment: '739', classSeats: { F: 4, J: 9, Y: 9, B: 9, M: 4 } },

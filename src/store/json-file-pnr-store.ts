@@ -133,6 +133,7 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
     railSegments: pnr.railSegments,
     priceQuotes: pnr.priceQuotes,
     tickets: pnr.tickets,
+    emds: pnr.emds,
     manualAccountingLines: pnr.manualAccountingLines,
     accountingHistory: pnr.accountingHistory,
     history: pnr.history,
@@ -166,6 +167,10 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.railSegments = (plain.railSegments as Pnr['railSegments']) ?? [];
   p.priceQuotes = (plain.priceQuotes as Pnr['priceQuotes']) ?? [];
   p.tickets = (plain.tickets as Pnr['tickets']) ?? [];
+  p.emds = ((plain.emds as Pnr['emds']) ?? []).map((e) => ({
+    ...e,
+    issuedAt: new Date(e.issuedAt),
+  }));
   p.manualAccountingLines = (plain.manualAccountingLines as Pnr['manualAccountingLines']) ?? [];
   p.accountingHistory = (plain.accountingHistory as Pnr['accountingHistory']) ?? [];
   p.history = (plain.history as Pnr['history']) ?? [];

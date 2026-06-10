@@ -16,6 +16,7 @@ import type { RemarkElement } from './remark.js';
 import type { FrequentFlyer } from './frequent-flyer.js';
 import type { FareQuote } from './fare.js';
 import type { TicketRecord } from './ticket.js';
+import type { EmdRecord } from './emd.js';
 import type { ManualAccountingLine, AccountingHistoryEntry } from './manual-accounting.js';
 import type { AddressElement } from './address.js';
 import type { HotelSegment } from './hotel.js';
@@ -73,6 +74,8 @@ export class Pnr {
   railSegments: RailSegment[] = [];
   priceQuotes: FareQuote[] = []; // stored PQ records (one per passenger type)
   tickets: TicketRecord[] = []; // issued e-ticket records (W¥ / TTP)
+  /** Issued EMDs (Amadeus TTM, chunk 31.2). */
+  emds: EmdRecord[] = [];
   /**
    * Manually-entered air accounting lines (`AC/<carrier>/<tkt>/…`).
    * Rendered alongside the auto-generated lines from tickets in *PAC.
@@ -135,6 +138,7 @@ export class Pnr {
     p.railSegments = this.railSegments.map((x) => ({ ...x }));
     p.priceQuotes = [...this.priceQuotes];
     p.tickets = this.tickets.map((t) => ({ ...t }));
+    p.emds = this.emds.map((e) => ({ ...e }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
     p.accountingHistory = this.accountingHistory.map((h) => ({ ...h }));
     p.history = this.history.map((h) => ({ ...h }));
