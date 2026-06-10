@@ -128,7 +128,9 @@ describe('Amadeus dialect — v2 PNR build cycle', () => {
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
     const resp = await host.process('AN15JULJFKLAX', wa);
-    expect(resp).toContain('15JUL JFKLAX');
+    // Chunk 33: layout verbatim from Service Hub solution 897281.
+    expect(resp).toContain('** AMADEUS AVAILABILITY - AN ** LAX');
+    expect(resp).toContain('15JUL 0000');
     expect(resp).toContain('B6'); // JetBlue 615 JFK-LAX in the default schedule
   });
 

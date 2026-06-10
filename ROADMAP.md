@@ -977,8 +977,9 @@ guide solution provided verbatim EGSD screens as a bonus reference.
       full catalog in `docs/service-hub-delta-2026-06-10.md`. The
       Service Hub is a per-verb library of verbatim host screens;
       three more were captured and await landing: the AN
-      availability display (33 — our AN is reconstructed; verbatim
-      header/line/status-codes in hand), the full RT PNR display
+      availability display (33 — LANDED: verbatim header/line
+      layout, days-out+DOW, terminals, +1 markers, E0/equipment,
+      unnumbered connection legs + elapsed), the full RT PNR display
       with unified element numbering + status banner (34 — big),
       the TTP post-issuance PNR mutation (35 — ET FA/FB/FE/FM/FV
       lines + post-ticket invariants), and SVC segments + FXK

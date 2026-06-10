@@ -186,6 +186,139 @@ function parseAmadeusDate(s: string): { raw: string; dow: { letter: string; num:
 }
 
 /** Parse `AN<date><orig><dest>[<time>]`. Time is 4-digit HHMM (optional). */
+/**
+ * Display names for the header's `<city> <name>.<country>` field —
+ * format VERBATIM from Service Hub solution 897281 ("NCE COTE D
+ * AZUR.FR", "EWR NEWARK INTL.USNJ"); the names themselves are
+ * reconstructed for our seeded airports.
+ */
+const AIRPORT_DISPLAY: Record<string, string> = {
+  JFK: 'NEW YORK JFK.USNY',
+  LAX: 'LOS ANGELES INTL.USCA',
+  SFO: 'SAN FRANCISCO.USCA',
+  ORD: 'CHICAGO OHARE.USIL',
+  DEN: 'DENVER INTL.USCO',
+  DFW: 'DALLAS FT WORTH.USTX',
+  LHR: 'LONDON HEATHROW.GB',
+  FRA: 'FRANKFURT INTL.DE',
+  KEF: 'KEFLAVIK.IS',
+  HEL: 'HELSINKI VANTAA.FI',
+  BKK: 'BANGKOK SUVARNABHUMI.TH',
+  CDG: 'PARIS CH DE GAULLE.FR',
+  NCE: 'COTE D AZUR.FR',
+};
+
+/** Departure terminals — SYNTHETIC (we don't model terminals; the
+ *  verbatim layout shows them, e.g. `/SFO I CDG2C`). Omitted when
+ *  unmapped. */
+const AIRPORT_TERMINAL: Record<string, string> = {
+  JFK: '4', LAX: 'B', SFO: 'I', ORD: '1', LHR: '5', FRA: '1',
+  HEL: '2', BKK: '', CDG: '2E', DEN: '', DFW: 'D', KEF: '',
+};
+
+/**
+ * Render the AN availability display — layout VERBATIM from Service
+ * Hub solution 897281:
+ *
+ *   ** AMADEUS AVAILABILITY - AN ** NCE COTE D AZUR.FR 110MO 10JUN 0000
+ *    2 6X 083   P9 F9 A1 J9 C9 D9 Z4 /SFO I CDG2C 620P 155P+1E0/744
+ *      7X7706   C9 D9 Y9 S9 K9 H9 T9 /CDG2D NCE 2 345P+1 520P+1E0/320 14:00
+ *
+ * Header: banner + destination display name + <days-out><DOW> +
+ * date + requested time (0000 default). Lines: number (connection
+ * legs after the first are unnumbered), carrier + flight, up to 7
+ * class-status pairs per row (9 = nine-plus; overflow rows indent),
+ * /origin+terminal dest+terminal, times with +1 overnight marker,
+ * E0/<equipment> hard against the arrival time (E = e-ticketing,
+ * 0 = stops), and elapsed time on the last leg of a connection.
+ * Status codes beyond seat counts (L waitlist, R request, C closed)
+ * aren't modeled — our classes carry counts only.
+ */
+function renderAmadeusAn(
+  avail: { date: string; origin: string; destination: string },
+  lines: import('../../models/availability-result.js').AvailabilityLine[],
+): string {
+  const dest = AIRPORT_DISPLAY[avail.destination] ?? `${avail.destination}.ZZ`;
+  const { daysOut, dow } = daysOutAndDow(avail.date);
+  const header = `** AMADEUS AVAILABILITY - AN ** ${avail.destination} ${dest} ${daysOut}${dow} ${avail.date} 0000`;
+
+  const rows: string[] = [];
+  for (const l of lines) {
+    const isContinuationLeg = l.connectionGroup != null && (l.legIndex ?? 0) > 0;
+    const pairs = Object.entries(l.classes).map(([c, n]) => `${c}${Math.min(n, 9)}`);
+    const firstRow = pairs.slice(0, 7).join(' ');
+    const overflow = pairs.slice(7).join(' ');
+    const oTerm = AIRPORT_TERMINAL[l.origin] ? ` ${AIRPORT_TERMINAL[l.origin]}` : '';
+    const dTerm = AIRPORT_TERMINAL[l.destination] ?? '';
+    const overnight = isOvernight(l.departTime, l.arriveTime) ? '+1' : '';
+    const elapsed =
+      l.connectionGroup != null && isLastLeg(l, lines)
+        ? ` ${connectionElapsed(l, lines)}`
+        : '';
+    const head = isContinuationLeg
+      ? `   ${l.carrier}${l.flightNumber.padStart(4)}`
+      : `${String(l.line).padStart(2)} ${l.carrier} ${l.flightNumber.padStart(3)}`;
+    rows.push(
+      `${head}   ${firstRow} /${l.origin}${oTerm} ${l.destination}${dTerm} ${l.departTime} ${l.arriveTime}${overnight}E0/${l.equipment}${elapsed}`,
+    );
+    if (overflow) rows.push(`${' '.repeat(head.length + 3)}${overflow}`);
+  }
+  return [header, ...rows].join('\n');
+}
+
+/** Days until the next occurrence of DDMON + its 2-letter weekday. */
+function daysOutAndDow(date: string): { daysOut: number; dow: string } {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(date);
+  if (!m) return { daysOut: 0, dow: '' };
+  const mon = months.indexOf(m[2]);
+  if (mon < 0) return { daysOut: 0, dow: '' };
+  const now = new Date();
+  let target = new Date(Date.UTC(now.getUTCFullYear(), mon, parseInt(m[1], 10)));
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (target < today) target = new Date(Date.UTC(now.getUTCFullYear() + 1, mon, parseInt(m[1], 10)));
+  const daysOut = Math.round((target.getTime() - today.getTime()) / 86400000);
+  const dows = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  return { daysOut, dow: dows[target.getUTCDay()] };
+}
+
+/** Heuristic overnight marker: arrival minutes ≤ departure minutes. */
+function isOvernight(dep: string, arr: string): boolean {
+  return clockMinutes(arr) <= clockMinutes(dep);
+}
+
+function clockMinutes(t: string): number {
+  const m = /^(\d{1,2})(\d{2})([APN])$/.exec(t);
+  if (!m) return 0;
+  let h = parseInt(m[1], 10) % 12;
+  if (m[3] === 'P') h += 12;
+  if (m[3] === 'N') h = 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+
+function isLastLeg(
+  l: import('../../models/availability-result.js').AvailabilityLine,
+  all: import('../../models/availability-result.js').AvailabilityLine[],
+): boolean {
+  const group = all.filter((x) => x.connectionGroup === l.connectionGroup);
+  return (l.legIndex ?? 0) === group.length - 1;
+}
+
+/** Total elapsed H:MM across a connection (first dep → last arr,
+ *  crude +24h wrap per overnight leg). */
+function connectionElapsed(
+  l: import('../../models/availability-result.js').AvailabilityLine,
+  all: import('../../models/availability-result.js').AvailabilityLine[],
+): string {
+  const group = all.filter((x) => x.connectionGroup === l.connectionGroup);
+  const first = group[0];
+  const last = group[group.length - 1];
+  let mins = clockMinutes(last.arriveTime) - clockMinutes(first.departTime);
+  for (const leg of group) if (isOvernight(leg.departTime, leg.arriveTime)) mins += 1440;
+  if (mins < 0) mins += 1440;
+  return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;
+}
+
 function parseAvailability(arg: string): { date: string; dow: { letter: string; num: number }; origin: string; destination: string; afterMinutes?: number } | undefined {
   // Date is up to 5 chars (DDMON). City pairs are 6 chars (ORIG+DEST).
   // Optional trailing 4-digit time.
@@ -1601,16 +1734,7 @@ export class AmadeusDialect implements Dialect {
       // sells air again (v6 rail arc).
       wa.lastRailAvail = undefined;
       // Availability is a read-side operation; no state-machine event.
-      // Render: "AN <DATE> <ORIG><DEST>" header + numbered lines.
-      const header = `AN ${avail.date} ${avail.origin}${avail.destination}`;
-      const rows = lines.map((l, i) => {
-        const classes = Object.entries(l.classes)
-          .filter(([, n]) => n > 0)
-          .map(([c, n]) => `${c}${n > 9 ? 9 : n}`)
-          .join(' ');
-        return ` ${String(i + 1).padStart(2)} ${l.carrier} ${l.flightNumber.padEnd(4)} ${l.origin} ${l.destination} ${classes}`;
-      });
-      return [header, ...rows].join('\n');
+      return renderAmadeusAn(avail, lines);
     }
 
     if (entry.startsWith('SS')) {
