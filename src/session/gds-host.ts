@@ -95,7 +95,18 @@ export class GdsHost {
 
   /** Parse → dispatch a single (already keyboard-normalized) entry. */
   private async processOne(raw: string, wa: WorkArea): Promise<string> {
-    return await this.dialect.processEntry(raw, wa, this.context);
+    try {
+      return await this.dialect.processEntry(raw, wa, this.context);
+    } catch (err) {
+      // Last-resort net: a dialect bug must NEVER kill the host —
+      // especially the TCP server, where an uncaught throw in the
+      // connection handler takes the whole process down. Log it,
+      // answer with a generic system error, keep serving.
+      this.logger.error(
+        `Unhandled dispatch error for entry "${raw}": ${err instanceof Error ? err.stack ?? err.message : String(err)}`,
+      );
+      return 'SYSTEM ERROR - ENTRY NOT PROCESSED';
+    }
   }
 
   /** A fresh work area, e.g. for the in-process REPL. */

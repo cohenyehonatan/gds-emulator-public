@@ -133,3 +133,31 @@ describe('CRT-over-TCP state-trailer protocol (v6)', () => {
     expect(resp).not.toContain('\x1F');
   });
 });
+
+describe('server resilience — a bad entry must never kill the host', () => {
+  let host: GdsHost;
+  let terminal: AgentTerminal;
+
+  afterEach(async () => {
+    terminal?.disconnect();
+    await host?.stop();
+  });
+
+  it('SELL while SIGNED_OFF answers OUT OF SEQUENCE and the server keeps serving (the live-session crash)', async () => {
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'A0UC' });
+    await host.start();
+    terminal = new AgentTerminal({ host: '127.0.0.1', port: host.getPort(), logLevel: 'error' });
+    await terminal.connect();
+
+    // The exact sequence that crashed start:server: availability
+    // without sign-on (allowed), then a sell — the FSM throw inside
+    // the async sell handler escaped the sync catch as a rejected
+    // promise and took the process down.
+    expect(await terminal.enter('A01JULCDGJFK')).toContain('CDG-JFK');
+    expect(await terminal.enter('N2F1')).toBe('OUT OF SEQUENCE');
+    // Server alive + session recoverable.
+    expect(await terminal.enter('HELP')).toContain('EMULATOR HELP');
+    expect(await terminal.enter('SON/Z01UC')).toContain('SIGNED ON');
+    expect(await terminal.enter('N2F1')).toContain('AF 002');
+  });
+});

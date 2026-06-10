@@ -168,6 +168,30 @@ export function dispatchGalileo(
   wa: WorkArea,
   ctx: HandlerContext
 ): string | Promise<string> {
+  // The inner try/catch below only covers SYNCHRONOUS throws — an
+  // async handler that throws (e.g. sellTransition firing SELL while
+  // SIGNED_OFF inside async handleGalileoSell) surfaces as a REJECTED
+  // PROMISE that the sync catch returns un-awaited, crashing the
+  // server. Wrap promise results so both paths translate the same
+  // way. (Found by a live session: N2F1 before SON killed the
+  // start:server process.)
+  const result = dispatchGalileoInner(entry, wa, ctx);
+  if (result instanceof Promise) {
+    return result.catch((err) => {
+      if (err instanceof InvalidTransitionError) {
+        return 'OUT OF SEQUENCE'; // reconstructed — matches the Sabre placeholder
+      }
+      throw err;
+    });
+  }
+  return result;
+}
+
+function dispatchGalileoInner(
+  entry: ParsedEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string | Promise<string> {
   try {
     switch (entry.kind) {
       case 'sign_in':
