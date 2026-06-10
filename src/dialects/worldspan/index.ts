@@ -202,6 +202,56 @@ function splitWorldspanChain(raw: string): string[] {
   return out.filter((e) => e.length > 0);
 }
 
+const WS_HELP_BANNER =
+  'EMULATOR HELP — Worldspan forms this terminal accepts (host help screens are not public)';
+
+const WS_TOPICS: { keys: string[]; title: string; lines: string[] }[] = [
+  { keys: ['SON', 'SIGNON'], title: 'SIGN ON / OFF', lines: [
+    'BSI$<num><agent>/GS   sign on', 'BSO$                  sign off', 'B<letter>             switch work area'] },
+  { keys: ['AVAIL', 'A'], title: 'AVAILABILITY', lines: [
+    'A<date><org><dst>[-<cxr>]   availability', 'V$<n>                       flight details'] },
+  { keys: ['SELL', '0'], title: 'SELL', lines: [
+    '0<seats><cls><line>         reference sell', '0<cxr><flt>… NN<n>          direct sell',
+    '.<n><status>                change status', 'X<sel>#0/<class>            rebook to class'] },
+  { keys: ['NAME', 'N'], title: 'NAME', lines: [
+    '-<surname>/<given> <title>  add', '-<n>@<new>                  change', '-<n>@                       delete'] },
+  { keys: ['FIELDS', '9', '6', '7', '5'], title: 'PNR FIELDS', lines: [
+    '9*<phone>      phone        92@…   change/delete',
+    '6<name>        received     7TAW/00/<date>  ticketing TAW',
+    '5 <text>       remark       5<n>@  delete remark'] },
+  { keys: ['SSR', '3'], title: 'SSR / OSI', lines: [
+    '3SA<code>            SSR all pax', '3S<seg>N<pax><code>  SSR per seg/pax', '3OSI <cxr> <text>    OSI'] },
+  { keys: ['SEATS', '4R'], title: 'SEATS', lines: [
+    '4<line>*<class>   seat map from availability', '4RS<seg>$<seat>   request seat',
+    '4RA$W / 4RA$5A    non-smoking window / smoking aisle', '4RX-<seg> / 4RX   cancel segment / all'] },
+  { keys: ['HOTELS', 'HL'], title: 'HOTELS', lines: [
+    'HL<city><d1><d2><adults>   availability', 'HL<city>[/C<chain>]        index', 'HA<line>                   complete availability'] },
+  { keys: ['CARS', 'CRA'], title: 'CARS', lines: [
+    'CRA<d1>-<d2><city>[/…]     availability', 'CR0<line>                  reference sell'] },
+  { keys: ['FARES', 'FQ', 'PRICE'], title: 'FARES / PRICING', lines: [
+    'FQ                 fare quote itinerary', 'TKP                ticket'] },
+  { keys: ['END', 'E'], title: 'END / RETRIEVE', lines: [
+    'E / ER             end / end + retrieve', 'I / IR             ignore',
+    '*<locator>         retrieve', '**-<surname>       retrieve by name'] },
+];
+
+function renderWorldspanHelp(topic?: string): string {
+  if (!topic) {
+    return [WS_HELP_BANNER, '', 'TOPICS — HELP <topic>:',
+      ...WS_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`)].join('\n');
+  }
+  const t = WS_TOPICS.find((x) => x.keys.includes(topic));
+  if (!t) {
+    const matches = WS_TOPICS.filter((x) => x.keys.some((k) => k.startsWith(topic)));
+    if (matches.length > 0) {
+      return [WS_HELP_BANNER, '', `TOPICS MATCHING ${topic}:`,
+        ...matches.map((m) => `  ${m.keys[0].padEnd(8)} ${m.title}`)].join('\n');
+    }
+    return `NO HELP FOR ${topic} — HELP FOR THE TOPIC INDEX`;
+  }
+  return [WS_HELP_BANNER, '', t.title, ...t.lines.map((l) => `  ${l}`)].join('\n');
+}
+
 const ERROR_RESPONSES = new Set<string>([
   GalileoResponse.FORMAT,
   GALILEO_NOT_IMPLEMENTED,
@@ -224,6 +274,15 @@ export class WorldspanDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
+    // Help is Worldspan-native (the translator table IS the help
+    // content — these are the forms this dialect accepts). Entry
+    // forms per the Comparison Guide's Worldspan column: HELP,
+    // HELP <chapter>, HELP <topic>, INFO <topic>.
+    const u = raw.trim().toUpperCase();
+    const helpMatch = /^(?:HELP|INFO)(?:\s+([A-Z0-9.@*]{1,12}))?$/.exec(u);
+    if (helpMatch) {
+      return renderWorldspanHelp(helpMatch[1]);
+    }
     const translated = translateWorldspanToGalileo(raw);
     let entry;
     try {

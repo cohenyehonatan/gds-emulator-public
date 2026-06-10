@@ -918,6 +918,18 @@ What remains, by blocker:
   scraped one-by-one to upgrade reconstructed response wording (the
   FFA / seat-map extraction pattern). Open-ended polish, not a gap.
 
+Post-milestone addendum (2026-06-09): **in-terminal help** — spotted
+after the milestone; every in-tree source documents help-entry forms
+(the Comparison Guide has a "Help entry" row in every section) and
+none were implemented. Landed: Galileo `H/<topic>`/`HELP`, Apollo
+`HELP <topic>` (Galileo content + deltas footer), Worldspan
+`HELP`/`INFO <topic>` (native forms from its translator table),
+Amadeus `HE <code>`/`HELP`. Content is emulator-native — each topic
+lists the implemented verb surface, bannered as such, since the real
+host help screens aren't public. Sabre deliberately gets NO help
+verb: both first-party courses point at the Format Finder web system
+and document no cryptic form.
+
 The original survey (all items now resolved or annotated):
 
 ### Real gaps, closable now

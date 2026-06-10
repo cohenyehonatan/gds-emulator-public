@@ -704,6 +704,77 @@ function splitAmadeusChain(raw: string): string[] {
  * system list — pre-prod Amadeus would reject unknown systems, but
  * since we ship no live backend, we accept any.
  */
+const AMADEUS_HELP_BANNER =
+  'EMULATOR HELP — implemented verb surface (host help pages are not public)';
+
+const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] = [
+  { keys: ['JI', 'SIGNON'], title: 'SIGN ON / OFF', lines: [
+    'JI<num><agent>/<duty>   sign on', 'JO / JD                 sign off / display'] },
+  { keys: ['AN', 'AVAIL'], title: 'AVAILABILITY', lines: [
+    'AN<date><org><dst>      neutral availability', 'R/AD <date><org><dst>   rail availability'] },
+  { keys: ['SS', 'SELL'], title: 'SELL', lines: [
+    'SS<seats><class><line>  sell from displayed availability (air or rail)'] },
+  { keys: ['NM', 'NAME'], title: 'NAMES', lines: [
+    'NM<n><sur>/<given> <title>   add name(s)', 'NU<n>/<body>                 modify name'] },
+  { keys: ['SR', 'SSR'], title: 'SSR / OSI', lines: [
+    'SR <code>[<cxr>][/P<n>]   SSR', 'OS <cxr> <text>[/P<n>]    OSI'] },
+  { keys: ['FF', 'FFN', 'FFA'], title: 'FREQUENT FLYER', lines: [
+    'FFA<cxr>-<num>[, <cxr2>…]   accrual (SSR FQTV)',
+    'FFR<cxr>-<num>              redemption (FQTR)',
+    'FFU<cxr>-<num>              upgrade (FQTU)',
+    'FFD / FFN <cxr>-<num>/P<n> / VFFD [<cxr>]'] },
+  { keys: ['SM', 'SEATMAP'], title: 'SEAT MAPS / SEATS', lines: [
+    'SM <n>[/V|/H][/NL|/L]       seat map for segment',
+    'SM/<line>[/<class>]         from availability   MD MU MB MT  scroll',
+    'ST/<seat|pref>[/P<n>][/S<n>]   seat request    SX[/S<n>]  cancel'] },
+  { keys: ['FXP', 'PRICING', 'TTP'], title: 'PRICING / TICKETING', lines: [
+    'FXP / FXX / TQT             price · display quotes',
+    'TTP[/ET|/PT][/S<n>-<m>]     issue tickets',
+    'TWD[/L<n>] / TWDRL / TWH    display ET records',
+    'TK<OK|TL|DO|IN|MA|SS|XL>…   ticketing arrangement'] },
+  { keys: ['INV', 'DOCS'], title: 'DOCUMENTS', lines: [
+    'INV / INE [/P<n>][/S<n>]    invoice (basic / extended)',
+    'IBP / IEP [J]               itinerary (print / joint)'] },
+  { keys: ['HA', 'HOTEL', 'HOT'], title: 'HOTELS', lines: [
+    'HA[<chain>]<city>[<prop>][<d1>[-<d2>]]   availability',
+    'HS<line>[/<rate>]   sell      HX<n>   cancel'] },
+  { keys: ['CA', 'CAR'], title: 'CARS', lines: [
+    'CA[<co>]<city>[<d1>[-<d2>|-<N>]][/ARR-<t>]   availability',
+    'CS<line>[/VT-<vt>]  sell      CX<n>   cancel'] },
+  { keys: ['RAIL', 'ACCESRAIL'], title: 'RAIL', lines: [
+    'R/AD <date><org><dst>[<time>]   by departure time',
+    'R/AN …                          neutral; sell with SS, cancel XE<n>'] },
+  { keys: ['QE', 'QUEUES'], title: 'QUEUES', lines: [
+    'QE<n>[C<cat>][D<date>]   place    QSTART<n>  sign in',
+    'QN / QF / QFR / QES / QXI        next / remove / skip / exit'] },
+  { keys: ['RT', 'DISPLAY'], title: 'DISPLAY / RETRIEVE', lines: [
+    'RT<locator> / RT/<surname>      retrieve',
+    'RTA RTI RTN RTJ RTK RTF RTG RTR RTQ   partial displays', 'RH   history'] },
+  { keys: ['RRN', 'COPY'], title: 'COPY / SPLIT', lines: [
+    'RRN[/<n>|/DP<d>|/DM<d>|/C<cls>|/P<list>|/PX<list>|/S<list>|/SX<list>]',
+    'RRI[/…]   itinerary only        SP <list> + EF   split'] },
+  { keys: ['DM', 'MCT'], title: 'MIN CONNECT TIME', lines: [
+    'DM<apt>[-<apt2>][/<date>]   MCT lookup (layered: standards +',
+    '  carrier exceptions)        DMI   continuity check'] },
+];
+
+function renderAmadeusHelp(topic?: string): string {
+  if (!topic) {
+    return [AMADEUS_HELP_BANNER, '', 'TOPICS — HE <topic>:',
+      ...AMADEUS_HELP_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`)].join('\n');
+  }
+  const t = AMADEUS_HELP_TOPICS.find((x) => x.keys.includes(topic));
+  if (!t) {
+    const matches = AMADEUS_HELP_TOPICS.filter((x) => x.keys.some((k) => k.startsWith(topic)));
+    if (matches.length > 0) {
+      return [AMADEUS_HELP_BANNER, '', `TOPICS MATCHING ${topic}:`,
+        ...matches.map((m) => `  ${m.keys[0].padEnd(8)} ${m.title}`)].join('\n');
+    }
+    return `NO HELP FOR ${topic} — HE FOR THE TOPIC INDEX`;
+  }
+  return [AMADEUS_HELP_BANNER, '', t.title, ...t.lines.map((l) => `  ${l}`)].join('\n');
+}
+
 function parseSignInArgument(arg: string): { agent: string } | undefined {
   const match = /^(\d{1,4})([A-Z]{1,3})\/([A-Z]{1,3})$/.exec(arg);
   if (!match) return undefined;
@@ -1161,6 +1232,20 @@ export class AmadeusDialect implements Dialect {
     if (entry.length === 0) return FORMAT_ERROR;
 
     // Sign-on family. JI prefix → sign-in; JO[*] → sign-out; JD → status.
+    // --- Help: HE <code> / HE<code> / HELP (QRG intro, verbatim:
+    // "enter HE followed by the relevant transaction code"; topic
+    // cites throughout: HE SM, HE FF, HE ACCESRAIL, HE HOT OPT…).
+    // Content is emulator-native — Amadeus's real help pages aren't
+    // public; each topic lists the verb surface this emulator
+    // implements, and the banner says so.
+    if (entry === 'HELP' || entry === 'HE') {
+      return renderAmadeusHelp();
+    }
+    const heMatch = /^HE\s?([A-Z0-9/]{1,12})$/.exec(entry);
+    if (heMatch) {
+      return renderAmadeusHelp(heMatch[1]);
+    }
+
     if (entry.startsWith('JI')) {
       const rest = entry.slice(2);
       const matchArea = /^([A-Z])([0-9].*)$/.exec(rest);

@@ -94,6 +94,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleSeatMap(entry, wa, ctx);
       case 'seat_request':
         return handleSeatRequest(entry, wa, ctx);
+      case 'help':
+        // Sabre has no cryptic help verb — both first-party courses
+        // point at the Format Finder web system. The parser never
+        // emits this kind for Sabre; exhaustiveness only.
       case 'hotel':
       case 'car':
         // Galileo/Apollo/Worldspan-only kinds today — Sabre's parser

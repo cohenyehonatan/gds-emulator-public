@@ -65,6 +65,7 @@ import { ParseError } from '../../protocol/errors.js';
 import { parseGalileoEntry } from '../galileo/parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js';
 import { GalileoResponse } from '../galileo/responses.js';
+import { renderGalileoHelp } from '../galileo/help.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
 const COMBINE = '+';
@@ -185,6 +186,15 @@ export class ApolloDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
+    // Help renders Apollo-aware: Galileo's emulator-help content plus
+    // the translator's delta table, so the operator sees the forms
+    // THIS dialect accepts. Entry forms per the Comparison Guide's
+    // Apollo column (`HELP <topic>`, e.g. HELP CA / HELP HOI).
+    const helpMatch = /^(?:H\/|HELP)\s?([A-Z0-9.@*]{1,12})?$/.exec(raw.trim().toUpperCase());
+    if (helpMatch && (raw.trim().toUpperCase().startsWith('H/') || raw.trim().toUpperCase().startsWith('HELP'))) {
+      const body = renderGalileoHelp(helpMatch[1]);
+      return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;
+    }
     const translated = translateApolloToGalileo(raw);
     let entry;
     try {

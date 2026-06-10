@@ -127,6 +127,20 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QR' || u.startsWith('QR/')) return parseQueueRemove(trimmed, u);
   if (/^DP\d+$/.test(u)) return parseDivide(trimmed, u);
   if (u.startsWith('TTL')) return parseFlightInfo(trimmed, u);
+  // Help — Comparison Guide "Help entry" rows (verbatim forms):
+  //   H/            index of chapters     HELP        (same)
+  //   H/<topic>     topic help            HELP <topic> (same)
+  // Content is emulator-native (the real help screens aren't public).
+  if (u === 'H/' || u === 'HELP') {
+    return { kind: 'help', raw: trimmed, timestamp: new Date() };
+  }
+  // NOTE: `u` is whitespace-stripped, so `HELP S.` arrives as
+  // `HELPS.` — match the topic right after the verb, no space.
+  const helpMatch = /^(?:H\/|HELP)([A-Z0-9.@*]{1,12})$/.exec(u);
+  if (helpMatch) {
+    return { kind: 'help', raw: trimmed, timestamp: new Date(), topic: helpMatch[1] };
+  }
+
   // Galileo hotel family — HO* (Comparison Guide "Hotels" 5-way
   // table; Apollo column is identical so ApolloDialect passes
   // through). Forms implemented are the verbatim guide rows:

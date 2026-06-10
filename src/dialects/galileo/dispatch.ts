@@ -87,6 +87,7 @@ import {
 import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
+import { renderGalileoHelp } from './help.js';
 import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
@@ -251,6 +252,9 @@ export function dispatchGalileo(
 
       case 'seat_map':
         return handleGalileoSeatMap(entry, wa, ctx);
+
+      case 'help':
+        return renderGalileoHelp(entry.topic);
 
       case 'seat_request':
         // Cross-dialect handler — same store the Amadeus ST family

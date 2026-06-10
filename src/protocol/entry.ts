@@ -266,6 +266,20 @@ export interface CarEntry extends BaseEntry {
   city?: string;
 }
 
+/**
+ * Help request — Galileo `H/<topic>` / `HELP [<topic>]` (Comparison
+ * Guide "Help entry" rows, verbatim forms). Content is emulator-
+ * native: the host's real help screens aren't public, so we list the
+ * implemented verb surface per topic instead — flagged as such in
+ * the render. Sabre deliberately has NO help verb: both first-party
+ * courses point at the Format Finder web system, documenting no
+ * cryptic form.
+ */
+export interface HelpEntry extends BaseEntry {
+  kind: 'help';
+  topic?: string;
+}
+
 export interface CancelEntry extends BaseEntry {
   kind: 'cancel';
   mode: 'segment' | 'multiple' | 'range' | 'itinerary' | 'all_air';
@@ -635,6 +649,7 @@ export type ParsedEntry =
   | SeatRequestEntry
   | HotelEntry
   | CarEntry
+  | HelpEntry
   | CancelEntry
   | SegmentStatusEntry
   | PassiveCancelEntry

@@ -1,0 +1,126 @@
+/**
+ * In-terminal help across the dialects that document a cryptic help
+ * verb. Entry forms are source-verbatim:
+ *
+ *   Galileo:   H/ · H/<topic> · HELP · HELP <topic>   (Comparison
+ *              Guide "Help entry" rows: H/SON, H/AVAIL, H/QUEUE…)
+ *   Apollo:    HELP <topic> (guide's Apollo column: HELP CA, HELP
+ *              HOI…) — Galileo content + an Apollo-deltas footer
+ *   Worldspan: HELP · HELP <topic> · INFO <topic> (guide: HELP,
+ *              HELP A, HELP FARES, INFO FARES) — native forms from
+ *              the translator table
+ *   Amadeus:   HE · HE <code> · HELP (QRG intro: "enter HE followed
+ *              by the relevant transaction code")
+ *   Sabre:     deliberately NONE — both first-party courses point at
+ *              the Format Finder web system; no cryptic form is
+ *              documented.
+ *
+ * CONTENT is emulator-native (the real host help screens aren't
+ * public) — every screen carries a banner saying so, and each topic
+ * lists the verb surface this emulator implements.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { GdsHost } from '../../src/session/gds-host.js';
+import { GalileoDialect } from '../../src/dialects/galileo/index.js';
+import { ApolloDialect } from '../../src/dialects/apollo/index.js';
+import { WorldspanDialect } from '../../src/dialects/worldspan/index.js';
+import { AmadeusDialect } from '../../src/dialects/amadeus/index.js';
+
+const BANNER = 'EMULATOR HELP';
+
+describe('Galileo H/ + HELP', () => {
+  const host = () => new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+
+  it('H/ and HELP render the banner + topic index', async () => {
+    const h = host();
+    for (const entry of ['H/', 'HELP']) {
+      const resp = await h.process(entry, h.newWorkArea());
+      expect(resp).toContain(BANNER);
+      expect(resp).toContain('AVAIL');
+      expect(resp).toContain('QUEUE');
+    }
+  });
+
+  it('topic help shows the implemented forms (H/AVAIL, HELP S., H/QUEUE)', async () => {
+    const h = host();
+    expect(await h.process('H/AVAIL', h.newWorkArea())).toContain('A<date><org><dst>');
+    expect(await h.process('HELP S.', h.newWorkArea())).toContain('ADVANCE SEAT REQUESTS');
+    expect(await h.process('H/QUEUE', h.newWorkArea())).toContain('QEB/<n>');
+  });
+
+  it('chapter-prefix listing per the guide (H/A → topics starting with A)', async () => {
+    const h = host();
+    const resp = await h.process('H/A', h.newWorkArea());
+    expect(resp).toContain('AVAILABILITY');
+  });
+
+  it('unknown topic points back at the index', async () => {
+    const h = host();
+    expect(await h.process('H/ZZZZ', h.newWorkArea())).toContain('NO HELP FOR ZZZZ');
+  });
+});
+
+describe('Apollo HELP — Galileo content + deltas footer', () => {
+  it('HELP SELL carries the Apollo-deltas line', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
+    const resp = await h.process('HELP SELL', h.newWorkArea());
+    expect(resp).toContain(BANNER);
+    expect(resp).toContain('APOLLO DELTAS');
+    expect(resp).toContain('9V/S<n>');
+  });
+});
+
+describe('Worldspan HELP / INFO — native forms', () => {
+  const host = () => new GdsHost({ port: 0, logLevel: 'error', dialect: new WorldspanDialect(), pcc: '1P' });
+
+  it('HELP renders the Worldspan-native topic index', async () => {
+    const h = host();
+    const resp = await h.process('HELP', h.newWorkArea());
+    expect(resp).toContain('Worldspan forms');
+  });
+
+  it('HELP SEATS shows the 4R sigil forms, not Galileo S.', async () => {
+    const h = host();
+    const resp = await h.process('HELP SEATS', h.newWorkArea());
+    expect(resp).toContain('4RS<seg>$<seat>');
+    expect(resp).not.toContain('S.S<n>');
+  });
+
+  it('INFO FARES (the guide form) resolves', async () => {
+    const h = host();
+    expect(await h.process('INFO FARES', h.newWorkArea())).toContain('FARES / PRICING');
+  });
+});
+
+describe('Amadeus HE', () => {
+  const host = () => new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
+
+  it('HE and HELP render the topic index', async () => {
+    const h = host();
+    for (const entry of ['HE', 'HELP']) {
+      expect(await h.process(entry, h.newWorkArea())).toContain(BANNER);
+    }
+  });
+
+  it('HE FF shows the frequent-flyer family; HESM (no space) works', async () => {
+    const h = host();
+    expect(await h.process('HE FF', h.newWorkArea())).toContain('FFA<cxr>-<num>');
+    expect(await h.process('HESM', h.newWorkArea())).toContain('SEAT MAPS');
+  });
+
+  it('unknown code points back at the index', async () => {
+    const h = host();
+    expect(await h.process('HE ZZZ', h.newWorkArea())).toContain('NO HELP FOR ZZZ');
+  });
+});
+
+describe('Sabre — deliberately no help verb', () => {
+  it('HELP is a FORMAT error (Format Finder is the documented help system)', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', pcc: 'A0UC' });
+    const wa = h.newWorkArea();
+    await h.process('SI*', wa);
+    const resp = await h.process('HELP', wa);
+    expect(h.dialect.isErrorResponse(resp)).toBe(true);
+  });
+});
