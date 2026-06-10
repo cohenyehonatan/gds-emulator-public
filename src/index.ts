@@ -115,8 +115,8 @@ TERMINALS (interactive REPL, full-screen CRT on a TTY)
 
 CLIENT / SERVER
   npm run start:server               GDS host on TCP (port 9600), Sabre
-  npm run start:server -- <dialect>  …any dialect (galileo, amadeus,
-                                     apollo, worldspan); GDS_DIALECT=… works too
+  npm run start:server:<dialect>     …any dialect: sabre, galileo,
+                                     apollo, amadeus, worldspan
   npm run start:client               connect a terminal to a remote host
                                      (GDS_HOST / GDS_PORT env; CRT status bar
                                      negotiates automatically)
