@@ -17,6 +17,8 @@ import { GdsHost } from './session/gds-host.js';
 import { EmulatedBackend } from './backends/backend.js';
 import { JsonFilePnrStore } from './store/json-file-pnr-store.js';
 import { JsonFileQueues } from './store/json-file-queues.js';
+import { liveTravelportFromEnv } from './backends/live-travelport-backend.js';
+import type { Backend } from './backends/backend.js';
 import { AgentTerminal } from './terminal/agent-terminal.js';
 import { ScenarioRunner } from './terminal/scenarios/scenario-runner.js';
 import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scenario.js';
@@ -87,19 +89,29 @@ async function runDemo(): Promise<void> {
 
 async function startServer(dialect?: Dialect): Promise<void> {
   const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
-  // A server is long-lived — committed Booking Files persist BY
-  // DEFAULT (./pnr-store.json; PNR_STORE_FILE overrides the path,
-  // GDS_EPHEMERAL=1 opts back into memory-only).
-  let backend: EmulatedBackend | undefined;
-  let storeNote = 'in-memory (GDS_EPHEMERAL=1)';
-  if (process.env.GDS_EPHEMERAL !== '1') {
+  // Backend resolution — SAME rule as the in-process terminal
+  // (startRepl): live Travelport when TVP_* creds are set, else
+  // emulated. The server previously skipped the live check entirely,
+  // so `start:server:galileo` + `start:client` silently answered
+  // from synth inventory while `start:terminal:galileo` went live —
+  // spotted by an operator comparing the two.
+  let backend: Backend | undefined = liveTravelportFromEnv();
+  let storeNote: string;
+  if (backend) {
+    storeNote = 'LIVE Travelport backend (TVP_* creds)';
+  } else if (process.env.GDS_EPHEMERAL !== '1') {
+    // A server is long-lived — committed Booking Files persist BY
+    // DEFAULT (./pnr-store.json; PNR_STORE_FILE overrides the path,
+    // GDS_EPHEMERAL=1 opts back into memory-only).
     const file = process.env.PNR_STORE_FILE ?? './pnr-store.json';
     const queueFile = file.replace(/\.json$/, '') + '.queues.json';
     backend = new EmulatedBackend({
       pnrStore: new JsonFilePnrStore(file),
       queues: new JsonFileQueues(queueFile),
     });
-    storeNote = `persisting PNRs to ${file} + queues to ${queueFile}`;
+    storeNote = `emulated, persisting PNRs to ${file} + queues to ${queueFile}`;
+  } else {
+    storeNote = 'emulated, in-memory (GDS_EPHEMERAL=1)';
   }
   const host = new GdsHost({ port, logLevel: 'debug', ...(dialect ? { dialect } : {}), ...(backend ? { backend } : {}) });
   await host.start();

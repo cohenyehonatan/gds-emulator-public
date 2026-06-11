@@ -102,7 +102,11 @@ describe('CRT-over-TCP state-trailer protocol (v6)', () => {
 
     const hello = await terminal.enter('.CRT');
     expect(hello.startsWith('CRT OK')).toBe(true);
-    expect(hello.split('\x1F')[1]).toBe('SIGNED_OFF');
+    const helloParts = hello.split('\x1F');
+    expect(helloParts[1]).toBe('SIGNED_OFF');
+    // The hello identifies the host: dialect screen name + backend.
+    expect(helloParts[3]).toBeTruthy();
+    expect(helloParts[4]).toBe('EMULATED');
 
     const signIn = await terminal.enter('SI*');
     const parts = signIn.split('\x1F');

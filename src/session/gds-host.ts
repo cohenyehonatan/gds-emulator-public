@@ -129,7 +129,11 @@ export class GdsHost {
     conn.onMessage(async (raw: string) => {
       if (raw === '.CRT') {
         crtMode = true;
-        conn.send(`CRT OK\x1F${wa.state()}\x1F${wa.agent ?? ''}`);
+        // Hello also identifies the host: dialect screen name +
+        // backend kind, so the remote terminal can title its CRT
+        // and tell the operator whether entries hit a live vendor.
+        const backendKind = this.backend.constructor.name === 'LiveTravelportBackend' ? 'LIVE' : 'EMULATED';
+        conn.send(`CRT OK\x1F${wa.state()}\x1F${wa.agent ?? ''}\x1F${this.dialect.screenName}\x1F${backendKind}`);
         return;
       }
       this.logger.protocol('send', 'ENTRY', raw);

@@ -201,9 +201,14 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
   // the CRT status bar. Falls back to plain line-mode when the hello
   // isn't acknowledged (older server) or stdout isn't a TTY.
   let crt = false;
+  let remoteName = 'REMOTE GDS (TCP)';
+  let remoteBackend = '';
   try {
     const hello = await terminal.enter('.CRT');
     crt = hello.startsWith('CRT OK') && process.stdout.isTTY === true;
+    const parts = hello.split('\x1F');
+    if (parts[3]) remoteName = `${parts[3]} (TCP)`;
+    if (parts[4]) remoteBackend = parts[4];
   } catch {
     crt = false;
   }
@@ -219,11 +224,14 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
 
   if (crt) {
     const out = process.stdout;
-    const screen = new CrtScreen(out, 'REMOTE GDS (TCP)');
+    const screen = new CrtScreen(out, remoteName);
     screen.enter();
-    screen.print('── BACKEND: REMOTE (TCP, CRT mode) ──');
+    screen.print(`── BACKEND: REMOTE (TCP, CRT mode)${remoteBackend ? ` — server is ${remoteBackend}` : ''} ──`);
     screen.print('  Server owns the dialect, work area, and PNR state;');
     screen.print('  the status bar reflects the remote work-area state.');
+    if (remoteBackend === 'LIVE') {
+      screen.print('  Entries reach the LIVE Travelport pre-prod tenant.');
+    }
     screen.print('');
 
     const mouse = wireCrtMouse(screen, () => redraw());
