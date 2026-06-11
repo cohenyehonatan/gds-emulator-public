@@ -24,15 +24,18 @@ export async function startRepl(dialect?: Dialect, backend?: Backend): Promise<v
   // didn't explicitly pass one — keeps `npm run start:terminal:galileo`
   // ergonomic when creds are set. Falls back to EmulatedBackend (with
   // optional JSON-file PNR persistence) otherwise.
-  let effectiveBackend = backend ?? liveTravelportFromEnv();
+  const pnrFile = process.env.PNR_STORE_FILE;
+  const replStores = pnrFile
+    ? {
+        pnrStore: new JsonFilePnrStore(pnrFile),
+        queues: new JsonFileQueues(pnrFile.replace(/\.json$/, '') + '.queues.json'),
+      }
+    : undefined;
+  let effectiveBackend = backend ?? liveTravelportFromEnv(
+    replStores ? { pnrStore: replStores.pnrStore, queueStore: replStores.queues } : undefined,
+  );
   if (!effectiveBackend) {
-    const pnrFile = process.env.PNR_STORE_FILE;
-    effectiveBackend = pnrFile
-      ? new EmulatedBackend({
-          pnrStore: new JsonFilePnrStore(pnrFile),
-          queues: new JsonFileQueues(pnrFile.replace(/\.json$/, '') + '.queues.json'),
-        })
-      : new EmulatedBackend();
+    effectiveBackend = replStores ? new EmulatedBackend(replStores) : new EmulatedBackend();
   }
   const host = new GdsHost({ port: 0, logLevel: 'warn', dialect, backend: effectiveBackend });
   const wa = host.newWorkArea();

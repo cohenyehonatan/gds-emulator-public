@@ -111,3 +111,23 @@ describe('queue persistence', () => {
     expect(status).toMatch(/QUEUED: \d+ ON \d+ QUEUE\(S\)/);
   });
 });
+
+describe('live-backend shadow persistence', () => {
+  it('the shadow PnrStore accepts a file store — surname index survives a "restart"', async () => {
+    const { LiveTravelportBackend } = await import('../../src/backends/live-travelport-backend.js');
+    const sfile = FILE.replace(/\.json$/, '') + '.shadow.json';
+    const creds = { clientId: 'x', clientSecret: 'x', username: 'x', password: 'x' };
+    const b1 = new LiveTravelportBackend(creds, { pnrStore: new JsonFilePnrStore(sfile) });
+    const { Pnr } = await import('../../src/models/pnr.js');
+    const pnr = new Pnr();
+    pnr.locator = 'GZW1CS';
+    pnr.names.push({ surname: 'COHEN', passengers: [{ firstName: 'YEHONATAN' }], count: 1, infant: false });
+    b1.pnrs.commit(pnr);
+    // The "restart": a fresh backend over the same shadow file.
+    const b2 = new LiveTravelportBackend(creds, { pnrStore: new JsonFilePnrStore(sfile) });
+    expect(b2.pnrs.get('GZW1CS')?.names[0].surname).toBe('COHEN');
+    expect(b2.pnrs.findBySurname('COHEN')).toHaveLength(1);
+    const { unlinkSync } = await import('fs');
+    try { unlinkSync(sfile); } catch { /* */ }
+  });
+});

@@ -95,20 +95,27 @@ async function startServer(dialect?: Dialect): Promise<void> {
   // so `start:server:galileo` + `start:client` silently answered
   // from synth inventory while `start:terminal:galileo` went live —
   // spotted by an operator comparing the two.
-  let backend: Backend | undefined = liveTravelportFromEnv();
+  // Persistent stores serve BOTH paths: the emulated backend's
+  // authoritative store, or the live backend's local SHADOW (the
+  // vendor host stays authoritative; the shadow keeps *-<surname>
+  // search working across restarts).
+  const persist = process.env.GDS_EPHEMERAL !== '1';
+  const file = process.env.PNR_STORE_FILE ?? './pnr-store.json';
+  const queueFile = file.replace(/\.json$/, '') + '.queues.json';
+  const stores = persist
+    ? { pnrStore: new JsonFilePnrStore(file), queues: new JsonFileQueues(queueFile) }
+    : undefined;
+  let backend: Backend | undefined = liveTravelportFromEnv(
+    stores ? { pnrStore: stores.pnrStore, queueStore: stores.queues } : undefined,
+  );
   let storeNote: string;
   if (backend) {
-    storeNote = 'LIVE Travelport backend (TVP_* creds)';
-  } else if (process.env.GDS_EPHEMERAL !== '1') {
+    storeNote = `LIVE Travelport backend (TVP_* creds)${stores ? `, shadow persisted to ${file}` : ''}`;
+  } else if (persist) {
     // A server is long-lived — committed Booking Files persist BY
     // DEFAULT (./pnr-store.json; PNR_STORE_FILE overrides the path,
     // GDS_EPHEMERAL=1 opts back into memory-only).
-    const file = process.env.PNR_STORE_FILE ?? './pnr-store.json';
-    const queueFile = file.replace(/\.json$/, '') + '.queues.json';
-    backend = new EmulatedBackend({
-      pnrStore: new JsonFilePnrStore(file),
-      queues: new JsonFileQueues(queueFile),
-    });
+    backend = new EmulatedBackend({ pnrStore: stores!.pnrStore, queues: stores!.queues });
     storeNote = `emulated, persisting PNRs to ${file} + queues to ${queueFile}`;
   } else {
     storeNote = 'emulated, in-memory (GDS_EPHEMERAL=1)';

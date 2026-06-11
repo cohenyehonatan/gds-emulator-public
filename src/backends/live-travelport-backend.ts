@@ -34,7 +34,7 @@
  */
 
 import { Inventory } from '../store/inventory.js';
-import { PnrStore } from '../store/pnr-store.js';
+import { PnrStore, type PnrStoreLike } from '../store/pnr-store.js';
 import type { Backend } from './backend.js';
 
 export interface LiveTravelportCredentials {
@@ -45,6 +45,9 @@ export interface LiveTravelportCredentials {
 }
 
 export interface LiveTravelportBackendOptions {
+  /** Persistent shadow stores (see the pnrs/queues field docs). */
+  pnrStore?: PnrStoreLike;
+  queueStore?: Map<string, string[]>;
   /** Pre-prod by default; override for production once trial is upgraded. */
   oauthUrl?: string;
   /** API base e.g. "https://api.pp.travelport.net/11" (pre-prod). */
@@ -175,8 +178,16 @@ export class LiveTravelportBackend implements Backend {
   readonly displayName: string;
   /** Local shadow — only used when the handler doesn't go through the live path. */
   readonly inventory = new Inventory();
-  readonly pnrs = new PnrStore();
-  readonly queues = new Map<string, string[]>();
+  /**
+   * Local SHADOW stores — not authoritative (the vendor host is).
+   * The pnr shadow powers `*-<surname>` (no v11 REST equivalent) and
+   * mirrors BFs at commit; queues mirror placements. Both accept
+   * persistent implementations so the surname index survives a
+   * server restart — without one, `*GZWXXX` works after a bounce
+   * (real GET) but `*-SURNAME` comes up empty.
+   */
+  readonly pnrs: PnrStoreLike;
+  readonly queues: Map<string, string[]>;
 
   private serial: number;
   private token: TokenCache | undefined;
@@ -209,6 +220,8 @@ export class LiveTravelportBackend implements Backend {
     };
     this.displayName = `Travelport TripServices (${this.opts.gds}, ${this.opts.pcc} pre-prod)`;
     this.serial = opts.initialTicketSerial ?? 4_692_507_094;
+    this.pnrs = opts.pnrStore ?? new PnrStore();
+    this.queues = opts.queueStore ?? new Map<string, string[]>();
   }
 
   /**
