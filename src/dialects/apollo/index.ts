@@ -67,6 +67,7 @@ import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js
 import { GalileoResponse } from '../galileo/responses.js';
 import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderGalileoHelp } from '../galileo/help.js';
+import { renderStoreStatus } from '../../session/store-status.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
 const COMBINE = '+';
@@ -195,6 +196,9 @@ export class ApolloDialect implements Dialect {
     if (helpMatch && (raw.trim().toUpperCase().startsWith('H/') || raw.trim().toUpperCase().startsWith('HELP'))) {
       if (helpMatch[1] === 'MARKETS') {
         return ctx.backend.inventory.marketsSummary().join('\n');
+      }
+      if (helpMatch[1] === 'STORE') {
+        return renderStoreStatus(ctx.backend);
       }
       const body = renderGalileoHelp(helpMatch[1]);
       return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;

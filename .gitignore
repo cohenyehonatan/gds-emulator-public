@@ -11,3 +11,4 @@ tvp-*.json
 # machine-readable test reports (agent ingestion / CI)
 .vitest-report.json
 junit.xml
+pnr-store.json

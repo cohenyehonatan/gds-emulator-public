@@ -161,6 +161,7 @@ export function renderGalileoHelp(topic?: string): string {
       lines.push(`  ${t.keys[0].padEnd(8)} ${t.title}`);
     }
     lines.push('  MARKETS  SEEDED INVENTORY — what this emulator serves');
+    lines.push('  STORE    PNR PERSISTENCE — what survives a restart');
     return lines.join('\n');
   }
   const t = TOPICS.find((x) => x.keys.includes(topic));

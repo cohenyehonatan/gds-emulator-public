@@ -36,6 +36,11 @@ export class JsonFilePnrStore {
   private byLocator = new Map<string, Pnr>();
   private readonly path: string;
 
+  /** Where this store persists — surfaced by HELP STORE. */
+  get filePath(): string {
+    return this.path;
+  }
+
   constructor(path: string) {
     this.path = path;
     if (existsSync(path)) {

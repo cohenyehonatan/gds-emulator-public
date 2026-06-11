@@ -65,6 +65,7 @@ import { ticketNumber } from '../../models/ticket.js';
 import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
 import { RAIL_PROVIDER_NAMES } from '../../models/rail.js';
 import { EMD_DETAIL_DEFAULTS } from '../../models/emd.js';
+import { renderStoreStatus } from '../../session/store-status.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { connectionTypeFor } from '../../models/mct.js';
@@ -1336,7 +1337,8 @@ function renderAmadeusHelp(topic?: string): string {
   if (!topic) {
     return [AMADEUS_HELP_BANNER, '', 'TOPICS — HE <topic>:',
       ...AMADEUS_HELP_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`),
-      '  MARKETS  SEEDED INVENTORY — what this emulator serves'].join('\n');
+      '  MARKETS  SEEDED INVENTORY — what this emulator serves',
+      '  STORE    PNR PERSISTENCE — what survives a restart'].join('\n');
   }
   let t = AMADEUS_HELP_TOPICS.find((x) => x.keys.includes(topic));
   if (!t && topic.includes(' ')) {
@@ -1878,6 +1880,11 @@ export class AmadeusDialect implements Dialect {
       if (topic === 'MARKETS') {
         // Live from the inventory — see the Galileo help twin.
         screen = ctx.backend.inventory.marketsSummary().join('\n');
+        wa.lastHelpScreen = screen;
+        return screen;
+      }
+      if (topic === 'STORE') {
+        screen = renderStoreStatus(ctx.backend);
         wa.lastHelpScreen = screen;
         return screen;
       }

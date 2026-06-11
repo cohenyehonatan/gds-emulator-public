@@ -14,6 +14,8 @@
  */
 
 import { GdsHost } from './session/gds-host.js';
+import { EmulatedBackend } from './backends/backend.js';
+import { JsonFilePnrStore } from './store/json-file-pnr-store.js';
 import { AgentTerminal } from './terminal/agent-terminal.js';
 import { ScenarioRunner } from './terminal/scenarios/scenario-runner.js';
 import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scenario.js';
@@ -84,9 +86,19 @@ async function runDemo(): Promise<void> {
 
 async function startServer(dialect?: Dialect): Promise<void> {
   const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
-  const host = new GdsHost({ port, logLevel: 'debug', ...(dialect ? { dialect } : {}) });
+  // A server is long-lived — committed Booking Files persist BY
+  // DEFAULT (./pnr-store.json; PNR_STORE_FILE overrides the path,
+  // GDS_EPHEMERAL=1 opts back into memory-only).
+  let backend: EmulatedBackend | undefined;
+  let storeNote = 'in-memory (GDS_EPHEMERAL=1)';
+  if (process.env.GDS_EPHEMERAL !== '1') {
+    const file = process.env.PNR_STORE_FILE ?? './pnr-store.json';
+    backend = new EmulatedBackend({ pnrStore: new JsonFilePnrStore(file) });
+    storeNote = `persisting PNRs to ${file}`;
+  }
+  const host = new GdsHost({ port, logLevel: 'debug', ...(dialect ? { dialect } : {}), ...(backend ? { backend } : {}) });
   await host.start();
-  logger.info(`GDS host running (${host.dialect.displayName ?? host.dialect.id} dialect). Press Ctrl+C to stop.`);
+  logger.info(`GDS host running (${host.dialect.displayName ?? host.dialect.id} dialect, ${storeNote}). Press Ctrl+C to stop.`);
   process.on('SIGINT', async () => {
     await host.stop();
     process.exit(0);
@@ -114,7 +126,10 @@ TERMINALS (interactive REPL, full-screen CRT on a TTY)
   npm run start:terminal:worldspan   Worldspan (1P) — Galileo co-build
 
 CLIENT / SERVER
-  npm run start:server               GDS host on TCP (port 9600), Sabre
+  npm run start:server               GDS host on TCP (port 9600), Sabre.
+                                     PNRs persist to ./pnr-store.json by
+                                     default (PNR_STORE_FILE=… overrides,
+                                     GDS_EPHEMERAL=1 for memory-only)
   npm run start:server:<dialect>     …any dialect: sabre, galileo,
                                      apollo, amadeus, worldspan
   npm run start:client               connect a terminal to a remote host

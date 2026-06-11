@@ -55,6 +55,7 @@ import { parseGalileoEntry } from '../galileo/parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js';
 import { GalileoResponse } from '../galileo/responses.js';
 import { renderEncodeDecode } from '../galileo/encode-decode.js';
+import { renderStoreStatus } from '../../session/store-status.js';
 
 /**
  * Worldspan→Galileo entry translation. Order matters where prefixes
@@ -485,7 +486,8 @@ function renderWorldspanHelp(topic?: string): string {
   if (!topic) {
     return [WS_HELP_BANNER, '', 'TOPICS — HELP <topic>:',
       ...WS_TOPICS.map((t) => `  ${t.keys[0].padEnd(8)} ${t.title}`),
-      '  MARKETS  SEEDED INVENTORY — what this emulator serves'].join('\n');
+      '  MARKETS  SEEDED INVENTORY — what this emulator serves',
+      '  STORE    PNR PERSISTENCE — what survives a restart'].join('\n');
   }
   const t = WS_TOPICS.find((x) => x.keys.includes(topic));
   if (!t) {
@@ -530,6 +532,9 @@ export class WorldspanDialect implements Dialect {
     if (helpMatch) {
       if (helpMatch[1] === 'MARKETS') {
         return ctx.backend.inventory.marketsSummary().join('\n');
+      }
+      if (helpMatch[1] === 'STORE') {
+        return renderStoreStatus(ctx.backend);
       }
       return renderWorldspanHelp(helpMatch[1]);
     }

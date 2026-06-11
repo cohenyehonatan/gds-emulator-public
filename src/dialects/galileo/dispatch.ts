@@ -88,6 +88,7 @@ import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
 import { renderGalileoHelp } from './help.js';
+import { renderStoreStatus } from '../../session/store-status.js';
 import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
@@ -283,6 +284,9 @@ function dispatchGalileoInner(
         // of guessing city pairs into NO FLIGHTS.
         if (entry.topic === 'MARKETS') {
           return ctx.backend.inventory.marketsSummary().join('\n');
+        }
+        if (entry.topic === 'STORE') {
+          return renderStoreStatus(ctx.backend);
         }
         return renderGalileoHelp(entry.topic);
 
