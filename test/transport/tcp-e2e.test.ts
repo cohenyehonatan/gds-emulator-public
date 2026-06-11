@@ -167,6 +167,14 @@ describe('server resilience — a bad entry must never kill the host', () => {
 });
 
 describe('dev-loop reconnect — the client survives a server bounce', () => {
+  let host: GdsHost;
+  let terminal: AgentTerminal;
+
+  afterEach(async () => {
+    terminal?.disconnect();
+    await host?.stop();
+  });
+
   it('reconnect() re-establishes the socket; persisted PNRs retrieve on the new session', async () => {
     const { EmulatedBackend } = await import('../../src/backends/backend.js');
     const { JsonFilePnrStore } = await import('../../src/store/json-file-pnr-store.js');
