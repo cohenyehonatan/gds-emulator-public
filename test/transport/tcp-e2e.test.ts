@@ -165,3 +165,45 @@ describe('server resilience — a bad entry must never kill the host', () => {
     expect(await terminal.enter('N2F1')).toContain('AF 002');
   });
 });
+
+describe('dev-loop reconnect — the client survives a server bounce', () => {
+  it('reconnect() re-establishes the socket; persisted PNRs retrieve on the new session', async () => {
+    const { EmulatedBackend } = await import('../../src/backends/backend.js');
+    const { JsonFilePnrStore } = await import('../../src/store/json-file-pnr-store.js');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const { unlinkSync } = await import('fs');
+    const file = join(tmpdir(), `gds-reconnect-${process.pid}.json`);
+    const port = 9760 + (process.pid % 100);
+    const mk = () => new GdsHost({
+      port, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'A0UC',
+      backend: new EmulatedBackend({ pnrStore: new JsonFilePnrStore(file) }),
+    });
+    let server = mk();
+    await server.start();
+    terminal = new AgentTerminal({ host: '127.0.0.1', port, logLevel: 'error' });
+    await terminal.connect();
+    await terminal.enter('SON/Z01UC');
+    await terminal.enter('A01JULCDGJFK');
+    await terminal.enter('N1F1');
+    await terminal.enter('N.COHEN/YEHONATAN MR');
+    await terminal.enter('P.1');
+    await terminal.enter('R.X');
+    await terminal.enter('T.TAU/30JUN');
+    const locator = /^([A-Z0-9]{6})\b/.exec(await terminal.enter('ER'))![1];
+
+    // The tsx-watch bounce.
+    await server.stop();
+    expect(terminal.isConnected()).toBe(false);
+    await expect(terminal.enter('*R')).rejects.toThrow();
+    server = mk();
+    await server.start();
+    await terminal.reconnect();
+    expect(terminal.isConnected()).toBe(true);
+    // Fresh work area — sign on again, then the committed PNR is there.
+    await terminal.enter('SON/Z01UC');
+    expect(await terminal.enter(`*${locator}`)).toContain('COHEN/YEHONATAN MR');
+    host = server; // afterEach cleanup
+    try { unlinkSync(file); } catch { /* */ }
+  });
+});

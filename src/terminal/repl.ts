@@ -213,6 +213,29 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     crt = false;
   }
 
+  /**
+   * Send an entry, transparently reconnecting if the server bounced
+   * (tsx watch restarts on every source change — dev:server:*). On
+   * reconnect the server hands out a FRESH work area, so the
+   * operator gets an advisory to sign on again; in CRT mode the
+   * .CRT hello is re-sent so state trailers keep flowing.
+   */
+  const enterWithReconnect = async (entry: string): Promise<{ resp: string; reconnected: boolean }> => {
+    try {
+      return { resp: await terminal.enter(entry), reconnected: false };
+    } catch {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise((r) => setTimeout(r, 500));
+        try {
+          await terminal.reconnect();
+          if (crt) await terminal.enter('.CRT');
+          return { resp: await terminal.enter(entry), reconnected: true };
+        } catch { /* server still down — keep trying */ }
+      }
+      throw new Error('GDS host unreachable after 20 reconnect attempts');
+    }
+  };
+
   const splitTrailer = (response: string): { body: string; state: string; agent: string } => {
     const parts = response.split('\x1F');
     return {
@@ -259,7 +282,11 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
       if (entry.length > 0) {
         screen.printEntry(entry);
         try {
-          const { body, state, agent } = splitTrailer(await terminal.enter(entry));
+          const { resp, reconnected } = await enterWithReconnect(entry);
+          if (reconnected) {
+            screen.print('── RECONNECTED (server restarted — fresh work area, sign on again) ──');
+          }
+          const { body, state, agent } = splitTrailer(resp);
           lastState = state;
           lastAgent = agent;
           screen.print(body);
@@ -301,10 +328,11 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     }
     if (entry.length > 0) {
       try {
-        const response = await terminal.enter(entry);
+        const { resp, reconnected } = await enterWithReconnect(entry);
+        if (reconnected) console.log('── RECONNECTED (server restarted — fresh work area, sign on again) ──');
         // Tolerate a state trailer if the hello succeeded but TTY
         // detection forced line-mode — strip it for clean output.
-        console.log(crt || !response.includes('\x1F') ? response : response.split('\x1F')[0]);
+        console.log(crt || !resp.includes('\x1F') ? resp : resp.split('\x1F')[0]);
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }

@@ -33,6 +33,21 @@ export class AgentTerminal {
     this.logger.info(`Connected to GDS host ${this.options.host}:${this.options.port}`);
   }
 
+  isConnected(): boolean {
+    return this.conn?.isConnected() ?? false;
+  }
+
+  /**
+   * Re-establish the socket after a server restart (each connect()
+   * builds a fresh net.Socket, so this is safe to call repeatedly).
+   * The server gives reconnections a FRESH work area — the operator
+   * must sign on again; committed PNRs/queues persist server-side.
+   */
+  async reconnect(): Promise<void> {
+    this.conn = await this.client.connect();
+    this.logger.info('Reconnected to GDS host');
+  }
+
   /** Send a cryptic entry; resolve with the host's green-screen response. */
   async enter(cryptic: string, timeoutMs = 5000): Promise<string> {
     if (!this.conn) throw new Error('Not connected');

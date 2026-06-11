@@ -154,6 +154,11 @@ CLIENT / SERVER
                                      negotiates automatically)
                                      alias: start:terminal:tcp
 
+DEV LOOP
+  npm run dev:server:<dialect>       server under tsx watch — restarts on
+                                     source change; PNRs/queues persist, the
+                                     client auto-reconnects (sign on again)
+
 DEMO / TESTS
   npm run dev                        scripted demo: host + terminal + booking
   npm test                           unit suite (~1500 tests)
