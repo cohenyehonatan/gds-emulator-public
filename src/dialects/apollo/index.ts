@@ -69,6 +69,7 @@ import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderGalileoHelp } from '../galileo/help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
 import { renderAreaStatus } from '../../session/area-status.js';
+import { renderMarkets } from '../../session/markets-status.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
 const COMBINE = '+';
@@ -196,7 +197,7 @@ export class ApolloDialect implements Dialect {
     const helpMatch = /^(?:H\/|HELP)\s?([A-Z0-9.@*]{1,12})?$/.exec(raw.trim().toUpperCase());
     if (helpMatch && (raw.trim().toUpperCase().startsWith('H/') || raw.trim().toUpperCase().startsWith('HELP'))) {
       if (helpMatch[1] === 'MARKETS') {
-        return ctx.backend.inventory.marketsSummary().join('\n');
+        return renderMarkets(ctx.backend);
       }
       if (helpMatch[1] === 'STORE') {
         return renderStoreStatus(ctx.backend);

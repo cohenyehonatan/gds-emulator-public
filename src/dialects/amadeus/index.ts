@@ -67,6 +67,7 @@ import { RAIL_PROVIDER_NAMES } from '../../models/rail.js';
 import { EMD_DETAIL_DEFAULTS } from '../../models/emd.js';
 import { renderStoreStatus } from '../../session/store-status.js';
 import { renderAreaStatus } from '../../session/area-status.js';
+import { renderMarkets } from '../../session/markets-status.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { connectionTypeFor } from '../../models/mct.js';
@@ -1881,8 +1882,7 @@ export class AmadeusDialect implements Dialect {
       const topic = heMatch[1].trim();
       let screen: string;
       if (topic === 'MARKETS') {
-        // Live from the inventory — see the Galileo help twin.
-        screen = ctx.backend.inventory.marketsSummary().join('\n');
+        screen = renderMarkets(ctx.backend);
         wa.lastHelpScreen = screen;
         return screen;
       }

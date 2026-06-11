@@ -57,6 +57,7 @@ import { GalileoResponse } from '../galileo/responses.js';
 import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderStoreStatus } from '../../session/store-status.js';
 import { renderAreaStatus } from '../../session/area-status.js';
+import { renderMarkets } from '../../session/markets-status.js';
 
 /**
  * Worldspan→Galileo entry translation. Order matters where prefixes
@@ -532,7 +533,7 @@ export class WorldspanDialect implements Dialect {
     const helpMatch = /^(?:HELP|INFO)(?:\s+([A-Z0-9.@*]{1,12}))?$/.exec(u);
     if (helpMatch) {
       if (helpMatch[1] === 'MARKETS') {
-        return ctx.backend.inventory.marketsSummary().join('\n');
+        return renderMarkets(ctx.backend);
       }
       if (helpMatch[1] === 'STORE') {
         return renderStoreStatus(ctx.backend);

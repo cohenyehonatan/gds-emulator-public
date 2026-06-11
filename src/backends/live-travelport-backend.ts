@@ -189,6 +189,23 @@ export class LiveTravelportBackend implements Backend {
   readonly pnrs: PnrStoreLike;
   readonly queues: Map<string, string[]>;
 
+  /**
+   * Carriers OBSERVED per market this session — built passively
+   * from availability responses the operator already requested
+   * (never probed; vendor-pacing rule). Powers the live HELP
+   * MARKETS view, which must not present the emulated seed as if
+   * it described the real vendor's network.
+   */
+  readonly marketsObserved = new Map<string, Set<string>>();
+
+  /** Record carriers seen in a mapped availability result. */
+  recordObservedMarket(origin: string, destination: string, carriers: Iterable<string>): void {
+    const key = `${origin}-${destination}`;
+    const set = this.marketsObserved.get(key) ?? new Set<string>();
+    for (const c of carriers) set.add(c);
+    this.marketsObserved.set(key, set);
+  }
+
   private serial: number;
   private token: TokenCache | undefined;
   private readonly opts: ResolvedOpts;

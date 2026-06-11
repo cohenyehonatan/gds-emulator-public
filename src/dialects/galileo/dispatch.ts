@@ -89,6 +89,7 @@ import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
 import { renderGalileoHelp } from './help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
+import { renderMarkets } from '../../session/markets-status.js';
 import { renderSeatMap, galileoSeatMapHeader } from '../../render/seat-map-render.js';
 
 export const GALILEO_NOT_IMPLEMENTED = 'NOT IMPLEMENTED — galileo dialect';
@@ -283,7 +284,7 @@ function dispatchGalileoInner(
         // discover what the emulated seed actually serves instead
         // of guessing city pairs into NO FLIGHTS.
         if (entry.topic === 'MARKETS') {
-          return ctx.backend.inventory.marketsSummary().join('\n');
+          return renderMarkets(ctx.backend);
         }
         if (entry.topic === 'STORE') {
           return renderStoreStatus(ctx.backend);
@@ -375,6 +376,12 @@ async function handleGalileoAvailability(
         dayOfWeekNum: dow.num,
       });
       searchIdentifier = extractSearchIdentifier(response);
+      // Passive market learning — feeds the live HELP MARKETS view.
+      ctx.backend.recordObservedMarket(
+        entry.origin!,
+        entry.destination!,
+        lines.map((l) => l.carrier),
+      );
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }

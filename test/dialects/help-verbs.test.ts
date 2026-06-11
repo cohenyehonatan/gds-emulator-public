@@ -228,3 +228,30 @@ describe('HELP MARKETS / HE MARKETS — seeded-inventory discovery', () => {
     expect(await a.process('HE AN', a.newWorkArea())).toContain('HE MARKETS');
   });
 });
+
+describe('HELP MARKETS is backend-aware (the KEF-FRA discrepancy)', () => {
+  it('on a LIVE backend it never shows the emulated seed — only observed markets', async () => {
+    const { LiveTravelportBackend } = await import('../../src/backends/live-travelport-backend.js');
+    const backend = new LiveTravelportBackend(
+      { clientId: 'x', clientSecret: 'x', username: 'x', password: 'x' },
+    );
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S', backend });
+    const wa = h.newWorkArea();
+    const empty = await h.process('HELP MARKETS', wa);
+    expect(empty).toContain('LIVE BACKEND — real vendor inventory');
+    expect(empty).toContain('(none yet');
+    expect(empty).not.toContain('JFK-LAX  AA B6 UA'); // the emulated seed must not leak
+    // An availability response teaches the map (recorded passively).
+    backend.recordObservedMarket('KEF', 'FRA', ['SK', 'FI', 'LH', 'AY', 'LX']);
+    const learned = await h.process('HELP MARKETS', wa);
+    expect(learned).toContain('KEF-FRA  AY FI LH LX SK');
+    expect(learned).toContain('never probed');
+  });
+
+  it('on the emulated backend the seeded summary is unchanged', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+    const resp = await h.process('HELP MARKETS', h.newWorkArea());
+    expect(resp).toContain('JFK-LAX  AA B6 UA');
+    expect(resp).not.toContain('LIVE BACKEND');
+  });
+});
