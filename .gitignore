@@ -12,3 +12,4 @@ tvp-*.json
 .vitest-report.json
 junit.xml
 pnr-store.json
+pnr-store.queues.json

@@ -16,6 +16,7 @@
 import { GdsHost } from './session/gds-host.js';
 import { EmulatedBackend } from './backends/backend.js';
 import { JsonFilePnrStore } from './store/json-file-pnr-store.js';
+import { JsonFileQueues } from './store/json-file-queues.js';
 import { AgentTerminal } from './terminal/agent-terminal.js';
 import { ScenarioRunner } from './terminal/scenarios/scenario-runner.js';
 import { bookRoundtripScenario } from './terminal/scenarios/book-roundtrip.scenario.js';
@@ -93,8 +94,12 @@ async function startServer(dialect?: Dialect): Promise<void> {
   let storeNote = 'in-memory (GDS_EPHEMERAL=1)';
   if (process.env.GDS_EPHEMERAL !== '1') {
     const file = process.env.PNR_STORE_FILE ?? './pnr-store.json';
-    backend = new EmulatedBackend({ pnrStore: new JsonFilePnrStore(file) });
-    storeNote = `persisting PNRs to ${file}`;
+    const queueFile = file.replace(/\.json$/, '') + '.queues.json';
+    backend = new EmulatedBackend({
+      pnrStore: new JsonFilePnrStore(file),
+      queues: new JsonFileQueues(queueFile),
+    });
+    storeNote = `persisting PNRs to ${file} + queues to ${queueFile}`;
   }
   const host = new GdsHost({ port, logLevel: 'debug', ...(dialect ? { dialect } : {}), ...(backend ? { backend } : {}) });
   await host.start();

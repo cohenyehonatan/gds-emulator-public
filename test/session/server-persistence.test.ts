@@ -10,6 +10,7 @@ import { GalileoDialect } from '../../src/dialects/galileo/index.js';
 import { AmadeusDialect } from '../../src/dialects/amadeus/index.js';
 import { EmulatedBackend } from '../../src/backends/backend.js';
 import { JsonFilePnrStore } from '../../src/store/json-file-pnr-store.js';
+import { JsonFileQueues } from '../../src/store/json-file-queues.js';
 import { unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -73,5 +74,40 @@ describe('HELP STORE', () => {
     expect(await g.process('HELP STORE', g.newWorkArea())).toContain('IN-MEMORY (EPHEMERAL');
     const a = new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
     expect(await a.process('HE STORE', a.newWorkArea())).toContain('PNR STORE:');
+  });
+});
+
+describe('queue persistence', () => {
+  const QFILE = FILE.replace(/\.json$/, '') + '.queues.json';
+  afterEach(() => {
+    try { unlinkSync(QFILE); } catch { /* */ }
+  });
+
+  function persistentHost() {
+    return new GdsHost({
+      port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'A0UC',
+      backend: new EmulatedBackend({
+        pnrStore: new JsonFilePnrStore(FILE),
+        queues: new (JsonFileQueues)(QFILE),
+      }),
+    });
+  }
+
+  it('a queue placement survives a restart alongside its PNR', async () => {
+    const h1 = persistentHost();
+    const locator = await commitPnr(h1);
+    const wa = h1.newWorkArea();
+    await h1.process('SON/Z01UC', wa);
+    await h1.process(`*${locator}`, wa);
+    expect(await h1.process('QEB/35', wa)).toContain('35');
+
+    const h2 = persistentHost(); // restart
+    const wa2 = h2.newWorkArea();
+    await h2.process('SON/Z01UC', wa2);
+    const resp = await h2.process('Q/35', wa2);
+    expect(resp).toContain('COHEN/YEHONATAN MR'); // pulled off the queue
+    const status = await h2.process('HELP STORE', wa2);
+    expect(status).toContain(`QUEUE STORE: JSON FILE ${QFILE} (SURVIVES RESTART)`);
+    expect(status).toMatch(/QUEUED: \d+ ON \d+ QUEUE\(S\)/);
   });
 });

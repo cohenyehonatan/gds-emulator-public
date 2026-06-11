@@ -16,6 +16,7 @@ import { createMouseFilter } from './mouse.js';
 import { LiveTravelportBackend, liveTravelportFromEnv } from '../backends/live-travelport-backend.js';
 import { EmulatedBackend, type Backend } from '../backends/backend.js';
 import { JsonFilePnrStore } from '../store/json-file-pnr-store.js';
+import { JsonFileQueues } from '../store/json-file-queues.js';
 import { AgentTerminal } from './agent-terminal.js';
 
 export async function startRepl(dialect?: Dialect, backend?: Backend): Promise<void> {
@@ -27,7 +28,10 @@ export async function startRepl(dialect?: Dialect, backend?: Backend): Promise<v
   if (!effectiveBackend) {
     const pnrFile = process.env.PNR_STORE_FILE;
     effectiveBackend = pnrFile
-      ? new EmulatedBackend({ pnrStore: new JsonFilePnrStore(pnrFile) })
+      ? new EmulatedBackend({
+          pnrStore: new JsonFilePnrStore(pnrFile),
+          queues: new JsonFileQueues(pnrFile.replace(/\.json$/, '') + '.queues.json'),
+        })
       : new EmulatedBackend();
   }
   const host = new GdsHost({ port: 0, logLevel: 'warn', dialect, backend: effectiveBackend });

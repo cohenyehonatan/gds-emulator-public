@@ -57,6 +57,8 @@ export interface EmulatedBackendOptions {
   /** Swap in a different PNR store (e.g. JsonFilePnrStore for cross-
    *  session persistence). Default = a fresh in-memory PnrStore. */
   pnrStore?: PnrStoreLike;
+  /** Queue map override — pass a JsonFileQueues for persistence. */
+  queues?: Map<string, string[]>;
 }
 
 /**
@@ -70,12 +72,13 @@ export class EmulatedBackend implements Backend {
   readonly displayName = 'Emulated (local inventory + PNR store)';
   readonly inventory = new Inventory();
   readonly pnrs: PnrStoreLike;
-  readonly queues = new Map<string, string[]>();
+  readonly queues: Map<string, string[]>;
   private serial: number;
 
   constructor(opts: EmulatedBackendOptions = {}) {
     this.serial = opts.initialTicketSerial ?? 4_692_507_094;
     this.pnrs = opts.pnrStore ?? new PnrStore();
+    this.queues = opts.queues ?? new Map<string, string[]>();
   }
 
   nextTicketSerial(): number {

@@ -7,6 +7,7 @@
 
 import type { Backend } from '../backends/backend.js';
 import { JsonFilePnrStore } from '../store/json-file-pnr-store.js';
+import { JsonFileQueues } from '../store/json-file-queues.js';
 
 export function renderStoreStatus(backend: Backend): string {
   const store = backend.pnrs;
@@ -15,9 +16,15 @@ export function renderStoreStatus(backend: Backend): string {
       ? `JSON FILE ${store.filePath} (SURVIVES RESTART)`
       : 'IN-MEMORY (EPHEMERAL - LOST ON RESTART)';
   const pnrs = store.values();
+  const queues = backend.queues;
+  const queuedTotal = [...queues.values()].reduce((acc, l) => acc + l.length, 0);
+  const queueKind = queues instanceof JsonFileQueues
+    ? `JSON FILE ${queues.filePath} (SURVIVES RESTART)`
+    : 'IN-MEMORY (EPHEMERAL - LOST ON RESTART)';
   const lines = [
     `PNR STORE: ${kind}`,
-    `COMMITTED PNRS: ${pnrs.length}`,
+    `QUEUE STORE: ${queueKind}`,
+    `COMMITTED PNRS: ${pnrs.length}   QUEUED: ${queuedTotal} ON ${queues.size} QUEUE(S)`,
   ];
   const recent = pnrs.slice(-10);
   for (const p of recent) {
