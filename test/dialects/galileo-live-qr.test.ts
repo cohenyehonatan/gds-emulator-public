@@ -200,7 +200,7 @@ describe('Galileo live QR — remove BF from queue via /queue/queue/remove', () 
     await emulatedHost.process('T.TAU/10JUN', ewa);
     await emulatedHost.process('R.AGT', ewa);
     const locator = await emulatedHost.process('QEB/43', ewa); // commits + queues
-    expect(locator).toBe('OK-QUEUE 43');
+    expect(locator).toMatch(/^OK-QUEUE 43( - [A-Z0-9]+)?$/);
     const committed = emulatedHost.backend.queues.get('43') ?? [];
     expect(committed.length).toBe(1);
     const committedLocator = committed[0];

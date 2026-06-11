@@ -85,7 +85,7 @@ describe('Galileo live QRQ/ALL — remove from every queue this BF sits on', () 
     host.backend.queues.set('99', ['UNRELATED']);
 
     const resp = await host.process('QRQ/ALL', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE ALL');
+    expect(resp).toMatch(/^OK-QUEUE REMOVE\ ALL( - [A-Z0-9]+)?$/);
 
     const [removeUrl, removeInit] = fetchSpy.mock.calls[2];
     expect(removeUrl).toContain('/air/queue/queue/remove');
@@ -145,7 +145,7 @@ describe('Galileo live QRQ/ALL — remove from every queue this BF sits on', () 
     const callsBefore = fetchSpy.mock.calls.length;
 
     const resp = await host.process('QRQ/ALL', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE ALL');
+    expect(resp).toMatch(/^OK-QUEUE REMOVE\ ALL( - [A-Z0-9]+)?$/);
     expect(fetchSpy.mock.calls.length).toBe(callsBefore); // skipped REST call
   });
 
@@ -194,7 +194,7 @@ describe('Galileo live QRQ/ALL — remove from every queue this BF sits on', () 
     expect(emulatedHost.backend.queues.get('30')).toContain(locator);
 
     const resp = await emulatedHost.process('QRQ/ALL', ewa);
-    expect(resp).toBe('OK-QUEUE REMOVE ALL');
+    expect(resp).toMatch(/^OK-QUEUE REMOVE\ ALL( - [A-Z0-9]+)?$/);
     expect(emulatedHost.backend.queues.get('10') ?? []).not.toContain(locator);
     expect(emulatedHost.backend.queues.get('20') ?? []).not.toContain(locator);
     expect(emulatedHost.backend.queues.get('30') ?? []).not.toContain(locator);

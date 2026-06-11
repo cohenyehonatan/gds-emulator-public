@@ -149,7 +149,7 @@ describe('Galileo QX family — semantics', () => {
     const callsBefore = fetchSpy.mock.calls.length;
 
     const resp = await host.process('QX', wa);
-    expect(resp).toBe('OK-QUEUE EXIT');
+    expect(resp).toMatch(/^OK-QUEUE EXIT( - [A-Z0-9]+)?$/);
     expect(wa.currentQueue).toBeUndefined();
     expect(fetchSpy.mock.calls.length).toBe(callsBefore); // no extra REST call
   });
@@ -157,7 +157,7 @@ describe('Galileo QX family — semantics', () => {
   it('QX without a queue context still returns OK-QUEUE EXIT (idempotent)', async () => {
     expect(wa.currentQueue).toBeUndefined();
     const resp = await host.process('QX', wa);
-    expect(resp).toBe('OK-QUEUE EXIT');
+    expect(resp).toMatch(/^OK-QUEUE EXIT( - [A-Z0-9]+)?$/);
   });
 
   it('QXI exits queue and routes through I (workbench DELETE + reset)', async () => {

@@ -3103,6 +3103,7 @@ async function handleGalileoQueue(
   // multiple Galileo sources (Smartpoint Cloud Help, agency training
   // PDFs), QEB is the universal queue-place verb for both states —
   // there is no separate "place without end-tx" cryptic.
+  const committedNow = !wa.pnr.locator;
   if (!wa.pnr.locator) {
     const commitResp = await commitForQueueEnd(wa, ctx);
     if (commitResp.error) return commitResp.error;
@@ -3156,7 +3157,12 @@ async function handleGalileoQueue(
   const label = branchPcc
     ? `${branchPcc}/${queues.map((q) => q.value).join('+')}`
     : queues.map((q) => q.value).join('+');
-  return `OK-QUEUE ${label}`; // reconstructed
+  // When QEB performed the implicit end-transaction, surface the
+  // newly-assigned locator — otherwise the operator's only record
+  // of their BF's identity is never shown (a live session placed a
+  // BF, accessed the queue, found a STRANGER'S BF first, and had no
+  // locator to retrieve their own). Reconstructed wording.
+  return committedNow ? `OK-QUEUE ${label} - ${locator}` : `OK-QUEUE ${label}`;
 }
 
 /**

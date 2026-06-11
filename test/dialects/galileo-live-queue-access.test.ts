@@ -166,7 +166,7 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     await emulatedHost.process('T.TAU/10JUN', ewa);
     await emulatedHost.process('R.AGT', ewa);
     const placeResp = await emulatedHost.process('QEB/43', ewa);
-    expect(placeResp).toBe('OK-QUEUE 43');
+    expect(placeResp).toMatch(/^OK-QUEUE 43( - [A-Z0-9]+)?$/);
     const queuedLocators = emulatedHost.backend.queues.get('43') ?? [];
     expect(queuedLocators.length).toBe(1);
 

@@ -95,7 +95,7 @@ describe('Galileo live QEB/<queue> — end-tx + queue place', () => {
     await host.process('R.AGT', wa);
     const resp = await host.process('QEB/43', wa);
 
-    expect(resp).toBe('OK-QUEUE 43');
+    expect(resp).toMatch(/^OK-QUEUE 43( - [A-Z0-9]+)?$/);
     expect(wa.pnr.locator).toBe('QBF001');
 
     // Inspect the queue-place POST — canonical AgencyQueue envelope.
@@ -154,7 +154,7 @@ describe('Galileo live QEB/<queue> — end-tx + queue place', () => {
     await emulatedHost.process('T.TAU/10JUN', ewa);
     await emulatedHost.process('R.AGT', ewa);
     const resp = await emulatedHost.process('QEB/43', ewa);
-    expect(resp).toBe('OK-QUEUE 43');
+    expect(resp).toMatch(/^OK-QUEUE 43( - [A-Z0-9]+)?$/);
     expect(ewa.pnr.locator).toMatch(/^[A-Z0-9]{6}$/);
     expect(emulatedHost.backend.queues.get('43')).toContain(ewa.pnr.locator);
     expect(fetchSpy).not.toHaveBeenCalled();

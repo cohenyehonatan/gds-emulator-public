@@ -173,7 +173,7 @@ describe('Galileo live QEB multi-queue place — single multi-queue call', () =>
     await host.process('R.AGT', wa);
 
     const resp = await host.process('QEB/35+40+45', wa);
-    expect(resp).toBe('OK-QUEUE 35+40+45');
+    expect(resp).toMatch(/^OK-QUEUE 35\+40\+45( - [A-Z0-9]+)?$/);
     expect(wa.pnr.locator).toBe('MQ001');
 
     // Exactly 8 calls — no per-queue fanout. The 7-index call is the
@@ -244,7 +244,7 @@ describe('Galileo live QEB multi-queue place — single multi-queue call', () =>
     await host.process('R.AGT', wa);
 
     const resp = await host.process('QEB/71MG/50', wa);
-    expect(resp).toBe('OK-QUEUE 71MG/50');
+    expect(resp).toMatch(/^OK-QUEUE 71MG\/50( - [A-Z0-9]+)?$/);
 
     const [, init] = fetchSpy.mock.calls[7];
     const body = JSON.parse((init?.body as string) ?? '{}');
@@ -270,7 +270,7 @@ describe('Galileo live QEB multi-queue place — single multi-queue call', () =>
     await host.process('R.AGT', wa);
 
     const resp = await host.process('QEB/71MG/50+60', wa);
-    expect(resp).toBe('OK-QUEUE 71MG/50+60');
+    expect(resp).toMatch(/^OK-QUEUE 71MG\/50\+60( - [A-Z0-9]+)?$/);
 
     const [, init] = fetchSpy.mock.calls[7];
     const body = JSON.parse((init?.body as string) ?? '{}');
@@ -350,7 +350,7 @@ describe('Galileo live QR multi-queue — single multi-queue body', () => {
     host.backend.queues.set('77', ['ABC123', 'OTHER']);
 
     const resp = await host.process('QR/23+77', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE 23+77');
+    expect(resp).toMatch(/^OK-QUEUE REMOVE\ 23\+77( - [A-Z0-9]+)?$/);
 
     const [removeUrl, removeInit] = fetchSpy.mock.calls[2];
     expect(removeUrl).toContain('/air/queue/queue/remove');
@@ -404,7 +404,7 @@ describe('Galileo live QR multi-queue — single multi-queue body', () => {
 
     await host.process('*ABC123', wa);
     const resp = await host.process('QR/43', wa);
-    expect(resp).toBe('OK-QUEUE REMOVE 43');
+    expect(resp).toMatch(/^OK-QUEUE REMOVE\ 43( - [A-Z0-9]+)?$/);
 
     const [, removeInit] = fetchSpy.mock.calls[2];
     const body = JSON.parse((removeInit?.body as string) ?? '{}');

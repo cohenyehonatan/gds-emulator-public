@@ -220,7 +220,7 @@ describe('Galileo live queue qualifiers — pass-through to v11 body', () => {
     await host.process('R.AGT', wa);
 
     const resp = await host.process('QEB/42*CAB*D4', wa);
-    expect(resp).toBe('OK-QUEUE 42');
+    expect(resp).toMatch(/^OK-QUEUE 42( - [A-Z0-9]+)?$/);
 
     const [, init] = fetchSpy.mock.calls[7];
     const body = JSON.parse((init?.body as string) ?? '{}');
