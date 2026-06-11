@@ -956,7 +956,7 @@ async function commitGalileoLive(
       await issueTicketsPostCommit(backend, locator, committed.priceQuotes[committed.priceQuotes.length - 1]);
     } catch (err) {
       console.warn(
-        `Galileo live ticket issuance failed post-commit: ${err instanceof Error ? err.message : String(err)} (BF ${locator} is committed, just untickected)`
+        `Galileo live ticket issuance failed post-commit: ${err instanceof Error ? err.message : String(err)} (BF ${locator} is committed, just unticketed)`
       );
     }
   }
