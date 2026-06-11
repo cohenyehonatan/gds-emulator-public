@@ -2400,6 +2400,11 @@ async function handleGalileoTicket(
         total: block.total,
       };
       wa.pnr.tickets.push(record);
+      // Interface record at issuance (MIR for Galileo/Apollo).
+      ctx.backend.interfacePos.generate({
+        kind: 'MIR', locator: wa.pnr.locator ?? '------', passenger: record.passenger,
+        documentNumber: record.number, total: record.total, currency: 'USD', pcc: ctx.pcc,
+      });
       issued.push(record);
     }
   }

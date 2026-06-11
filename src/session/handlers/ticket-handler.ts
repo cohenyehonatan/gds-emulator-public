@@ -108,6 +108,13 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
         commission,
         formOfPayment: entry.formOfPayment,
       });
+      {
+        const t = pnr.tickets[pnr.tickets.length - 1];
+        ctx.backend.interfacePos.generate({
+          kind: 'IUR', locator: pnr.locator ?? '------', passenger: t.passenger,
+          documentNumber: t.number, total: t.total, currency: 'USD', pcc: ctx.pcc,
+        });
+      }
     }
     return renderTicketing(pnr);
   }
@@ -210,6 +217,18 @@ export function handleTicket(entry: TicketEntry, wa: WorkArea, ctx: HandlerConte
       formOfPayment: fop,
     };
     pnr.tickets.push(record);
+    // Interface Option 6: each issued document generates a back-
+    // office interface record on the POS queue (Tres Sabre guide;
+    // record name IUR for Sabre).
+    ctx.backend.interfacePos.generate({
+      kind: 'IUR',
+      locator: pnr.locator ?? '------',
+      passenger: record.passenger,
+      documentNumber: record.number,
+      total: record.total,
+      currency: 'USD',
+      pcc: ctx.pcc,
+    });
   });
 
   return renderTicketing(pnr);

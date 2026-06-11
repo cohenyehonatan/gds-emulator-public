@@ -35,6 +35,7 @@
 
 import { Inventory } from '../store/inventory.js';
 import { PnrStore, type PnrStoreLike } from '../store/pnr-store.js';
+import { InterfacePos } from '../session/interface-records.js';
 import type { Backend } from './backend.js';
 
 export interface LiveTravelportCredentials {
@@ -197,6 +198,9 @@ export class LiveTravelportBackend implements Backend {
    * it described the real vendor's network.
    */
   readonly marketsObserved = new Map<string, Set<string>>();
+
+  /** Back-office interface pipeline (POS queue, DX/DW/DV verbs). */
+  readonly interfacePos = new InterfacePos();
 
   /** Record carriers seen in a mapped availability result. */
   recordObservedMarket(origin: string, destination: string, carriers: Iterable<string>): void {

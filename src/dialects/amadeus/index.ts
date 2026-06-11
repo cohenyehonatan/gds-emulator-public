@@ -3374,6 +3374,14 @@ export class AmadeusDialect implements Dialect {
       }
       const tickets = issueAmadeusTickets(wa.pnr, ctx, ticketType);
       wa.pnr.tickets.push(...tickets);
+      // Interface record at issuance (AIR for Amadeus — the same
+      // record the post-TTP FB PAX line's AIR number refers to).
+      for (const t of tickets) {
+        ctx.backend.interfacePos.generate({
+          kind: 'AIR', locator: wa.pnr.locator ?? '------', passenger: t.passenger,
+          documentNumber: t.number, total: t.total, currency: 'USD', pcc: ctx.pcc,
+        });
+      }
       recordHistory(wa.pnr, `TTP ${tickets.length} TKT(S) ISSUED`);
       return renderAmadeusTicketIssuance(tickets);
     }

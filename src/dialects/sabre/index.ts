@@ -19,6 +19,7 @@ import type { Dialect } from '../dialect.js';
 import type { WorkArea } from '../../session/work-area.js';
 import type { HandlerContext } from '../../session/handlers/index.js';
 import { dispatch } from '../../session/handlers/index.js';
+import { handleSabreInterfaceControl } from './interface-control.js';
 import { parseEntry } from '../../protocol/parser.js';
 import { ParseError } from '../../protocol/errors.js';
 import { normalizeKeyboard, splitEndItems } from '../../protocol/keyboard.js';
@@ -67,6 +68,12 @@ export class SabreDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string {
+    // Back-office interface control — DX/DW/DV families + TJR
+    // toggles, entry forms VERBATIM from the Tres "Sabre GDS
+    // Integration — Setup and Interface" guide (response wording
+    // reconstructed; the guide documents behavior, not screens).
+    const ifaceResp = handleSabreInterfaceControl(raw.trim().toUpperCase(), ctx);
+    if (ifaceResp != null) return ifaceResp;
     let entry;
     try {
       entry = parseEntry(raw);

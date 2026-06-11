@@ -23,6 +23,7 @@
 
 import { Inventory } from '../store/inventory.js';
 import { PnrStore, type PnrStoreLike } from '../store/pnr-store.js';
+import { InterfacePos } from '../session/interface-records.js';
 
 export interface Backend {
   /** Stable identifier, e.g. "emulated" or "travelport-1g". */
@@ -42,6 +43,8 @@ export interface Backend {
    * side and need their own adapter.
    */
   readonly queues: Map<string, string[]>;
+  /** Back-office interface pipeline (POS queue, DX/DW/DV verbs). */
+  readonly interfacePos: InterfacePos;
   /**
    * Allocate the next monotonic ticket serial. The Sabre Issue-Tickets
    * QR's example numbers run to 10 digits; the emulated seed starts at
@@ -75,10 +78,12 @@ export class EmulatedBackend implements Backend {
   readonly queues: Map<string, string[]>;
   private serial: number;
 
+  readonly interfacePos: InterfacePos;
   constructor(opts: EmulatedBackendOptions = {}) {
     this.serial = opts.initialTicketSerial ?? 4_692_507_094;
     this.pnrs = opts.pnrStore ?? new PnrStore();
     this.queues = opts.queues ?? new Map<string, string[]>();
+    this.interfacePos = new InterfacePos();
   }
 
   nextTicketSerial(): number {
