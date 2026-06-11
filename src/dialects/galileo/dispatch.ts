@@ -441,7 +441,20 @@ async function handleGalileoSell(
 
   // Single-segment sells set `bookingClass` + `line` at the top; multi-leg
   // sells additionally populate `legs`. Normalize to a single array.
-  const legs = entry.legs ?? [{ bookingClass: entry.bookingClass, line: entry.line! }];
+  let legs = entry.legs ?? [{ bookingClass: entry.bookingClass, line: entry.line! }];
+
+  // `N1Y1*` — expand to the referenced line's full connection group,
+  // same class on every leg (mirrors the Sabre 0Y1* expansion in
+  // pnr-build-handler.ts).
+  if (entry.connectionStar) {
+    const first = avail.lines.find((l) => l.line === legs[0].line);
+    if (!first) return GalileoResponse.FORMAT;
+    if (first.connectionGroup == null) return 'NOT A CONNECTION'; // reconstructed
+    legs = avail.lines
+      .filter((l) => l.connectionGroup === first.connectionGroup)
+      .sort((a, b) => (a.legIndex ?? 0) - (b.legIndex ?? 0))
+      .map((l) => ({ bookingClass: legs[0].bookingClass, line: l.line }));
+  }
 
   // Validate every (line, class) pair before mutating anything — a partial
   // multi-leg sell would leave the PNR in a bad state.

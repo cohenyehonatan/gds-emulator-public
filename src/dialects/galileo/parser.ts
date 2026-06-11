@@ -423,13 +423,12 @@ function parseAvailability(raw: string, u: string): AvailabilityEntry {
  *                                             lines 1 and 2, Y class line 3)
  *
  * Deferred for follow-up commits:
- *   - sell-with-star-connections    N1C5*
  *   - waitlist if unavailable       (Mini Guide / Pocket Guide both
  *                                    document this implicitly)
  *   - ARNK segments                 0A
  *   - direct/long sell              (no availability cache needed)
  */
-const SELL_RE = /^N(\d+)((?:[A-Z]\d+)+)$/;
+const SELL_RE = /^N(\d+)((?:[A-Z]\d+)+)(\*)?$/;
 
 function isSell(u: string): boolean {
   return SELL_RE.test(u);
@@ -439,6 +438,9 @@ function parseSell(raw: string, u: string): SellEntry {
   const m = SELL_RE.exec(u)!;
   const seats = parseInt(m[1], 10);
   if (seats <= 0) throw new ParseError(`Galileo: zero seats in "${raw}"`);
+  // `N1C5*` — sell line 5 AND its connection legs in the same class
+  // (Mini Format Guide p.10; previously listed as deferred).
+  const connectionStar = m[3] === '*';
 
   // Pull out every (class, line) pair: F1, F2, Y3, ... in N2F1F2Y3.
   const pairs: { bookingClass: string; line: number }[] = [];
@@ -459,6 +461,7 @@ function parseSell(raw: string, u: string): SellEntry {
     seats,
     bookingClass: pairs[0].bookingClass,
     line: pairs[0].line,
+    connectionStar,
   };
   return pairs.length === 1 ? base : { ...base, legs: pairs };
 }
