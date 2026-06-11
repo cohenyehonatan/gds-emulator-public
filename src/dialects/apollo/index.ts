@@ -68,6 +68,7 @@ import { GalileoResponse } from '../galileo/responses.js';
 import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderGalileoHelp } from '../galileo/help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
+import { renderAreaStatus } from '../../session/area-status.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
 const COMBINE = '+';
@@ -204,6 +205,11 @@ export class ApolloDialect implements Dialect {
       return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;
     }
     const translated = translateApolloToGalileo(raw);
+    // OP/W* — work-area status (Worldspan B$ translates here; Apollo
+    // passthrough). Pre-parse, like encode/decode.
+    if (translated.trim().toUpperCase() === 'OP/W*') {
+      return renderAreaStatus(wa);
+    }
     // Encode/decode family — handled pre-parse (the shared renderer
     // lives outside the Galileo parser's entry union).
     const edm = /^\.(C|A)(D|E) (.+)$/.exec(translated.trim().toUpperCase());

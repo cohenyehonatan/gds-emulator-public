@@ -46,7 +46,7 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     const resp = await host.process('JIA2345HA/GS', wa);
-    expect(resp).toBe('HA SIGNED IN');
+    expect(resp).toBe('HA SIGNED IN - AREA A');
     expect(wa.agent).toBe('HA');
   });
 
@@ -74,7 +74,9 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
     const resp = await host.process('JD', wa);
-    expect(resp).toContain('WORK AREA STATUS');
+    expect(resp).toContain('WORK AREAS');
+    expect(resp).toContain('*A  EMPTY  HA');
+    expect(resp).toContain(' F  SIGNED_OFF');
     expect(resp).toContain('HA');
   });
 
@@ -102,7 +104,9 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     // entry returns the LAST response (matching the existing host
     // behavior).
     const resp = await host.process('JI2345HA/GS;JD', wa);
-    expect(resp).toContain('WORK AREA STATUS');
+    expect(resp).toContain('WORK AREAS');
+    expect(resp).toContain('*A  EMPTY  HA');
+    expect(resp).toContain(' F  SIGNED_OFF');
     expect(wa.agent).toBe('HA');
   });
 
@@ -110,8 +114,11 @@ describe('Amadeus dialect — sign-in / sign-out / status', () => {
     const host = makeHost();
     const wa = host.newWorkArea();
     await host.process('JI2345HA/GS', wa);
-    // DMFRA returns NOT IMPLEMENTED → chain stops → JO never runs.
-    await host.process('DMFRA;JO', wa);
+    // ZZZQQQ returns NOT IMPLEMENTED → chain stops → JO never runs.
+    // (The original used DMFRA, which became a real MCT verb in
+    // chunk 26 — and only kept passing because the old JO never
+    // cleared wa.agent. Both fixed.)
+    await host.process('ZZZQQQ;JO', wa);
     expect(wa.agent).toBe('HA'); // still signed in
   });
 });

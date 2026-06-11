@@ -28,6 +28,7 @@ const TOPICS: HelpTopic[] = [
       'SON/Z<agent>        sign on',
       'SOF                 sign off',
       'SA-SE               switch work area',
+      'OP/W*               all-areas status display',
     ],
   },
   {

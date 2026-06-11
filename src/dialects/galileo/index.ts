@@ -35,6 +35,7 @@ import { parseGalileoEntry } from './parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from './dispatch.js';
 import { GalileoResponse } from './responses.js';
 import { renderEncodeDecode } from './encode-decode.js';
+import { renderAreaStatus } from '../../session/area-status.js';
 
 /** Galileo's "combine entries" operator (Mini Format Guide v2, Symbols page). */
 const COMBINE = '+';
@@ -96,6 +97,12 @@ export class GalileoDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
+    // OP/W* — work-area status display (the all-areas view; the
+    // Worldspan B$ translation lands here). Layout reconstructed.
+    if (raw.trim().toUpperCase() === 'OP/W*') {
+      return renderAreaStatus(wa);
+    }
+
     // Encode/decode family — .CD/.CE (city) and .AD/.AE (airline),
     // the forms the help table has always listed (previously
     // unimplemented — the Worldspan calibration arc surfaced the

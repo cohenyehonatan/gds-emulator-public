@@ -56,6 +56,7 @@ import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from '../galileo/dispatch.js
 import { GalileoResponse } from '../galileo/responses.js';
 import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderStoreStatus } from '../../session/store-status.js';
+import { renderAreaStatus } from '../../session/area-status.js';
 
 /**
  * Worldspan→Galileo entry translation. Order matters where prefixes
@@ -70,11 +71,11 @@ export function translateWorldspanToGalileo(raw: string): string {
   if (bsi) return `SON/Z${bsi[1]}`;
   // Sign off.
   if (s === 'BSO$') return 'SOF';
-  // Work-area switch: B<letter> → S<letter> (BB→SB … BF→SF). Bare
-  // `B$` (display all areas) → OP/W* has no Galileo handler yet;
-  // translate the documented switch forms only.
+  // Work-area switch: B<letter> → S<letter> (BB→SB … BF→SF).
   const area = /^B([A-E])$/.exec(s);
   if (area) return `S${area[1]}`;
+  // B$ — display all work areas → Galileo OP/W*.
+  if (s === 'B$') return 'OP/W*';
 
   // Reference sell: 0<digit>… → N<digit>… (same rule as Apollo —
   // direct sells `0<carrier-letter>…` pass through, both identical).
@@ -676,6 +677,11 @@ export class WorldspanDialect implements Dialect {
     }
 
     const translated = translateWorldspanToGalileo(raw);
+    // OP/W* — work-area status (Worldspan B$ translates here; Apollo
+    // passthrough). Pre-parse, like encode/decode.
+    if (translated.trim().toUpperCase() === 'OP/W*') {
+      return renderAreaStatus(wa);
+    }
     // Encode/decode family — handled pre-parse (the shared renderer
     // lives outside the Galileo parser's entry union).
     const edm = /^\.(C|A)(D|E) (.+)$/.exec(translated.trim().toUpperCase());

@@ -66,6 +66,7 @@ import { COMPANY_NAMES as CAR_COMPANY_NAMES } from '../../store/car-seed.js';
 import { RAIL_PROVIDER_NAMES } from '../../models/rail.js';
 import { EMD_DETAIL_DEFAULTS } from '../../models/emd.js';
 import { renderStoreStatus } from '../../session/store-status.js';
+import { renderAreaStatus } from '../../session/area-status.js';
 import { fareFor, BOOKING_CLASSES } from '../../store/tariff.js';
 import { MIN_CONNECT_MINUTES } from '../../store/inventory.js';
 import { connectionTypeFor } from '../../models/mct.js';
@@ -1227,8 +1228,10 @@ const AMADEUS_HELP_BANNER =
   'EMULATOR HELP — implemented verb surface (host help pages are not public)';
 
 const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] = [
-  { keys: ['JI', 'SIGNON'], title: 'SIGN ON / OFF', lines: [
-    'JI<num><agent>/<duty>   sign on', 'JO / JD                 sign off / display'] },
+  { keys: ['JI', 'SIGNON', 'JM'], title: 'SIGN ON / OFF / AREAS', lines: [
+    'JI[<area>|*|A/B/C]<num><agent>/<duty>   sign on (area / all / list)',
+    'JM<letter> move · JX<letter> move+sign in · JB redisplay · JS suspend',
+    'JO[<areas>|*]  sign off    JD  work-area status grid'] },
   { keys: ['AN', 'AVAIL'], title: 'AVAILABILITY', lines: [
     'AN<date><org><dst>      neutral availability', 'R/AD <date><org><dst>   rail availability',
     '(seeded city pairs: HE MARKETS)'] },
@@ -1899,39 +1902,101 @@ export class AmadeusDialect implements Dialect {
       return screen;
     }
 
+    // Sign-in family — QRG p.9 verbatim forms (the multi-area set
+    // was previously parsed-and-ignored):
+    //   JI2345XY/GS           first available (active) area
+    //   JIA2345XY/GS          a specific area
+    //   JIA/B/C2345XY/GS      multiple areas
+    //   JI*2345XY/GS          all six areas
     if (entry.startsWith('JI')) {
       const rest = entry.slice(2);
-      const matchArea = /^([A-Z])([0-9].*)$/.exec(rest);
-      const arg = matchArea ? matchArea[2] : rest;
-      const parsed = parseSignInArgument(arg);
+      const m = /^(\*|[A-F](?:\/[A-F])*)?(\d.*)$/.exec(rest);
+      if (!m) return FORMAT_ERROR;
+      const parsed = parseSignInArgument(m[2]);
       if (!parsed) return FORMAT_ERROR;
-      try {
-        wa.machine.transition(SessionEvent.SIGN_IN);
-      } catch {
-        return FORMAT_ERROR;
+      const letters = m[1] === '*'
+        ? wa.allAreaLetters()
+        : m[1]
+          ? m[1].split('/')
+          : [wa.area];
+      for (const l of letters) {
+        const slot = wa.slot(l);
+        if (!slot) return FORMAT_ERROR;
+        try { slot.machine.transition(SessionEvent.SIGN_IN); } catch { /* already in */ }
       }
+      wa.switchTo(letters[0]);
       wa.agent = parsed.agent;
-      return `${parsed.agent} SIGNED IN`;
+      return `${parsed.agent} SIGNED IN${m[1] ? ` - AREA${letters.length > 1 ? 'S' : ''} ${letters.join('/')}` : ''}`;
     }
-    if (entry === 'JO' || entry === 'JO*') {
+
+    // Area movement family (QRG p.9):
+    //   JM<letter>   move to a specific work area
+    //   JM<agent>    move by agent sign (one shared sign here —
+    //                resolves to the first signed-in area)
+    //   JX<letter>   sign IN to another area (extends the session's
+    //                sign-on, no credential re-entry)
+    //   JB           redisplay the sign-in message
+    //   JS           suspend the work area temporarily
+    const jmMatch = /^JM([A-F]|[A-Z]{2})$/.exec(entry);
+    if (jmMatch) {
+      if (!wa.agent) return NEED_AGENT_SIGN;
+      if (jmMatch[1].length === 1) {
+        if (!wa.switchTo(jmMatch[1])) return FORMAT_ERROR;
+      } else {
+        if (jmMatch[1] !== wa.agent) return 'AGENT SIGN NOT FOUND';
+        const signed = wa.allAreaLetters().find((l) => wa.slot(l)!.machine.getState() !== 'SIGNED_OFF');
+        if (!signed) return 'AGENT SIGN NOT FOUND';
+        wa.switchTo(signed);
+      }
+      return `WORK AREA ${wa.area}`;
+    }
+    const jxMatch = /^JX([A-F])$/.exec(entry);
+    if (jxMatch) {
+      if (!wa.agent) return NEED_AGENT_SIGN;
+      if (!wa.switchTo(jxMatch[1])) return FORMAT_ERROR;
+      try { wa.machine.transition(SessionEvent.SIGN_IN); } catch { /* already in */ }
+      return `${wa.agent} SIGNED IN - AREA ${wa.area}`;
+    }
+    if (entry === 'JB') {
+      if (!wa.agent) return NEED_AGENT_SIGN;
+      return `${wa.agent} SIGNED IN - AREA ${wa.area}`;
+    }
+    if (entry === 'JS') {
+      if (!wa.agent) return NEED_AGENT_SIGN;
+      return `WORK AREA ${wa.area} SUSPENDED`; // reconstructed acknowledge
+    }
+    // Sign-out family (QRG p.9): JO active area · JOB/C/D selected
+    // areas · JO* all areas.
+    const joMatch = /^JO(\*|[A-F](?:\/[A-F])*)?$/.exec(entry);
+    if (joMatch) {
       if (!wa.agent) return NEED_AGENT_SIGN;
       const agent = wa.agent;
-      try {
-        wa.machine.transition(SessionEvent.SIGN_OFF);
-      } catch {
-        return FORMAT_ERROR;
+      const letters = joMatch[1] === '*'
+        ? wa.allAreaLetters()
+        : joMatch[1]
+          ? joMatch[1].split('/')
+          : [wa.area];
+      for (const l of letters) {
+        const slot = wa.slot(l);
+        if (!slot) return FORMAT_ERROR;
+        try { slot.machine.transition(SessionEvent.SIGN_OFF); } catch { /* not signed in */ }
+        slot.reset();
       }
-      wa.reset();
-      return `${agent} SIGNED OUT`;
+      const allOut = wa.allAreaLetters().every((l) => wa.slot(l)!.machine.getState() === 'SIGNED_OFF');
+      if (allOut) wa.agent = undefined;
+      return `${agent} SIGNED OUT${joMatch[1] ? ` - AREA${letters.length > 1 ? 'S' : ''} ${letters.join('/')}` : ''}`;
     }
     if (entry === 'JD') {
       if (!wa.agent) return NEED_AGENT_SIGN;
-      return `WORK AREA STATUS\n  A  ${wa.agent}  [${wa.state()}]`;
+      // Real per-area status (was a hardcoded single A row).
+      return renderAreaStatus(wa);
     }
 
     // --- v2: PNR build cycle ---
     // All v2 verbs require an active sign-in (Amadeus QRG semantics).
-    if (!wa.agent) return NEED_AGENT_SIGN;
+    // The check is per-AREA: the agent sign is session-level, but a
+    // JM into an unsigned area must demand JX/JI before selling.
+    if (!wa.agent || wa.state() === 'SIGNED_OFF') return NEED_AGENT_SIGN;
 
     if (entry.startsWith('AN')) {
       const avail = parseAvailability(entry.slice(2));

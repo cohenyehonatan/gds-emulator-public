@@ -47,6 +47,7 @@ import {
 import { handleTicketDocumentDisplay } from './ticket-display-handler.js';
 import { handleVoid } from './void-handler.js';
 import { handleSeatRequest } from './seat-request-handler.js';
+import { renderAreaStatus } from '../area-status.js';
 
 export type { HandlerContext };
 
@@ -112,8 +113,16 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         return handleSsr(entry, wa);
       case 'osi':
         return handleOsi(entry, wa);
-      case 'display':
+      case 'display': {
+        // *S / *S* — work-area status (Basic Course p.7, same page
+        // as ¤<letter>; response layout reconstructed). Must win
+        // before retrieve-by-locator sees the S as a locator.
+        const rawDisplay = entry.raw.trim().toUpperCase();
+        if (rawDisplay === '*S' || rawDisplay === '*S*') {
+          return renderAreaStatus(wa, rawDisplay === '*S');
+        }
         return handleRetrieve(entry, wa, ctx);
+      }
       case 'cancel':
         return handleCancel(entry, wa, ctx);
       case 'segment_status':
