@@ -1,3 +1,17 @@
+/**
+ * Galileo dialect — connection sell (N<seats><class><line>*, Mini
+ * Format Guide p.10; the Worldspan Go! manual documents the same
+ * form as ∅1Y1*). The last sell form from the parser's original
+ * deferred list.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { GdsHost } from '../../src/session/gds-host.js';
+import { GalileoDialect } from '../../src/dialects/galileo/index.js';
+
+function makeHost() {
+  return new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+}
 
 describe('connection sell — N<seats><class><line>* (Mini Format Guide p.10)', () => {
   it('N1Y1* on a connection display sells every leg of the group', async () => {
