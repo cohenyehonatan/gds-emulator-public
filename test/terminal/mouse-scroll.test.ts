@@ -79,3 +79,34 @@ describe('CrtScreen scroll viewport', () => {
     expect(s.scrolled).toBe(0);
   });
 });
+
+describe('status-bar clock ticker', () => {
+  it('render stores the status text; repaintStatus rewrites row 2 with a fresh clock', () => {
+    let written = '';
+    const sink = new Writable({ write(c: Buffer, _e, cb) { written += c.toString(); cb(); } }) as unknown as NodeJS.WriteStream;
+    (sink as { columns?: number }).columns = 80;
+    (sink as { rows?: number }).rows = 24;
+    const s = new CrtScreen(sink, 'TEST');
+    s.repaintStatus();
+    expect(written).toBe(''); // no render yet → no-op
+    s.render('AAA GS   [BUILDING]');
+    written = '';
+    s.repaintStatus();
+    expect(written).toContain('\x1b[2;2H'); // targeted row-2 repaint
+    expect(written).toContain('AAA GS   [BUILDING]');
+    expect(written).toMatch(/\d{2}:\d{2}:\d{2}/); // the clock
+    expect(written.startsWith('\x1b7')).toBe(true); // cursor save…
+    expect(written).toContain('\x1b8'); // …and restore
+  });
+
+  it('enter starts the 1s ticker and leave stops it', () => {
+    const sink = new Writable({ write(_c, _e, cb) { cb(); } }) as unknown as NodeJS.WriteStream;
+    (sink as { columns?: number }).columns = 80;
+    (sink as { rows?: number }).rows = 24;
+    const s = new CrtScreen(sink, 'TEST');
+    s.enter();
+    expect((s as unknown as { ticker?: unknown }).ticker).toBeTruthy();
+    s.leave();
+    expect((s as unknown as { ticker?: unknown }).ticker).toBeUndefined();
+  });
+});

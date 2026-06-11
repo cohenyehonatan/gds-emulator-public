@@ -44,6 +44,9 @@ export class CrtScreen {
   private lines: string[] = [];
   /** Scrollback viewport offset — 0 = live tail; >0 = scrolled up. */
   private scrollOffset = 0;
+  /** Last status text from render() — the clock ticker repaints with it. */
+  private lastStatusLeft?: string;
+  private ticker?: NodeJS.Timeout;
 
   constructor(
     private readonly out: NodeJS.WriteStream = process.stdout,
@@ -68,10 +71,39 @@ export class CrtScreen {
 
   enter(): void {
     this.out.write(ALT_ON + WRAP_OFF + GREEN + MOUSE_ON);
+    // The status-bar clock only advanced on render() — i.e. per
+    // entry — so it sat frozen between commands. Tick the status
+    // row once a second (cursor-safe targeted repaint; unref'd so
+    // it never holds the process open).
+    this.ticker = setInterval(() => this.repaintStatus(), 1000);
+    this.ticker.unref?.();
   }
 
   leave(): void {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = undefined;
     this.out.write(MOUSE_OFF + WRAP_ON + RESET + ALT_OFF + SHOW_CURSOR);
+  }
+
+  /**
+   * Repaint ONLY the status row (row 2) with the last-rendered
+   * status text + a fresh clock, without disturbing the cursor —
+   * the same DEC save/restore approach as redrawRightBorder.
+   */
+  repaintStatus(): void {
+    if (this.lastStatusLeft == null) return;
+    const inner = Math.max(0, this.cols - 2);
+    this.out.write(
+      `${ESC}7${ESC}[2;2H${BOLD_GREEN}${fit(this.statusContent(this.lastStatusLeft, inner), inner)}${RESET}${ESC}8`,
+    );
+  }
+
+  /** Status-row content: title + status on the left, scroll marker + clock right. */
+  private statusContent(statusLeft: string, inner: number): string {
+    const left = ` ${this.screenName}   ${statusLeft}`;
+    const right = `${this.scrollOffset > 0 ? `▲${this.scrollOffset}  ` : ''}${clock()} `;
+    const gap = Math.max(1, inner - left.length - right.length);
+    return fit(left + ' '.repeat(gap) + right, inner);
   }
 
   /** Scroll the response viewport up (towards older output). */
@@ -129,10 +161,8 @@ export class CrtScreen {
       `${BOLD_GREEN}│${color}${fit(content, inner)}${BOLD_GREEN}│${RESET}`;
 
     // Status bar: title + AAA/state on the left, clock on the right.
-    const left = ` ${this.screenName}   ${statusLeft}`;
-    const right = `${this.scrollOffset > 0 ? `▲${this.scrollOffset}  ` : ''}${clock()} `;
-    const gap = Math.max(1, inner - left.length - right.length);
-    const status = fit(left + ' '.repeat(gap) + right, inner);
+    this.lastStatusLeft = statusLeft;
+    const status = this.statusContent(statusLeft, inner);
 
     // Response area: the viewport into the scrollback (offset 0 =
     // live tail; mouse wheel scrolls it), blank-padded to fill.
