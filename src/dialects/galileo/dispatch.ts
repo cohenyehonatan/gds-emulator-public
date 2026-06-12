@@ -1701,6 +1701,23 @@ async function retrieveGalileoLive(
     return `LIVE BACKEND ERROR: ${msg}`; // reconstructed
   }
   const pnr = mapReservation(response, locator);
+  // LOCAL-ONLY field preservation (dogfooding find 2026-06-12: the
+  // mirror-commit below used to OVERWRITE the shadow with this
+  // history-less mapped PNR — destroying the only copy of the
+  // mutation log, which v11 cannot return; GZWFTM's build history
+  // vanished on its first retrieve). Vendor-truth fields stay
+  // mapped; fields only the shadow knows survive, cloned so the
+  // on-screen copy doesn't alias the store's old object.
+  const stored = ctx.backend.pnrs.get(locator);
+  if (stored) {
+    pnr.history = stored.history.map((h) => ({ ...h }));
+    if (!pnr.fopField) pnr.fopField = stored.fopField;
+    pnr.remarks.push(
+      ...stored.remarks
+        .filter((r) => r.type === 'itinerary' || r.type === 'document')
+        .map((r) => ({ ...r }))
+    );
+  }
   wa.pnr = pnr;
   // Mirror to local pnrStore so a subsequent surname search finds it,
   // matching the pragmatic shadow the commit path already uses.
