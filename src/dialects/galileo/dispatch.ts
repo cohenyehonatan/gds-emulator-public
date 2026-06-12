@@ -597,6 +597,13 @@ async function handleGalileoSell(
       departTime: line.departTime,
       arriveTime: line.arriveTime,
     };
+    if (ctx.backend instanceof LiveTravelportBackend && line.vendorRef?.offerId && line.vendorRef?.productId && avail.searchIdentifier) {
+      seg.vendorRef = {
+        searchIdentifier: avail.searchIdentifier,
+        offerId: line.vendorRef.offerId,
+        productId: line.vendorRef.productId,
+      };
+    }
     added.push(seg);
   }
   for (const s of added) wa.pnr.segments.push(s);
@@ -2684,7 +2691,7 @@ function handleGalileoSeatMap(
   // the segment's vendorRef, route to the live /seatmaps endpoint.
   // Otherwise use the emulated synthesizer.
   if (ctx.backend instanceof LiveTravelportBackend) {
-    const searchIdentifier = wa.lastAvailability?.searchIdentifier;
+    let searchIdentifier = wa.lastAvailability?.searchIdentifier;
     // Pull offerId + productId from the avail-line that backed this
     // query (avail-line source) or from the segment's vendorRef
     // (segment source after a live sell).
@@ -2695,13 +2702,22 @@ function handleGalileoSeatMap(
       offerId = target?.vendorRef?.offerId;
       productId = target?.vendorRef?.productId;
     } else if (entry.source === 'segment') {
-      // Look up the line that matches this segment to recover its
-      // vendorRef. Fallback: first line on the cached availability.
-      const line = wa.lastAvailability?.lines.find(
-        (l) => l.carrier === segment.carrier && l.flightNumber === segment.flightNumber,
-      );
-      offerId = line?.vendorRef?.offerId;
-      productId = line?.vendorRef?.productId;
+      // Prefer the refs stamped on the segment at sell time — they
+      // survive availability churn and BF retrieval (dogfooding find
+      // 2026-06-12: the display-cache lookup dies the moment any new
+      // A entry replaces lastAvailability). Cache lookup remains as
+      // the fallback for segments sold before stamping landed.
+      if (segment.vendorRef) {
+        searchIdentifier = segment.vendorRef.searchIdentifier;
+        offerId = segment.vendorRef.offerId;
+        productId = segment.vendorRef.productId;
+      } else {
+        const line = wa.lastAvailability?.lines.find(
+          (l) => l.carrier === segment.carrier && l.flightNumber === segment.flightNumber,
+        );
+        offerId = line?.vendorRef?.offerId;
+        productId = line?.vendorRef?.productId;
+      }
     }
     if (searchIdentifier && offerId && productId) {
       return handleGalileoSeatMapLive(

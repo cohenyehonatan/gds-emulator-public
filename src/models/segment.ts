@@ -29,6 +29,15 @@ export interface AirSegment {
   departTime: string; // e.g. "520P" (blank for open / unknown-schedule long sells)
   arriveTime: string; // e.g. "800A"
   airlineLocator?: string; // passive sell: the carrier's own record locator
+  /**
+   * Live-backend provenance, stamped at sell time: the Travelport
+   * search + offer identifiers this segment was booked from. Lets
+   * segment-referenced verbs (SA*S<n> seat maps) address the vendor
+   * directly instead of re-fishing identifiers out of the
+   * availability display cache, which any new A entry clobbers.
+   * Absent on emulated sells. Survives persistence (plain JSON).
+   */
+  vendorRef?: { searchIdentifier: string; offerId: string; productId: string };
   // Set only for an overnight (next-day) arrival:
   arriveDate?: string; // Sabre date token of arrival, e.g. "24NOV"
   arriveDayOfWeek?: string; // letter DOW of arrival

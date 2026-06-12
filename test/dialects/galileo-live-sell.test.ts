@@ -342,4 +342,38 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4); // one addOffer, not two
     expect(wa.liveWorkbenchOfferIds).toHaveLength(2);
   });
+
+  it('SA*S1 uses the vendorRef stamped at sell time — survives availability churn', async () => {
+    const seatMapVendorError = () =>
+      new Response(
+        JSON.stringify({
+          CatalogOfferingsAncillaryListResponse: {
+            Result: { Error: [{ Code: 'VALIDATION', Message: 'SEAT IS NOT AVAILABLE FOR THE REQUESTED CLASS' }] },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(searchResponse())
+      .mockResolvedValueOnce(createWorkbenchResponse('WB-001'))
+      .mockResolvedValueOnce(addOfferResponse())
+      .mockResolvedValueOnce(seatMapVendorError());
+
+    await host.process('A27JUNDENFRA', wa);
+    await host.process('N1Y1', wa);
+    expect(wa.pnr.segments[0].vendorRef?.offerId).toBeDefined();
+
+    // Clobber the display cache — the exact state after any new A
+    // entry (or a BF retrieve tomorrow). The old lookup died here.
+    wa.lastAvailability = undefined;
+
+    const resp = await host.process('SA*S1', wa);
+    // The live endpoint was still reached (the vendor's semantic
+    // error comes back verbatim) instead of falling through to the
+    // emulated synthesizer's NO SEAT MAP AVAILABLE.
+    expect(resp).toBe('SEAT IS NOT AVAILABLE FOR THE REQUESTED CLASS');
+    const [lastUrl] = fetchSpy.mock.calls[4];
+    expect(String(lastUrl)).toContain('seatavailabilities');
+  });
 });
