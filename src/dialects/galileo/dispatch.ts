@@ -457,6 +457,37 @@ async function handleGalileoSell(
       .map((l) => ({ bookingClass: legs[0].bookingClass, line: l.line }));
   }
 
+  // LIVE auto-expansion: under the JSON API the booking unit is the
+  // OFFER — a connection option's legs are ONE CatalogProductOffering,
+  // so "selling half an offer" is unrepresentable. addOffer books the
+  // whole journey no matter which leg's line the entry references
+  // (dogfooding find 2026-06-12: N1N27 then N1N28 hit the pre-prod
+  // duplicate-offer rejection, with the local mirror holding only leg
+  // 1 while the server already held both flights). Expand every leg
+  // to its full connection group so the local mirror matches what the
+  // server will hold. Emulated keeps the real host's per-line sell.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    const expanded: typeof legs = [];
+    const seenLines = new Set<number>();
+    for (const leg of legs) {
+      const line = avail.lines.find((l) => l.line === leg.line);
+      if (!line) return GalileoResponse.FORMAT;
+      const group =
+        line.connectionGroup == null
+          ? [line]
+          : avail.lines
+              .filter((l) => l.connectionGroup === line.connectionGroup)
+              .sort((a, b) => (a.legIndex ?? 0) - (b.legIndex ?? 0));
+      for (const l of group) {
+        if (!seenLines.has(l.line)) {
+          seenLines.add(l.line);
+          expanded.push({ bookingClass: leg.bookingClass, line: l.line });
+        }
+      }
+    }
+    legs = expanded;
+  }
+
   // Validate every (line, class) pair before mutating anything — a partial
   // multi-leg sell would leave the PNR in a bad state.
   for (const leg of legs) {

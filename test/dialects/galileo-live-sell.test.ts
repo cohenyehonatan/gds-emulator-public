@@ -283,4 +283,63 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     expect(wa.liveWorkbenchOfferIds).toHaveLength(2);
     expect(wa.liveWorkbenchOfferIds?.[0]).toBe(wa.liveWorkbenchOfferIds?.[1]);
   });
+
+  it('a NON-star sell on one leg of a connection auto-expands to the full group (live)', async () => {
+    // The offer is the booking unit: addOffer books the whole journey
+    // regardless of which leg's line the entry referenced. The local
+    // mirror must match — N1O1 on a connection sells BOTH segments.
+    const connectionSearchResp = () =>
+      new Response(
+        JSON.stringify({
+          CatalogProductOfferingsResponse: {
+            CatalogProductOfferings: {
+              Identifier: { value: 'SRCH-FIXTURE' },
+              CatalogProductOffering: [
+                {
+                  Identifier: { value: 'OFF-CONN-001' },
+                  ProductBrandOptions: [
+                    {
+                      Identifier: { value: 'PRD-001' },
+                      Flight: [
+                        {
+                          carrier: 'EI',
+                          number: 58,
+                          Departure: { location: 'DEN', time: '2026-06-27T10:00:00Z' },
+                          Arrival: { location: 'DUB', time: '2026-06-27T22:00:00Z' },
+                          equipment: '332',
+                        },
+                        {
+                          carrier: 'EI',
+                          number: 650,
+                          Departure: { location: 'DUB', time: '2026-06-28T07:30:00Z' },
+                          Arrival: { location: 'FRA', time: '2026-06-28T11:00:00Z' },
+                          equipment: '320',
+                        },
+                      ],
+                      ProductBrandOffering: [
+                        { Product: [{ productRef: 'p0' }], Identifier: { value: 'BRD-O' }, FareDetail: [{ BookingCode: { code: 'O', count: 9 } }] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    fetchSpy
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(connectionSearchResp())
+      .mockResolvedValueOnce(createWorkbenchResponse('WB-CONN'))
+      .mockResolvedValueOnce(addOfferResponse()); // exactly one addOffer
+
+    await host.process('A27JUNDENFRA', wa);
+    const resp = await host.process('N1O1', wa); // leg 1 only — no star
+    expect(wa.pnr.segments).toHaveLength(2); // both legs mirrored locally
+    expect(resp).toContain('DEN DUB');
+    expect(resp).toContain('DUB FRA');
+    expect(fetchSpy).toHaveBeenCalledTimes(4); // one addOffer, not two
+    expect(wa.liveWorkbenchOfferIds).toHaveLength(2);
+  });
 });
