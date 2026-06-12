@@ -57,6 +57,13 @@ describe('Galileo H/ + HELP', () => {
     }
   });
 
+  it('H/SELL documents the connection-star form (the N1N27/N1N28 trap)', async () => {
+    const h = host();
+    const resp = await h.process('H/SELL', h.newWorkArea());
+    expect(resp).toContain('N<seats><class><line>*');
+    expect(resp).toContain('connection sell');
+  });
+
   it('chapter-prefix listing per the guide (H/A → topics starting with A)', async () => {
     const h = host();
     const resp = await h.process('H/A', h.newWorkArea());

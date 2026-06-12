@@ -46,6 +46,9 @@ const TOPICS: HelpTopic[] = [
     title: 'SELL',
     lines: [
       'N<seats><class><line>      reference sell from availability',
+      'N<seats><class><line>*     connection sell — line + its legs',
+      '  (connections display as consecutive lines; on LIVE the',
+      '   offer is the booking unit, so any leg sells the journey)',
       'N1A<line>[D<days>]         hotel/car sell from aux display',
       '0<cxr><flt><cls><date><citypair><status><seats>   direct sell',
     ],
