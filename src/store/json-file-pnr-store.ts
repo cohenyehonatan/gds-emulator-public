@@ -192,8 +192,17 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
     history: e.history?.map((ev) => ({ ...ev, at: new Date(ev.at) })),
   }));
   p.manualAccountingLines = (plain.manualAccountingLines as Pnr['manualAccountingLines']) ?? [];
-  p.accountingHistory = (plain.accountingHistory as Pnr['accountingHistory']) ?? [];
-  p.history = (plain.history as Pnr['history']) ?? [];
+  // History timestamps serialize to ISO strings — rehydrate to Date
+  // like emds.issuedAt, or *H / *HAC crash on getUTCHours after any
+  // reload or clonePnr round-trip.
+  p.accountingHistory = ((plain.accountingHistory as Pnr['accountingHistory']) ?? []).map((h) => ({
+    ...h,
+    timestamp: new Date(h.timestamp),
+  }));
+  p.history = ((plain.history as Pnr['history']) ?? []).map((h) => ({
+    ...h,
+    timestamp: new Date(h.timestamp),
+  }));
   p.accountingLinesHidden = new Set((plain.accountingLinesHidden as number[]) ?? []);
   p.ticketing = plain.ticketing as string | undefined;
   p.optionField = plain.optionField as string | undefined;

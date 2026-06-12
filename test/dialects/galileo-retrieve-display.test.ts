@@ -72,6 +72,14 @@ describe('Galileo dialect — retrieve and display through the host', async () =
     expect(again).not.toContain('JONES/AMY'); // store untouched by the abandoned edit
   });
 
+  it('*H works on a retrieved BF (history timestamps rehydrate as Dates)', async () => {
+    await host.process(`*${locator}`, wa);
+    const resp = await host.process('*H', wa);
+    expect(resp).toContain('HISTORY');
+    expect(resp).not.toContain('SYSTEM ERROR');
+    expect(resp).toMatch(/\d{2}:\d{2}/); // rendered timestamps
+  });
+
   it('*R with no PNR returns NO BOOKING FILE', async () => {
     expect(await host.process('*R', wa)).toBe('NO BOOKING FILE');
   });
