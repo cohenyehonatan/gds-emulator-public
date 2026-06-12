@@ -159,6 +159,30 @@ describe('Galileo *<field> displays', () => {
     expect(hqt).toMatch(/XQ /);
   });
 
+  it('*N.I combines names and itinerary (guide example, verbatim entry)', async () => {
+    const resp = await host.process('*N.I', wa);
+    expect(resp).toContain('SMITH/JOHN MR');
+    expect(resp).toContain('B6');
+  });
+
+  it('*N.SI.VR — the guide combination, vendor remarks honestly empty', async () => {
+    const resp = await host.process('*N.SI.VR', wa);
+    expect(resp).toContain('SMITH/JOHN MR');
+    expect(resp).toContain('VGML');
+    expect(resp).toContain('NO VENDOR REMARKS');
+  });
+
+  it('*N.I+*HIA.SI mixes active displays with history (guide example)', async () => {
+    const resp = await host.process('*N.I+*HIA.SI', wa);
+    expect(resp).toContain('SMITH/JOHN MR'); // active names
+    expect(resp).toMatch(/AS .*SELL 1/); // historical air rows
+    expect(resp).toContain('VGML'); // active SI
+  });
+
+  it('chains with unknown tokens fall through (locators keep working)', async () => {
+    expect(await host.process('*N.ZZZQ', wa)).toBe('FORMAT');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

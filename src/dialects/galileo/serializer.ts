@@ -172,6 +172,14 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
       return pnr.priceQuotes.length
         ? pnr.priceQuotes.map((q, i) => renderGalileoFareQuote(q, i + 1)).join('\n')
         : none('FILED FARES');
+    case 'VI':
+      return none('INCOMING VENDOR REMARKS'); // vendor remarks not modeled
+    case 'VO':
+      return none('OUTGOING VENDOR REMARKS');
+    case 'VR':
+      return none('VENDOR REMARKS');
+    case 'VL':
+      return none('VENDOR LOCATOR DATA');
     case 'FOP':
       // Form of payment isn't modeled on the PNR yet (FOP rides the
       // ticketing flow); honest empty until it lands.

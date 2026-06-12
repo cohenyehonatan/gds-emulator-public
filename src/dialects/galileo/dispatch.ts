@@ -1259,6 +1259,45 @@ async function issueTicketsPostCommit(
  * Multi-match surname results return the locators on one line each
  * for now — the `*<n>` selection-from-list flow is deferred.
  */
+const histCodeIn = (...codes: string[]) => (h: { code?: string }) => codes.includes(h.code ?? '');
+const histTextIs = (re: RegExp) => (h: { text: string }) => re.test(h.text);
+
+/** History subsets — Formats Guide H/DIH + H/DCDH tables (in-tree). */
+const HISTORY_SUBSETS: Record<string, { title: string; pred: (h: { code?: string; text: string }) => boolean }> = {
+  HI: { title: 'ITINERARY', pred: histCodeIn('AS', 'XS', 'SC', 'HS') },
+  HIA: { title: 'AIR', pred: (h) => histCodeIn('AS', 'XS', 'SC')(h) && !/^(HOTEL|CAR|RAIL)/.test(h.text) },
+  HIH: { title: 'HOTEL', pred: histTextIs(/^HOTEL/) },
+  HIC: { title: 'CAR', pred: histTextIs(/^CAR/) },
+  HIN: { title: 'NON-AIR', pred: histTextIs(/^(HOTEL|CAR|RAIL)/) },
+  HN: { title: 'NAME', pred: histCodeIn('AN', 'XN') },
+  HP: { title: 'PHONE', pred: histTextIs(/^PHONE/) },
+  HMM: { title: 'MILEAGE MEMBERSHIP', pred: histCodeIn('AM', 'XM') },
+  HSR: { title: 'SSR', pred: histCodeIn('AG', 'XG') },
+  HSO: { title: 'OSI', pred: histCodeIn('AO', 'XO') },
+  HSI: { title: 'SERVICE INFORMATION', pred: histCodeIn('AG', 'XG', 'AO', 'XO') },
+  HTD: { title: 'TICKETING', pred: histTextIs(/^T\. /) },
+  HQT: { title: 'QUEUE TRAIL', pred: histCodeIn('AQ', 'XQ') },
+};
+
+/**
+ * Resolve one token of a combination display (`*N.I`, `*N.SI.VR`,
+ * `*N.I+*HIA.SI` — Formats Guide "Combination of Display Entries").
+ * Returns undefined for unknown tokens so the caller can reject the
+ * whole chain (combinations are all-or-nothing).
+ */
+function resolveDisplayToken(token: string, wa: WorkArea, sig: GalileoSignature): string | undefined {
+  if (token === 'R') return renderGalileoPnr(wa.pnr, sig);
+  if (token === 'I') return renderGalileoItinerary(wa.pnr);
+  if (token === 'IA' || token === 'IH' || token === 'IC' || token === 'IN') {
+    return renderGalileoItinerary(wa.pnr, token.slice(1) as 'A' | 'H' | 'C' | 'N');
+  }
+  const field = renderGalileoFieldDisplay(wa.pnr, sig, token);
+  if (field !== undefined) return field;
+  const sub = HISTORY_SUBSETS[token];
+  if (sub) return renderHistoryLog(wa, sub);
+  return undefined;
+}
+
 function handleGalileoDisplay(
   entry: DisplayEntry,
   wa: WorkArea,
@@ -1276,6 +1315,27 @@ function handleGalileoDisplay(
     if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
     return renderGalileoItinerary(wa.pnr);
   }
+  // Combination chains — Formats Guide "Combination of Display
+  // Entries" (`*N.I`, `*N.SI.VR`) and "Combination of Active and
+  // Historical Displays" (`*N.I+*HIA.SI`). Dot-joined tokens within
+  // a group, `+`-joined groups; all-or-nothing (an unknown token
+  // falls through to the other *-forms — locators, PQ-, TE/, -name).
+  if (/[.+]/.test(arg) && !/^-|^PQ-|^TE/.test(arg.toUpperCase())) {
+    // `+`-joined groups each carry their own leading `*` (the entry
+    // was `*N.I+*HIA.SI`); strip it before tokenizing on dots.
+    const tokens = arg
+      .toUpperCase()
+      .split('+')
+      .flatMap((g) => g.replace(/^\*/, '').split('.'));
+    if (tokens.length > 1 && tokens.every((t) => t.length > 0)) {
+      const bodies = tokens.map((t) => resolveDisplayToken(t, wa, sig));
+      if (bodies.every((b) => b !== undefined)) {
+        if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+        return (bodies as string[]).join('\n');
+      }
+    }
+  }
+
   // `*IA`/`*IH`/`*IC`/`*IN` — typed itinerary slices (H/BFD table).
   // *IS/*IT/*IX (surface/tour/air-taxi) — segment types we don't
   // model; honest empty.
@@ -1366,24 +1426,7 @@ function handleGalileoDisplay(
   // current-state stand-in. Hotel/car/rail rows all carry code AS —
   // the per-type itinerary slices discriminate on the text.
   {
-    const codeIn = (...codes: string[]) => (h: { code?: string }) => codes.includes(h.code ?? '');
-    const textIs = (re: RegExp) => (h: { text: string }) => re.test(h.text);
-    const SUBSETS: Record<string, { title: string; pred: (h: { code?: string; text: string }) => boolean }> = {
-      HI: { title: 'ITINERARY', pred: codeIn('AS', 'XS', 'SC', 'HS') },
-      HIA: { title: 'AIR', pred: (h) => codeIn('AS', 'XS', 'SC')(h) && !/^(HOTEL|CAR|RAIL)/.test(h.text) },
-      HIH: { title: 'HOTEL', pred: textIs(/^HOTEL/) },
-      HIC: { title: 'CAR', pred: textIs(/^CAR/) },
-      HIN: { title: 'NON-AIR', pred: textIs(/^(HOTEL|CAR|RAIL)/) },
-      HN: { title: 'NAME', pred: codeIn('AN', 'XN') },
-      HP: { title: 'PHONE', pred: textIs(/^PHONE/) },
-      HMM: { title: 'MILEAGE MEMBERSHIP', pred: codeIn('AM', 'XM') },
-      HSR: { title: 'SSR', pred: codeIn('AG', 'XG') },
-      HSO: { title: 'OSI', pred: codeIn('AO', 'XO') },
-      HSI: { title: 'SERVICE INFORMATION', pred: codeIn('AG', 'XG', 'AO', 'XO') },
-      HTD: { title: 'TICKETING', pred: textIs(/^T\. /) },
-      HQT: { title: 'QUEUE TRAIL', pred: codeIn('AQ', 'XQ') },
-    };
-    const sub = SUBSETS[upper];
+    const sub = HISTORY_SUBSETS[upper];
     if (sub) {
       if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
       if (wa.pnr.history.length === 0 && (upper === 'HI' || upper === 'HIA')) {

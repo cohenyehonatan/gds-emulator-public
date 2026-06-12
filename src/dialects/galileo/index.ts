@@ -53,6 +53,20 @@ const COMBINE = '+';
  * and dropped.
  */
 function splitGalileoChain(raw: string): string[] {
+  // Combination DISPLAY entries stay whole: the Formats Guide's
+  // "Combination of Active and Historical Displays" documents
+  // `*N.I+*HIA.SI` as ONE display producing the combined screen
+  // ("…followed by a display of…"), not a chain that shows only the
+  // final state. When the entry starts with `*` and every +-part
+  // also starts with `*`, hand the whole thing to the display
+  // handler. Mixed chains (`*R+ER`) still split.
+  const t = raw.trim();
+  if (t.startsWith('*') && t.includes(COMBINE)) {
+    const parts = t.split(COMBINE).map((x) => x.trim());
+    if (parts.length > 1 && parts.every((x) => x.startsWith('*') && x.length > 1)) {
+      return [t];
+    }
+  }
   const out: string[] = [];
   let start = 0;
   for (let i = 0; i < raw.length; i++) {
