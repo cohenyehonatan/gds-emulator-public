@@ -185,6 +185,9 @@ const TOPICS: HelpTopic[] = [
       '*FF *FOP *MM *SD    fares / FOP / mileage membership / seats',
       '*NP *CD *SVC[n]     notepad / customer data / in-flight svc',
       '*N.I  *N.SI.VR      combinations    *N.I+*HIA.SI  + history',
+      '*TE<n> *TEL *TEH    eticket record / relist / history',
+      '*TE/<cxr>/FF<n> /CC<n> /<date><brd><off>-<name>   selectors',
+      'F.S F.CK F.INV… F.<card>/D<MMYY>   FOP field (F.@ change/del)',
     ],
   },
   {

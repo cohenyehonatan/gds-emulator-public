@@ -1485,13 +1485,48 @@ function handleGalileoDisplay(
   // Both reuse the same `/receipts` GET as *HTE/*HTI, then filter or
   // index into the result. The ticket-detail render is the same
   // single-row format we use today for the list.
+  // `*TEL` — redisplay the multiple e-ticket list; `*TEH` — e-ticket
+  // history (follow-up after a *TE record display). Formats Guide
+  // rows, in-tree.
+  if (upper === 'TEL') return ticketListGalileo(wa, ctx);
+  if (upper === 'TEH') return ticketHistoryGalileo(wa, ctx);
   if (upper.startsWith('TE')) {
     const after = arg.slice(2);
     if (/^\d+$/.test(after)) {
+      // `*TE002` — zero-padded record index from the *HTE list.
       return ticketShowGalileo(wa, ctx, { index: Number(after) });
     }
     if (after.startsWith('/') && /^\d{10,14}$/.test(after.slice(1))) {
       return ticketShowGalileo(wa, ctx, { number: after.slice(1) });
+    }
+    // Vendor-keyed selectors (Formats Guide, verbatim entries):
+    //   *TE/BA/FF10087654            by vendor + mileage membership
+    //   *TE/BA/CC1234567890123       by vendor + credit card (FOP)
+    //   *TE/BA/10AUG05LONABZ-SMITH   by vendor + date/board/off/name
+    const vendorSel = /^\/([A-Z0-9]{2})\/(.+)$/.exec(after.toUpperCase());
+    if (vendorSel) {
+      const [, vendor, sel] = vendorSel;
+      const byVendor = (t: TicketRecord) => t.validatingCarrier === vendor;
+      if (sel.startsWith('FF')) {
+        const num = sel.slice(2);
+        const hasFf = wa.pnr.frequentFlyers.some((f) => f.carrier === vendor && f.number === num);
+        return hasFf ? ticketShowGalileo(wa, ctx, { pred: byVendor }) : 'TICKET NOT FOUND'; // reconstructed
+      }
+      if (sel.startsWith('CC')) {
+        const num = sel.slice(2);
+        const fopHasCard = (wa.pnr.fopField ?? '').includes(num);
+        return fopHasCard ? ticketShowGalileo(wa, ctx, { pred: byVendor }) : 'TICKET NOT FOUND'; // reconstructed
+      }
+      const dbo = /^(\d{1,2}[A-Z]{3}\d{0,2})([A-Z]{3})([A-Z]{3})-(.+)$/.exec(sel);
+      if (dbo) {
+        const [, date, board, off, surname] = dbo;
+        const segMatch = wa.pnr.segments.some(
+          (x) => x.origin === board && x.destination === off && date.startsWith(x.date)
+        );
+        return segMatch
+          ? ticketShowGalileo(wa, ctx, { pred: (t) => byVendor(t) && t.passenger.startsWith(surname) })
+          : 'TICKET NOT FOUND'; // reconstructed
+      }
     }
   }
 
@@ -3193,7 +3228,7 @@ function ticketListGalileo(
 async function ticketShowGalileo(
   wa: WorkArea,
   ctx: HandlerContext,
-  opts: { index?: number; number?: string }
+  opts: { index?: number; number?: string; pred?: (t: TicketRecord) => boolean }
 ): Promise<string> {
   if (ctx.backend instanceof LiveTravelportBackend && wa.pnr.locator) {
     try {
@@ -3209,8 +3244,34 @@ async function ticketShowGalileo(
   let ticket: typeof wa.pnr.tickets[number] | undefined;
   if (opts.index != null) ticket = wa.pnr.tickets[opts.index - 1];
   if (opts.number != null) ticket = wa.pnr.tickets.find((t) => t.number === opts.number);
+  if (opts.pred != null) ticket = wa.pnr.tickets.find(opts.pred);
   if (!ticket) return 'TICKET NOT FOUND'; // reconstructed
+  wa.lastTicketDocument = ticket.number; // *TEH follows up on this record
   return renderGalileoTicketList([ticket]);
+}
+
+/**
+ * `*TEH` — e-ticket history, "use as a follow-up entry after
+ * displaying the appropriate ticket record" (Formats Guide, in-tree).
+ * Renders the lifecycle rows we track: issuance and void. Layout
+ * reconstructed.
+ */
+function ticketHistoryGalileo(wa: WorkArea, ctx: HandlerContext): string {
+  const num = wa.lastTicketDocument;
+  if (!num) return 'NO ETICKET DISPLAYED'; // reconstructed — *TEH is a follow-up entry
+  let ticket = wa.pnr.tickets.find((t) => t.number === num);
+  if (!ticket) {
+    for (const pnr of ctx.backend.pnrs.values()) {
+      ticket = pnr.tickets.find((t) => t.number === num);
+      if (ticket) break;
+    }
+  }
+  if (!ticket) return 'TICKET NOT FOUND'; // reconstructed
+  const fmt = (d: Date) =>
+    `${String(d.getUTCDate()).padStart(2, '0')}${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  const rows = [`ETKT HISTORY ${ticket.number}`, `  ISSUED ${fmt(ticket.issuedAt)}  ${ticket.passenger}  ${ticket.validatingCarrier}`];
+  if (ticket.status === 'VOIDED' && ticket.voidedAt) rows.push(`  VOIDED ${fmt(ticket.voidedAt)}`);
+  return rows.join('\n');
 }
 
 /**

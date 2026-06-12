@@ -225,6 +225,44 @@ describe('Galileo *<field> displays', () => {
     expect(await a.process('*FOP', awa)).toBe('F. S');
   });
 
+  it('*TE selector family (Formats Guide verbatim entries)', async () => {
+    await host.process('M.B612345678', wa);
+    await host.process('F.AX373912345678901/D1209', wa);
+    await host.process('FQ', wa);
+    const tkp = await host.process('TKP', wa);
+    const num = tkp.match(/TKT (\d{13})/)![1];
+
+    // *TE002 — zero-padded index into the e-ticket list.
+    expect(await host.process('*TE001', wa)).toContain(num);
+    // *TEL — redisplay the list.
+    expect(await host.process('*TEL', wa)).toContain('TICKETS');
+    // By vendor + mileage membership (B6 validates the B6 itinerary).
+    expect(await host.process('*TE/B6/FF12345678', wa)).toContain(num);
+    expect(await host.process('*TE/B6/FF99999999', wa)).toBe('TICKET NOT FOUND');
+    // By vendor + credit card — matches the F. field's card number.
+    expect(await host.process('*TE/B6/CC373912345678901', wa)).toContain(num);
+    expect(await host.process('*TE/B6/CC4444555566667777', wa)).toBe('TICKET NOT FOUND');
+    // By vendor + date/board/off/name.
+    expect(await host.process('*TE/B6/15JUNJFKLAX-SMITH', wa)).toContain(num);
+    expect(await host.process('*TE/B6/15JUNJFKLAX-JONES', wa)).toBe('TICKET NOT FOUND');
+    expect(await host.process('*TE/B6/15JUNLAXJFK-SMITH', wa)).toBe('TICKET NOT FOUND');
+  });
+
+  it('*TEH is a follow-up entry: history of the displayed e-ticket record', async () => {
+    expect(await host.process('*TEH', wa)).toBe('NO ETICKET DISPLAYED');
+    await host.process('FQ', wa);
+    const tkp = await host.process('TKP', wa);
+    const num = tkp.match(/TKT (\d{13})/)![1];
+    await host.process('*TE001', wa);
+    let teh = await host.process('*TEH', wa);
+    expect(teh).toContain(`ETKT HISTORY ${num}`);
+    expect(teh).toContain('ISSUED');
+    expect(teh).not.toContain('VOIDED');
+    expect(await host.process(`TRV/${num}`, wa)).toBe(`OK-VOID TKT ${num}`);
+    teh = await host.process('*TEH', wa);
+    expect(teh).toContain('VOIDED'); // the void lands in the e-ticket history
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);
