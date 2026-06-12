@@ -175,6 +175,18 @@ const TOPICS: HelpTopic[] = [
     ],
   },
   {
+    keys: ['PRINT', 'P', 'HQ'],
+    title: 'PRINT FUNCTIONS (P- / HQ*)',
+    lines: [
+      'P-<display>            print any display (P-*R, P-*I, P-*H)',
+      'P-*<locator> / P-*-<name>   print unretrieved BF',
+      'HQC<gtid>              printer queue count (SET ADDRESS…)',
+      'HQD<gtid> / HQX<gtid>  queue contents / delete',
+      'HQS<gtid>              restart — flushes held ticket image',
+      '(TKP holds the ticket image; jobs land in GDS_PRINT_DIR)',
+    ],
+  },
+  {
     keys: ['DECODE', 'ENCODE'],
     title: 'ENCODE / DECODE',
     lines: ['.CD <code> / .CE <name>     city decode / encode', '.AD <code> / .AE <name>     airline'],

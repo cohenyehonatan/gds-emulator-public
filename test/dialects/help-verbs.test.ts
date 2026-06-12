@@ -64,6 +64,13 @@ describe('Galileo H/ + HELP', () => {
     expect(resp).toContain('connection sell');
   });
 
+  it('H/PRINT documents the P- router and HQ* queue family', async () => {
+    const h = host();
+    const resp = await h.process('H/PRINT', h.newWorkArea());
+    expect(resp).toContain('P-<display>');
+    expect(resp).toContain('HQS<gtid>');
+  });
+
   it('chapter-prefix listing per the guide (H/A → topics starting with A)', async () => {
     const h = host();
     const resp = await h.process('H/A', h.newWorkArea());
