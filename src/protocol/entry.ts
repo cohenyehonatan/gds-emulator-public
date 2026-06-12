@@ -104,8 +104,17 @@ export interface OsiEntry extends BaseEntry {
 
 export interface RemarkEntry extends BaseEntry {
   kind: 'remark';
-  remarkType: 'general' | 'fop' | 'historical';
+  /**
+   * `itinerary` = Galileo RI. (associated when `segment` set,
+   * unassociated otherwise); `document` = Galileo DI. ticketing
+   * remarks (webhelp BF-fields compare: DI.AC-<account>). Both also
+   * support `<n>@` delete via `deleteIndex`.
+   */
+  remarkType: 'general' | 'fop' | 'historical' | 'itinerary' | 'document';
   text: string;
+  segment?: number;
+  /** `DI.3@` / `RI.2@` — 1-based delete within the type's list. */
+  deleteIndex?: number;
 }
 
 export interface TimeLimitEntry extends BaseEntry {

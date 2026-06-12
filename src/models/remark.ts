@@ -7,11 +7,13 @@
  * The leading characters determine the remark kind. Displayed via *P5.
  */
 
-export type RemarkType = 'general' | 'fop' | 'historical';
+export type RemarkType = 'general' | 'fop' | 'historical' | 'itinerary' | 'document';
 
 export interface RemarkElement {
   type: RemarkType;
   text: string;
+  /** Itinerary remarks only: segment association (`RI.S4*TEXT`). */
+  segment?: number;
 }
 
 /** Parse the text after the '5' sigil into a remark element. */

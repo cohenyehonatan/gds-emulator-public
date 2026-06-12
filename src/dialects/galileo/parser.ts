@@ -127,6 +127,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (/^M\.[A-Z0-9]/.test(u)) return parseGalileoMileage(trimmed, u);
   if (u.startsWith('F.')) return parseGalileoFop(trimmed, u);
   if (/^[WD]\./.test(u)) return parseGalileoAddress(trimmed);
+  if (u.startsWith('RI.') || u.startsWith('DI.')) return parseGalileoItinDocRemark(trimmed);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -1087,6 +1088,29 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     nameRef,
     segmentRef,
   };
+}
+
+/**
+ * `RI.<text>` / `RI.S<n>*<text>` — unassociated / segment-associated
+ * itinerary remarks; `DI.<text>` — document itinerary (ticketing)
+ * remarks, e.g. `DI.AC-AAA.IBM54` account lines. Sources: webhelp
+ * Apollo→Travelport+ BF-fields compare (RI.S4*TEXT, RI.TEXT,
+ * DI.AC-…, DI.3@) — entries verbatim. `<n>@` deletes by 1-based
+ * index within the type's list.
+ */
+function parseGalileoItinDocRemark(raw: string): RemarkEntry {
+  const t = raw.trim();
+  const remarkType = t.toUpperCase().startsWith('RI.') ? ('itinerary' as const) : ('document' as const);
+  const body = t.slice(3);
+  const base = { kind: 'remark' as const, raw, timestamp: new Date(), remarkType };
+  const del = /^(\d+)@$/.exec(body);
+  if (del) return { ...base, text: '', deleteIndex: Number(del[1]) };
+  if (remarkType === 'itinerary') {
+    const assoc = /^S(\d+)\*(.+)$/.exec(body);
+    if (assoc) return { ...base, text: assoc[2], segment: Number(assoc[1]) };
+  }
+  if (body.length === 0) throw new ParseError(`Galileo ${t.slice(0, 3)}: empty remark`);
+  return { ...base, text: body };
 }
 
 /**

@@ -190,6 +190,19 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
       return pnr.seatRequests.length
         ? pnr.seatRequests.map((r, i) => `S. ${i + 1} ${r.code}${r.segment != null ? ' S' + r.segment : ''}`).join('\n')
         : none('SEAT DATA');
+    case 'DI':
+      return pnr.remarks.some((r) => r.type === 'document')
+        ? pnr.remarks.filter((r) => r.type === 'document').map((r, i) => `DI. ${i + 1} ${r.text}`).join('\n')
+        : none('DOCUMENT ITINERARY REMARKS');
+    case 'RI':
+    case 'RIA':
+    case 'RIU': {
+      const all = pnr.remarks.filter((r) => r.type === 'itinerary');
+      const rows = key === 'RIA' ? all.filter((r) => r.segment != null) : key === 'RIU' ? all.filter((r) => r.segment == null) : all;
+      return rows.length
+        ? rows.map((r, i) => `RI. ${i + 1}${r.segment != null ? ' S' + r.segment : ''} ${r.text}`).join('\n')
+        : none('ITINERARY REMARKS');
+    }
     case 'NP':
       return pnr.remarks.length
         ? pnr.remarks.map((r, i) => `NP. ${i + 1} ${r.text}`).join('\n')

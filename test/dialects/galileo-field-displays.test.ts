@@ -292,6 +292,31 @@ describe('Galileo *<field> displays', () => {
     expect(had).toMatch(/XW .*ADDRESS WRITTEN CHANGE/);
   });
 
+  it('RI. itinerary remarks: associated, unassociated, selectors, delete', async () => {
+    expect(await host.process('RI.S1*GATE CHANGES LIKELY', wa)).toBe('OK');
+    expect(await host.process('RI.CHECK VISA DOCS', wa)).toBe('OK');
+    expect(await host.process('RI.S9*NOPE', wa)).toBe('SEGMENT NOT IN ITINERARY');
+
+    expect(await host.process('*RIA', wa)).toBe('RI. 1 S1 GATE CHANGES LIKELY');
+    expect(await host.process('*RIU', wa)).toBe('RI. 1 CHECK VISA DOCS');
+    const ri = await host.process('*RI', wa);
+    expect(ri).toContain('GATE CHANGES');
+    expect(ri).toContain('CHECK VISA');
+    expect(await host.process('*RI2', wa)).toBe('RI. 2 CHECK VISA DOCS');
+    expect(await host.process('*RI/S1', wa)).toBe('RI. 1 S1 GATE CHANGES LIKELY');
+
+    expect(await host.process('RI.1@', wa)).toBe('OK');
+    expect(await host.process('*RIA', wa)).toBe('NO ITINERARY REMARKS');
+  });
+
+  it('DI. document remarks (account line) + *DI display + DI.<n>@ delete', async () => {
+    expect(await host.process('DI.AC-AAA.IBM54', wa)).toBe('OK');
+    expect(await host.process('*DI', wa)).toBe('DI. 1 AC-AAA.IBM54');
+    expect(await host.process('DI.1@', wa)).toBe('OK');
+    expect(await host.process('*DI', wa)).toBe('NO DOCUMENT ITINERARY REMARKS');
+    expect(await host.process('DI.9@', wa)).toBe('FORMAT');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

@@ -1412,6 +1412,26 @@ function handleGalileoDisplay(
     }
   }
 
+  // `*RI<n>` / `*RI/S<n>` — itinerary-remark selectors (Formats
+  // Guide H/BFD rows: "Display Itinerary Remark 3" / "related to
+  // segment 1"). The bare *RI/*RIA/*RIU forms ride the field-display
+  // arm below.
+  {
+    const riSel = /^RI(?:(\d+)|\/S(\d+))$/.exec(arg.toUpperCase());
+    if (riSel) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      const all = wa.pnr.remarks.filter((r) => r.type === 'itinerary');
+      if (riSel[1]) {
+        const r = all[Number(riSel[1]) - 1];
+        return r ? `RI. ${riSel[1]}${r.segment != null ? ' S' + r.segment : ''} ${r.text}` : 'NO ITINERARY REMARKS';
+      }
+      const rows = all.filter((r) => r.segment === Number(riSel[2]));
+      return rows.length
+        ? rows.map((r, i) => `RI. ${i + 1} S${r.segment} ${r.text}`).join('\n')
+        : 'NO ITINERARY REMARKS';
+    }
+  }
+
   // `*<field>` — Booking File field displays per the Formats Guide
   // H/BFD table (references/galileo/booking-file-display-options.md).
   // Checked before the history family so *NP/*SD/*SI resolve here;
@@ -2286,6 +2306,28 @@ async function handleGalileoRemark(
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
+  // RI. (itinerary) / DI. (document/ticketing) remarks — local-only
+  // fields (no v11 BF-remark category mapping); webhelp BF-fields
+  // compare gives the entry forms verbatim.
+  if (entry.remarkType === 'itinerary' || entry.remarkType === 'document') {
+    const sigil = entry.remarkType === 'itinerary' ? 'RI' : 'DI';
+    const ofType = () => wa.pnr.remarks.filter((r) => r.type === entry.remarkType);
+    if (entry.deleteIndex != null) {
+      const target = ofType()[entry.deleteIndex - 1];
+      if (!target) return GalileoResponse.FORMAT;
+      wa.pnr.remarks = wa.pnr.remarks.filter((r) => r !== target);
+      addFieldTransition(wa, `${sigil} DELETE ${entry.deleteIndex}`);
+      return GalileoResponse.OK;
+    }
+    if (entry.remarkType === 'itinerary' && entry.segment != null) {
+      if (!wa.pnr.segments.some((x) => x.segmentNumber === entry.segment)) {
+        return 'SEGMENT NOT IN ITINERARY';
+      }
+    }
+    wa.pnr.remarks.push({ type: entry.remarkType, text: entry.text, segment: entry.segment });
+    addFieldTransition(wa, `${sigil} ADD ${entry.segment != null ? 'S' + entry.segment + ' ' : ''}${entry.text}`);
+    return GalileoResponse.OK;
+  }
   if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
     try {
       await ctx.backend.addReservationComment(wa.liveWorkbenchId, entry.text, {
