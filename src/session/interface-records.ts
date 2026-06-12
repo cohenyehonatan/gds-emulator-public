@@ -45,15 +45,52 @@ export interface InterfaceRecord {
  * claimed — the specs are in-tree for that — but the record/section
  * skeleton is real, not invented.
  */
+/** Lay 1-indexed (start, value) fields onto a blank-filled line. */
+function placeFields(width: number, fields: [number, string][]): string {
+  const buf = Array(width).fill(' ');
+  for (const [start, value] of fields) {
+    for (let i = 0; i < value.length && start - 1 + i < width; i++) {
+      buf[start - 1 + i] = value[i];
+    }
+  }
+  return buf.join('').trimEnd();
+}
+
 export function recordBody(r: InterfaceRecord): string {
   const inv = String(r.invoiceNumber).padStart(7, '0');
   if (r.kind === 'IUR') {
-    return [
-      `M0${r.pcc} 40 ${inv} ${r.locator} ${r.createdAt.toISOString().slice(0, 10)}`, // Control+Constant (IU0MID/IU0VER)
-      `M1${r.passenger}`,                                  // Passenger Invoice Data
-      `M2${r.documentNumber} ${r.currency}${r.total.toFixed(2)}`, // Ticket Data
-      `M5${r.currency}${r.total.toFixed(2)} TTL`,          // Accounting Data
-    ].join('\n');
+    // FIXED-COLUMN per the in-tree IUR Programmer Guide v40 field
+    // tables (label / start / length):
+    //   Transmission header (cols 1-11): "AA" system-origination +
+    //   DD + MON + HHMM (CST Tulsa per the spec; we emit UTC)
+    //   IU0MID @12/2 "M0" · IU0TYP @14/1 ("1" invoice/ticket) ·
+    //   IU0VER @15/2 "40" · IU0DKN @17/10 customer number ·
+    //   IU0IVN @37/7 invoice · IU0PNR @54/8 locator ·
+    //   IU0PCC @89/5 booking agent location
+    //   M1: IU1MID @1/2 · IU1PNO @3/2 · IU1PNM @5/64 name
+    //   M2: IU2MID @1/2 · IU2PNO @3/2 · IU2PTY @5/3 ·
+    //       IU2TNO @234/10 ticket number
+    const d = r.createdAt;
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const hdr = `AA${String(d.getUTCDate()).padStart(2, '0')}${months[d.getUTCMonth()]}${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    const m0 = placeFields(93, [
+      [1, hdr],            // cols 1-11 transmission header
+      [12, 'M0'],          // IU0MID
+      [14, '1'],           // IU0TYP — invoice/ticket
+      [15, '40'],          // IU0VER
+      [17, r.pcc.padEnd(10).slice(0, 10)], // IU0DKN customer number (DK)
+      [37, inv],           // IU0IVN
+      [54, r.locator.padEnd(8).slice(0, 8)], // IU0PNR
+      [89, r.pcc.padEnd(5).slice(0, 5)],   // IU0PCC
+    ]);
+    const m1 = placeFields(98, [
+      [1, 'M1'], [3, '01'], [5, r.passenger.padEnd(64).slice(0, 64)], // IU1MID/IU1PNO/IU1PNM
+    ]);
+    const m2 = placeFields(243, [
+      [1, 'M2'], [3, '01'], [5, 'ADT'],     // IU2MID/IU2PNO/IU2PTY
+      [234, r.documentNumber.slice(-10)],    // IU2TNO ticket number
+    ]);
+    return [m0, m1, m2].join('\n');
   }
   if (r.kind === 'MIR') {
     const trc = '1G'; // T50TRC — transmitting CRS (1G GCS / 1V APO)

@@ -111,7 +111,19 @@ describe('spec-shaped record bodies (specs in references/interface/)', () => {
       pcc: 'A0UC', createdAt: new Date('2026-06-12T00:00:00Z'), transmitted: false,
     };
     const iur = recordBody({ ...base, kind: 'IUR' as const });
-    expect(iur.split('\n').map((l) => l.slice(0, 2))).toEqual(['M0', 'M1', 'M2', 'M5']);
+    const [m0, m1, m2] = iur.split('\n');
+    // Fixed columns per the in-tree IUR Programmer Guide v40:
+    expect(m0.slice(0, 2)).toBe('AA');        // transmission header origination
+    expect(m0.slice(11, 13)).toBe('M0');      // IU0MID @12/2
+    expect(m0.slice(13, 14)).toBe('1');       // IU0TYP invoice/ticket
+    expect(m0.slice(14, 16)).toBe('40');      // IU0VER
+    expect(m0.slice(36, 43)).toBe('0001234'); // IU0IVN @37/7
+    expect(m0.slice(53, 61)).toBe('GZW1CS  ');// IU0PNR @54/8
+    expect(m1.slice(0, 2)).toBe('M1');
+    expect(m1.slice(4, 11)).toBe('COHEN/Y');  // IU1PNM @5
+    expect(m2.slice(0, 2)).toBe('M2');
+    expect(m2.slice(4, 7)).toBe('ADT');       // IU2PTY @5/3
+    expect(m2.slice(233, 243)).toBe('4692507094'); // IU2TNO @234/10
     const mir = recordBody({ ...base, kind: 'MIR' as const });
     expect(mir).toMatch(/^T51G7733/); // T50BID T5 + T50TRC 1G + T50SPC 7733
     const air = recordBody({ ...base, kind: 'AIR' as const });
