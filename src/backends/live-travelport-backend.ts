@@ -64,6 +64,13 @@ export interface LiveTravelportBackendOptions {
   /** Initial ticket serial — only used for the local stub path, never sent live. */
   initialTicketSerial?: number;
   /**
+   * Per-request timeout in ms (default 30s). Every live fetch carries
+   * an AbortSignal so a stalled connection surfaces as a LIVE BACKEND
+   * ERROR within seconds — never undici's 5-minute default of silence
+   * (dogfooding find: an ER hung an operator for 5 minutes).
+   */
+  requestTimeoutMs?: number;
+  /**
    * Polite-citizen flag: when true, Galileo `R.<initials>` posts the
    * agent identifier to the workbench via `/reservationcomments/list`
    * with `commentSource: "Agency"`. The server's OAuth token already
@@ -97,6 +104,7 @@ interface ResolvedOpts {
   acceptVersion: string;
   politeReceivedFromAudit: boolean;
   pacing: { minMs: number; maxMs: number };
+  requestTimeoutMs: number;
 }
 
 // Default pacing: 200-400ms inter-request jitter. Detect the vitest
@@ -118,6 +126,7 @@ const DEFAULT_OPTS: ResolvedOpts = {
   acceptVersion: '11',
   politeReceivedFromAudit: false,
   pacing: DEFAULT_PACING,
+  requestTimeoutMs: 30_000,
 };
 
 /**
@@ -266,6 +275,26 @@ export class LiveTravelportBackend implements Backend {
    *    request + response to the file as one JSONL line. Auth
    *    headers redacted so the file is shareable.
    */
+  /**
+   * `fetch` with a hard per-request deadline. Caller-supplied signals
+   * win; otherwise every request gets `AbortSignal.timeout(opts.
+   * requestTimeoutMs)`. The DOMException is translated to a plain
+   * Error whose message names the deadline and the request, so the
+   * dispatch layer's catch renders a useful LIVE BACKEND ERROR.
+   */
+  private async timedFetch(input: string, init?: RequestInit): Promise<Response> {
+    const ms = this.opts.requestTimeoutMs;
+    const signal = init?.signal ?? AbortSignal.timeout(ms);
+    try {
+      return await fetch(input, { ...init, signal });
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new Error(`request timed out after ${ms}ms — ${init?.method ?? 'GET'} ${input}`);
+      }
+      throw err;
+    }
+  }
+
   private async pacedFetch(input: string, init?: RequestInit): Promise<Response> {
     if (process.env.TVP_REPLAY) {
       return this.replayNext(input, init);
@@ -274,7 +303,7 @@ export class LiveTravelportBackend implements Backend {
     const skipPacing = minMs === 0 && maxMs === 0;
     let response: Response;
     if (skipPacing) {
-      response = await fetch(input, init);
+      response = await this.timedFetch(input, init);
     } else {
       const previousChain = this.requestChain;
       let releaseSlot: () => void = () => {};
@@ -289,7 +318,7 @@ export class LiveTravelportBackend implements Backend {
           await new Promise((r) => setTimeout(r, targetDelay - elapsed));
         }
         this.lastRequestAt = Date.now();
-        response = await fetch(input, init);
+        response = await this.timedFetch(input, init);
       } finally {
         releaseSlot();
       }
