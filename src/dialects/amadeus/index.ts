@@ -1284,6 +1284,11 @@ const AMADEUS_HELP_TOPICS: { keys: string[]; title: string; lines: string[] }[] 
     'EWD[/<n>|/L<n>|/EMD<num>]   record display    EWDRT EWDRL  redisplay',
     'FXK[/P<n>][/S<n>]  ancillary catalogue    FWK<n>  book from line',
     'IU <cxr> NN<n> <code>…   auxiliary SVC segment    EWH  history'] },
+  { keys: ['INTERFACE', 'AIR', 'BB'], title: 'BACK-OFFICE INTERFACE (AIR)', lines: [
+    'BB                 Application-queue status (START/STOPPED)',
+    'BASTART / BSSTOP   start / stop transmission (100-record daytime throttle)',
+    'BD                 AIR list by sequence    BR<seq>  retransmit (night only)',
+    '(AIRs generate at TTP; files land in GDS_INTERFACE_DIR)'] },
   { keys: ['DM', 'MCT'], title: 'MIN CONNECT TIME', lines: [
     'DM<apt>[-<apt2>][/<date>]   MCT lookup (layered: standards +',
     '  carrier exceptions)        DMI   continuity check'] },

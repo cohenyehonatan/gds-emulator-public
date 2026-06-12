@@ -147,6 +147,17 @@ const TOPICS: HelpTopic[] = [
     lines: ['E / ER              end / end + retrieve', 'I / IR              ignore / ignore + retrieve'],
   },
   {
+    keys: ['INTERFACE', 'MIR', 'HQC'],
+    title: 'BACK-OFFICE INTERFACE (MIR)',
+    lines: [
+      'HMLM<lniata>DA      establish link to the MIR device',
+      'HMLD                link status (U up / D down)',
+      'HQC                 queue counts (Pending / Sent)',
+      'HMOM<lniata>-U/-D   bring link up (transmits) / down',
+      '(MIRs generate at TKP; files land in GDS_INTERFACE_DIR)',
+    ],
+  },
+  {
     keys: ['DECODE', 'ENCODE'],
     title: 'ENCODE / DECODE',
     lines: ['.CD <code> / .CE <name>     city decode / encode', '.AD <code> / .AE <name>     airline'],

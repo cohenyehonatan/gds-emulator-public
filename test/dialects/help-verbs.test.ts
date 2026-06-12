@@ -192,6 +192,24 @@ describe('Amadeus help-meta family (QRG p.5 "Amadeus Online Help Pages", verbati
   });
 });
 
+describe('HELP INTERFACE — the back-office pipeline is discoverable', () => {
+  it('Galileo H/INTERFACE lists the HM* link-control family', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+    const resp = await h.process('H/INTERFACE', h.newWorkArea());
+    expect(resp).toContain('BACK-OFFICE INTERFACE (MIR)');
+    expect(resp).toContain('HQC');
+    expect(resp).toContain('HMOM');
+  });
+
+  it('Amadeus HE INTERFACE lists the B* application-queue family', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
+    const resp = await h.process('HE INTERFACE', h.newWorkArea());
+    expect(resp).toContain('BACK-OFFICE INTERFACE (AIR)');
+    expect(resp).toContain('BASTART');
+    expect(resp).toContain('BR<seq>');
+  });
+});
+
 describe('Galileo encode/decode — the help table no longer over-claims', () => {
   it('.CD/.CE/.AD/.AE resolve (previously FORMAT despite the H/DECODE listing)', async () => {
     const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
