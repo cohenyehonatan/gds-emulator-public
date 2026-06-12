@@ -3513,6 +3513,13 @@ async function handleGalileoQueueAccess(
   ctx: HandlerContext
 ): Promise<string> {
   const queue = entry.queue!;
+  // Dogfooding find (2026-06-12 log, 03:23:11): re-entering Q/<n>
+  // from a dirty queue BF silently reloaded it and wiped the
+  // operator's uncommitted R. — the exact hazard QP guards against.
+  // Same guard: commit (E/ER) or explicitly discard (I) first.
+  if (wa.queueCurrentDirty) {
+    return 'USE I OR END'; // reconstructed — parallels QP's USE QPI OR END
+  }
   let locators: string[];
   if (ctx.backend instanceof LiveTravelportBackend) {
     try {

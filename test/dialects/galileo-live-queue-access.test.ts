@@ -195,3 +195,30 @@ describe('Galileo live Q/<queue> — access via /queue/queue/list', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('Q/<n> at a dirty queue BF (the 03:23:11 wipe)', () => {
+  it('refuses to reload over uncommitted modifications', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ access_token: 'TKN', token_type: 'Bearer', expires_in: 3600 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const backend = new LiveTravelportBackend({ clientId: 'x', clientSecret: 'y', username: 'z', password: 'w' });
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S', backend });
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    // Simulate queue context with a modified BF on screen.
+    wa.currentQueue = '38';
+    wa.queueWorkingSet = ['GZWF93'];
+    wa.queueCursor = 0;
+    wa.queueCurrentDirty = true;
+
+    const resp = await host.process('Q/38', wa);
+    expect(resp).toBe('USE I OR END');
+    expect(wa.queueCurrentDirty).toBe(true); // nothing wiped
+    expect(wa.queueWorkingSet).toEqual(['GZWF93']); // context intact
+    fetchSpy.mockRestore();
+  });
+});
