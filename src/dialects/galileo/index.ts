@@ -104,6 +104,26 @@ export class GalileoDialect implements Dialect {
     //   HQC              queue message count (Pending/Sent table)
     //   HMOM<lniata>-U/-D  bring the link up / down
     const rawU = raw.trim().toUpperCase();
+
+    // P- print router (GPM.net appendix, references/print/, entry
+    // forms verbatim): strip the prefix, run the remainder through
+    // the normal pipeline, route the rendered screen to the print
+    // spool. Appendix rule: "You can print any field in the
+    // retrieved BF by preceding the display option with P-."
+    // Error responses display on screen and print nothing. On-screen
+    // confirmation reconstructed. Documented divergence: the
+    // unretrieved forms (P-*<locator>, P-*-<name>) retrieve the BF
+    // into the work area as a side effect of the shared display
+    // pipeline; the real host prints without disturbing the screen.
+    if (rawU.startsWith('P-') && rawU.length > 2 && !rawU.startsWith('P-P-')) {
+      const inner = raw.trim().slice(2);
+      return Promise.resolve(this.processEntry(inner, wa, ctx)).then((resp) => {
+        if (this.isErrorResponse(resp)) return resp;
+        const job = ctx.backend.printSpool.print(rawU, resp);
+        return `PRINTED - ${job.gtid}`; // reconstructed
+      });
+    }
+
     const hmlm = /^HMLM([A-Z0-9]{6})DA$/.exec(rawU);
     if (hmlm) {
       ctx.backend.interfacePos.log(`LINK ESTABLISHED ${hmlm[1]}`);

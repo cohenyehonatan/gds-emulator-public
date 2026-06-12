@@ -161,6 +161,13 @@ export function translateApolloToGalileo(raw: string): string {
     // mirrors Galileo's `*S<n>` suffix.
     s = 'SA*' + s.slice(3);
   }
+  // (5) Name retrieve: Apollo `**-SMITH` → Galileo `*-SMITH`. The
+  // GPM.net print appendix's Apollo column uses P-**-SMITH ("Prints
+  // unretrieved PNR, referencing last name of passenger"), pinning
+  // the double-star Apollo form of the surname retrieve.
+  if (/^\*\*-/.test(s)) {
+    s = s.slice(1);
+  }
   return s;
 }
 
@@ -204,6 +211,19 @@ export class ApolloDialect implements Dialect {
       }
       const body = renderGalileoHelp(helpMatch[1]);
       return `${body}\n\nAPOLLO DELTAS: 0<seats><cls><line> sell · .<n><status> status · 9V/S<n> seat map · A…+<cxr> carrier`;
+    }
+    // P- print router — Apollo column of the GPM.net appendix
+    // (P-**-SMITH, P-*R, P-*I, P-*H + air/hotel/car/pricing history
+    // subsets). Intercepted BEFORE translation so the inner entry
+    // (e.g. **-SMITH) goes through Apollo's own translator.
+    const rawUP = raw.trim().toUpperCase();
+    if (rawUP.startsWith('P-') && rawUP.length > 2 && !rawUP.startsWith('P-P-')) {
+      const inner = raw.trim().slice(2);
+      return Promise.resolve(this.processEntry(inner, wa, ctx)).then((resp) => {
+        if (this.isErrorResponse(resp)) return resp;
+        const job = ctx.backend.printSpool.print(rawUP, resp);
+        return `PRINTED - ${job.gtid}`; // reconstructed
+      });
     }
     const translated = translateApolloToGalileo(raw);
     // OP/W* — work-area status (Worldspan B$ translates here; Apollo
