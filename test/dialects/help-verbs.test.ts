@@ -71,6 +71,16 @@ describe('Galileo H/ + HELP', () => {
     expect(resp).toContain('HQS<gtid>');
   });
 
+  it('H/BFD and H/DIH document the display + history families (guide help entries)', async () => {
+    const h = host();
+    const bfd = await h.process('H/BFD', h.newWorkArea());
+    expect(bfd).toContain('*SVC[n]');
+    expect(bfd).toContain('*N.I+*HIA.SI');
+    const dih = await h.process('H/DIH', h.newWorkArea());
+    expect(dih).toContain('*HQT');
+    expect(dih).toContain('*HIA');
+  });
+
   it('chapter-prefix listing per the guide (H/A → topics starting with A)', async () => {
     const h = host();
     const resp = await h.process('H/A', h.newWorkArea());

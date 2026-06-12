@@ -175,6 +175,32 @@ const TOPICS: HelpTopic[] = [
     ],
   },
   {
+    keys: ['BFD', 'DISPLAY'],
+    title: 'BOOKING FILE DISPLAY (*<FIELD>)',
+    lines: [
+      '*R / *ALL           whole BF / all data incl hidden fields',
+      '*I  *IA *IH *IC *IN itinerary — all / air / hotel / car / non-air',
+      '*N *P *TD *RV       names / phones / ticketing / received',
+      '*SI *SR *SO         service info — both / SSRs / OSIs',
+      '*FF *FOP *MM *SD    fares / FOP / mileage membership / seats',
+      '*NP *CD *SVC[n]     notepad / customer data / in-flight svc',
+      '*N.I  *N.SI.VR      combinations    *N.I+*HIA.SI  + history',
+    ],
+  },
+  {
+    keys: ['DIH', 'HIST', 'HISTORY'],
+    title: 'BF HISTORY (*H FAMILY)',
+    lines: [
+      '*H                  entire history (coded rows: AN AS XS AG…)',
+      '*HI *HIA *HIH *HIC  itinerary history — all/air/hotel/car',
+      '*HN *HP *HMM        name / phone / mileage history',
+      '*HSR *HSO *HSI      SSR / OSI / both',
+      '*HTD *HQT           ticketing / queue trail',
+      '*HFF *HNP           filed fares / notepads',
+      '(codes per the in-tree H/HIST table — H/BFD for displays)',
+    ],
+  },
+  {
     keys: ['PRINT', 'P', 'HQ'],
     title: 'PRINT FUNCTIONS (P- / HQ*)',
     lines: [
