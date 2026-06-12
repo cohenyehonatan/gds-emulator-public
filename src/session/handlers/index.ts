@@ -172,6 +172,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         // Galileo-only `F.<fop>` BF field — Sabre's parser never emits this.
         return Response.FORMAT;
 
+      case 'address_field':
+        // Galileo-only `W.`/`D.` BF fields — Sabre's parser never emits this.
+        return Response.FORMAT;
+
       case 'fare_display':
         // Galileo-only `FD<...>` — Sabre's parser never emits this.
         return Response.FORMAT;

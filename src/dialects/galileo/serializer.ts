@@ -197,16 +197,20 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
     case 'AD':
     case 'AW':
     case 'AA': {
-      const kinds = key === 'AA' ? ['delivery', 'written'] : key === 'AD' ? ['delivery'] : ['written'];
-      const rows = pnr.addresses.filter((a) => kinds.includes(a.kind));
+      // Delivery = subtype 'delivery'; written = everything else on
+      // the shared mailing/billing model (W. stores subtype
+      // 'standard'; Amadeus AM/AB ride the same arrays).
+      const rows = pnr.addresses.filter((a) =>
+        key === 'AA' ? true : key === 'AD' ? a.subtype === 'delivery' : a.subtype !== 'delivery'
+      );
       return rows.length
-        ? rows.map((a) => `${a.kind === 'delivery' ? 'D' : 'W'}. ${a.text}`).join('\n')
+        ? rows.map((a) => `${a.subtype === 'delivery' ? 'D' : 'W'}. ${a.text}`).join('\n')
         : none('ADDRESS DATA');
     }
     case 'CD': {
       // "Customer Data" — the client-file-sourced fields: addresses
       // plus account remarks. Honest empty when nothing is on file.
-      const addr = pnr.addresses.map((a) => `${a.kind === 'delivery' ? 'D' : 'W'}. ${a.text}`);
+      const addr = pnr.addresses.map((a) => `${a.subtype === 'delivery' ? 'D' : 'W'}. ${a.text}`);
       if (addr.length === 0) return none('CUSTOMER DATA');
       return addr.join('\n');
     }

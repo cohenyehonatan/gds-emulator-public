@@ -26,6 +26,7 @@
  */
 
 import type {
+  AddressFieldEntry,
   FopFieldEntry,
   FrequentFlyerEntry,
   ParsedEntry,
@@ -125,6 +126,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('NP.')) return parseNotepad(trimmed);
   if (/^M\.[A-Z0-9]/.test(u)) return parseGalileoMileage(trimmed, u);
   if (u.startsWith('F.')) return parseGalileoFop(trimmed, u);
+  if (/^[WD]\./.test(u)) return parseGalileoAddress(trimmed);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -1085,6 +1087,30 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     nameRef,
     segmentRef,
   };
+}
+
+/**
+ * `W.<addr>` / `D.<addr>` — written / delivery address (webhelp
+ * BF-fields compare + Formats Guide ADDRESS FIELDS, entries
+ * verbatim). `*`-separated subfields (written ≤5 incl. mandatory
+ * `P/` post code per the guide — not enforced v1; delivery ≤6).
+ * `@` change/delete forms mirror the other dotted fields.
+ */
+function parseGalileoAddress(raw: string): AddressFieldEntry {
+  const sigil = raw.trim()[0].toUpperCase() as 'W' | 'D';
+  const body = raw.trim().slice(2);
+  const base = { kind: 'address_field' as const, raw, timestamp: new Date(), sigil };
+  if (body === '@') return { ...base, op: 'delete' };
+  if (body.startsWith('@')) {
+    const sub = /^@(\d)\*(.+)$/.exec(body);
+    if (sub) return { ...base, op: 'change_subfield', subfield: Number(sub[1]), text: sub[2] };
+    return { ...base, op: 'change', text: body.slice(1).trim() };
+  }
+  const max = sigil === 'W' ? 5 : 6;
+  if (body.length === 0 || body.split('*').length > max) {
+    throw new ParseError(`Galileo ${sigil}.: expected ≤${max} *-separated subfields`);
+  }
+  return { ...base, op: 'add', text: body };
 }
 
 /**

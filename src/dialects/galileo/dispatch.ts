@@ -176,6 +176,9 @@ function historyCodeFor(text: string): string | undefined {
     [/^(NP|NOTEPAD)/, 'AI'],
     [/^SEAT CANCEL/, 'SX'],
     [/^SEAT/, 'SA'],
+    [/^ADDRESS WRITTEN ADD/, 'AW'],
+    [/^ADDRESS WRITTEN (CHANGE|DELETE)/, 'XW'],
+    [/^ADDRESS DELIVERY ADD/, 'AA'],
     [/^FOP (CHANGE|DELETE)/, 'FP'],
     [/^QUEUE PLACE/, 'AQ'],
     [/^QUEUE REMOVE/, 'XQ'],
@@ -346,6 +349,39 @@ function dispatchGalileoInner(
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
+
+      case 'address_field': {
+        // W./D. are single fields (one written + one delivery per BF).
+        // Stored on the shared AddressElement model: written → kind
+        // mailing/subtype standard; delivery → kind mailing/subtype
+        // delivery (the Amadeus AM/D convention).
+        const subtype = entry.sigil === 'D' ? 'delivery' : 'standard';
+        const existing = wa.pnr.addresses.find((a) => a.kind === 'mailing' && (a.subtype === 'delivery') === (subtype === 'delivery'));
+        const label = entry.sigil === 'W' ? 'WRITTEN' : 'DELIVERY';
+        if (entry.op === 'delete') {
+          if (!existing) return GalileoResponse.FORMAT;
+          wa.pnr.addresses = wa.pnr.addresses.filter((a) => a !== existing);
+          addFieldTransition(wa, `ADDRESS ${label} DELETE`);
+          return GalileoResponse.OK;
+        }
+        if (entry.op === 'change' || entry.op === 'change_subfield') {
+          if (!existing) return GalileoResponse.FORMAT;
+          if (entry.op === 'change') {
+            existing.text = entry.text!;
+          } else {
+            const parts = existing.text.split('*');
+            if (entry.subfield! < 1 || entry.subfield! > parts.length) return GalileoResponse.FORMAT;
+            parts[entry.subfield! - 1] = entry.text!;
+            existing.text = parts.join('*');
+          }
+          addFieldTransition(wa, `ADDRESS ${label} CHANGE ${existing.text}`);
+          return GalileoResponse.OK;
+        }
+        if (existing) wa.pnr.addresses = wa.pnr.addresses.filter((a) => a !== existing);
+        wa.pnr.addresses.push({ kind: 'mailing', subtype, text: entry.text! });
+        addFieldTransition(wa, `ADDRESS ${label} ADD ${entry.text}`);
+        return GalileoResponse.OK;
+      }
 
       case 'fop_field': {
         // F. is a single-item BF field (Formats Guide: "Single item
@@ -1299,6 +1335,7 @@ const HISTORY_SUBSETS: Record<string, { title: string; pred: (h: { code?: string
   HSI: { title: 'SERVICE INFORMATION', pred: histCodeIn('AG', 'XG', 'AO', 'XO') },
   HTD: { title: 'TICKETING', pred: histTextIs(/^T\. /) },
   HF: { title: 'FORM OF PAYMENT', pred: (h) => (h.code === 'FP') || /^FOP/.test(h.text) },
+  HAD: { title: 'WRITTEN ADDRESS', pred: histCodeIn('AW', 'XW') },
   HQT: { title: 'QUEUE TRAIL', pred: histCodeIn('AQ', 'XQ') },
 };
 

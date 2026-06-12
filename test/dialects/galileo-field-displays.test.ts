@@ -263,6 +263,35 @@ describe('Galileo *<field> displays', () => {
     expect(teh).toContain('VOIDED'); // the void lands in the e-ticket history
   });
 
+  it('W./D. address fields (webhelp + Formats Guide verbatim forms)', async () => {
+    expect(await host.process('W.MR LANE*21 OAK RD *LONDON*GB*P/N21 3T', wa)).toBe('OK');
+    expect(await host.process('D.NAME*21 OAK ST*PETALUMA CA*94954', wa)).toBe('OK');
+    expect(await host.process('*AW', wa)).toBe('W. MR LANE*21 OAK RD *LONDON*GB*P/N21 3T');
+    expect(await host.process('*AD', wa)).toBe('D. NAME*21 OAK ST*PETALUMA CA*94954');
+    const aa = await host.process('*AA', wa);
+    expect(aa).toContain('W. MR LANE');
+    expect(aa).toContain('D. NAME');
+    expect(await host.process('*CD', wa)).toContain('MR LANE'); // customer data now populated
+
+    // Subfield change: W.@2*NEW TEXT replaces the 2nd *-subfield.
+    expect(await host.process('W.@2*22 ELM AVE', wa)).toBe('OK');
+    expect(await host.process('*AW', wa)).toBe('W. MR LANE*22 ELM AVE*LONDON*GB*P/N21 3T');
+    // Whole-field change + delete.
+    expect(await host.process('D.@OTHER NAME*9 MAIN ST*RENO NV*89501', wa)).toBe('OK');
+    expect(await host.process('D.@', wa)).toBe('OK');
+    expect(await host.process('*AD', wa)).toBe('NO ADDRESS DATA');
+    // Written ≤5 subfields enforced.
+    expect(await host.process('W.A*B*C*D*E*F', wa)).toBe('FORMAT');
+  });
+
+  it('*HAD shows written-address history with AW/XW codes', async () => {
+    await host.process('W.MR LANE*P/N21 3T', wa);
+    await host.process('W.@MR DOE*P/N21 3T', wa);
+    const had = await host.process('*HAD', wa);
+    expect(had).toMatch(/AW .*ADDRESS WRITTEN ADD/);
+    expect(had).toMatch(/XW .*ADDRESS WRITTEN CHANGE/);
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

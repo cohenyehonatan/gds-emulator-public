@@ -121,6 +121,23 @@ export interface TimeLimitEntry extends BaseEntry {
  * · F.CC<vendor><num>/D<mmyy> non-agreement card · F.@ <new> change ·
  * F.@ delete. Apollo F- translates onto this.
  */
+/**
+ * Galileo `W.<addr>` / `D.<addr>` — written / delivery address
+ * fields. Source: webhelp Apollo→Travelport+ BF-fields compare +
+ * Formats Guide ADDRESS FIELDS section (both in-tree/verbatim):
+ * `W.MR LANE*21 OAK RD *LONDON*GB*P/N21 3T` (≤5 subfields, P/ post
+ * code), `D.NAME*21 OAK ST*PETALUMA CA*94954` (≤6 subfields),
+ * `W.@NEW TEXT` change whole, `W.@2*NEW TEXT` change subfield 2,
+ * `W.@` delete — same forms for D.
+ */
+export interface AddressFieldEntry extends BaseEntry {
+  kind: 'address_field';
+  sigil: 'W' | 'D';
+  op: 'add' | 'change' | 'change_subfield' | 'delete';
+  subfield?: number;
+  text?: string;
+}
+
 export interface FopFieldEntry extends BaseEntry {
   kind: 'fop_field';
   op: 'add' | 'change' | 'delete';
@@ -658,6 +675,7 @@ export type ParsedEntry =
   | OsiEntry
   | RemarkEntry
   | TimeLimitEntry
+  | AddressFieldEntry
   | FopFieldEntry
   | FrequentFlyerEntry
   | FlightInfoEntry
