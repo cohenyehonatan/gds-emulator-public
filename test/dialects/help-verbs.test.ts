@@ -49,6 +49,14 @@ describe('Galileo H/ + HELP', () => {
     expect(await h.process('H/QUEUE', h.newWorkArea())).toContain('QEB/<n>');
   });
 
+  it('H/QUEUE covers the full queue-mode surface, not just place/access', async () => {
+    const h = host();
+    const resp = await h.process('H/QUEUE', h.newWorkArea());
+    for (const verb of ['QP / QPI', 'I ', 'QRQ/ALL', 'QX / QXI / QXE', 'QXIR / QXER', 'QCA', 'QW', 'QPB*']) {
+      expect(resp, verb).toContain(verb);
+    }
+  });
+
   it('chapter-prefix listing per the guide (H/A → topics starting with A)', async () => {
     const h = host();
     const resp = await h.process('H/A', h.newWorkArea());

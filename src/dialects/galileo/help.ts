@@ -111,7 +111,21 @@ const TOPICS: HelpTopic[] = [
   {
     keys: ['QUEUE', 'Q'],
     title: 'QUEUES',
-    lines: ['QEB/<n>             place BF on queue', 'Q/<n>               access queue', 'QR / QX             remove / exit'],
+    lines: [
+      'QEB/<n>             place BF on queue + end transaction',
+      '  QEB/<n>+<n>       multi-queue   QEB/<PCC>/<n>  branch PCC',
+      '  QEB/<n>*C<cat>*D<n>  with category / date-range qualifiers',
+      'Q/<n>               sign into queue (loads first BF)',
+      'QP / QPI            cursor back 1 / back 1 ignoring changes',
+      'I                   ignore current BF, load next',
+      'QR / QR/<n>[+<n>]   remove on-screen BF from queue(s)',
+      'QRQ/ALL             remove from ALL agency queues',
+      'QX / QXI / QXE      exit queue / exit+ignore / exit+end',
+      'QXIR / QXER         same, then redisplay the BF',
+      'QCA / QCA*<n>       count queues with BFs / list queue <n>',
+      'QW                  which queues hold the on-screen BF',
+      'QPB*                queue titles',
+    ],
   },
   {
     keys: ['HOTELS', 'HOA', 'HOI'],
