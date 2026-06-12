@@ -48,6 +48,7 @@ import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
+import { to24h } from '../../utils/validation.js';
 import { clonePnr } from '../../store/json-file-pnr-store.js';
 import {
   extractSearchIdentifier,
@@ -1272,6 +1273,38 @@ function handleGalileoDisplay(
     if (body !== undefined) {
       if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
       return body;
+    }
+  }
+
+  // `*SVC` / `*SVC<n>` — "Display Services for all booked segments /
+  // for segment n" (Formats Guide H/BFD row; the Pocket Guide's
+  // timetable chapter carries the same two rows as "In-flight
+  // service"). Layout reconstructed from real model data only:
+  // flight identity + equipment (inventory schedule, when known) +
+  // computed flight time. No meal/amenity data is invented.
+  {
+    const svcMatch = /^SVC(\d+)?$/.exec(arg.toUpperCase());
+    if (svcMatch) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      const segs = svcMatch[1]
+        ? wa.pnr.segments.filter((x) => x.segmentNumber === Number(svcMatch[1]))
+        : wa.pnr.segments;
+      if (svcMatch[1] && segs.length === 0) return 'SEGMENT NOT IN ITINERARY';
+      if (segs.length === 0) return 'NO AIR SEGMENTS';
+      const lines = segs.map((x) => {
+        const sched = ctx.backend.inventory.scheduleFor(x.carrier, x.flightNumber);
+        const eqp = sched ? `  EQP ${sched.equipment}` : '';
+        const dep = to24h(x.departTime);
+        const arr = to24h(x.arriveTime ?? '');
+        let flt = '';
+        if (/^\d{4}$/.test(dep) && /^\d{4}$/.test(arr)) {
+          let mins = (Number(arr.slice(0, 2)) * 60 + Number(arr.slice(2))) - (Number(dep.slice(0, 2)) * 60 + Number(dep.slice(2)));
+          if (mins < 0) mins += 24 * 60;
+          flt = `  FLT TIME ${Math.floor(mins / 60)}HR${String(mins % 60).padStart(2, '0')}`;
+        }
+        return `SVC ${x.segmentNumber}. ${x.carrier}${x.flightNumber} ${x.bookingClass} ${x.date} ${x.origin}${x.destination}${eqp}${flt}`;
+      });
+      return lines.join('\n');
     }
   }
 

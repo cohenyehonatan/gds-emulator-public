@@ -112,6 +112,15 @@ describe('Galileo *<field> displays', () => {
     expect(await host.process('*IX', wa)).toBe('NO AIR TAXI SEGMENTS');
   });
 
+  it('*SVC shows services for all booked segments; *SVC<n> one segment', async () => {
+    const all = await host.process('*SVC', wa);
+    expect(all).toContain('SVC 1. B6615 Y 15JUN JFKLAX');
+    expect(all).toContain('EQP 32A'); // from the inventory schedule
+    expect(all).toContain('FLT TIME 3HR15'); // 0700→1015
+    expect(await host.process('*SVC1', wa)).toContain('B6615');
+    expect(await host.process('*SVC9', wa)).toBe('SEGMENT NOT IN ITINERARY');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);
