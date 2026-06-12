@@ -165,15 +165,13 @@ describe('Galileo QX family — semantics', () => {
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(listResp())
       .mockResolvedValueOnce(reservationRespQX('ABC123')) // Q/43 first-BF retrieve
-      .mockResolvedValueOnce(searchResp())
-      .mockResolvedValueOnce(createWb())
-      .mockResolvedValueOnce(ok()) // addOffer
       .mockResolvedValueOnce(new Response(null, { status: 204 })); // workbench DELETE
 
     await host.process('Q/43', wa);
-    await host.process('A27JUNDENFRA', wa);
-    await host.process('N1Y1', wa);
-    expect(wa.liveWorkbenchId).toBe('WB-QX');
+    // Selling into a retrieved BF is now refused (phantom-workbench
+    // guard) — simulate an in-flight workbench left from a build that
+    // started before the queue was accessed.
+    wa.liveWorkbenchId = 'WB-QX';
     expect(wa.currentQueue).toBe('43');
 
     const resp = await host.process('QXI', wa);

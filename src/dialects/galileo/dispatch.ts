@@ -473,6 +473,7 @@ async function handleGalileoSell(
   // any are missing rather than POSTing an invalid body.
   if (ctx.backend instanceof LiveTravelportBackend) {
     const liveBackend = ctx.backend;
+    if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
     if (!avail.searchIdentifier) return 'LIVE SEARCH ID MISSING'; // reconstructed
     for (const leg of legs) {
       const line = avail.lines.find((l) => l.line === leg.line)!;
@@ -636,6 +637,7 @@ async function handleGalileoName(
   const nameItem = parseNameText(entry.text);
 
   if (ctx.backend instanceof LiveTravelportBackend) {
+    if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
     const liveBackend = ctx.backend;
     try {
       // Ensure a workbench exists so future entries (sell, SSR, FQ)
@@ -679,6 +681,7 @@ async function handleGalileoPhone(
   ctx: HandlerContext
 ): Promise<string> {
   if (ctx.backend instanceof LiveTravelportBackend) {
+    if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
     const liveBackend = ctx.backend;
     try {
       if (!wa.liveWorkbenchId) {
@@ -762,6 +765,19 @@ async function handleGalileoReceivedFrom(
  * the Galileo BF redisplay renderer lands with the PNR display verb
  * in a follow-up commit.
  */
+/**
+ * Live guard — the on-screen BF is a RETRIEVED committed one.
+ * Building against it would open a blank workbench (not
+ * buildfromlocator) and ER would commit that as a phantom NEW BF
+ * duplicating fields. The correct live modify flow
+ * (buildfromlocator) is deferred; until it lands we refuse honestly.
+ * Dogfooding find (2026-06-12 log): the operator's R. + ER dance on
+ * a queue-retrieved BF walked straight into this trap. Reconstructed.
+ */
+function retrievedBfLiveModifyRefusal(locator: string): string {
+  return `BF ${locator} IS COMMITTED - LIVE MODIFY NOT SUPPORTED - USE I TO RELEASE`; // reconstructed
+}
+
 const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
   [MandatoryField.PHONE]: GalileoResponse.NEED_PHONE,
   [MandatoryField.RECEIVED_FROM]: GalileoResponse.NEED_RECEIVED_FROM,
@@ -925,6 +941,12 @@ function handleGalileoEndTransaction(
   // live retrieve lands. The workbench is consumed server-side; clear
   // wa.liveWorkbenchId so a future build starts a fresh one.
   if (ctx.backend instanceof LiveTravelportBackend) {
+    if (wa.pnr.locator) {
+      // Retrieved committed BF on screen — any open workbench here is
+      // a stray build one, NOT a buildfromlocator modify workbench;
+      // committing it would mint a phantom new BF. Refuse.
+      return retrievedBfLiveModifyRefusal(wa.pnr.locator);
+    }
     if (!wa.liveWorkbenchId) {
       // The mandatory-field check above should have caught the no-itinerary
       // case, but if somehow we get here without a workbench, the live
