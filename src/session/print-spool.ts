@@ -114,3 +114,20 @@ export class PrintSpool {
     this.device(gtid).status = status;
   }
 }
+
+/**
+ * HQ* host queue verbs (appendix quick-reference, entries verbatim):
+ *   HQC<gtid> count · HQD<gtid> display · HQS<gtid> restart ·
+ *   HQX<gtid> delete. Returns undefined when the entry isn't an HQ*
+ *   form (so bare HQC stays the Trams MIR-counts verb). Shared by
+ *   the Galileo and Apollo dialects — the appendix covers both.
+ */
+export function handlePrintQueueVerb(rawU: string, spool: PrintSpool): string | undefined {
+  const m = /^HQ([CDSX])([A-Z0-9]{6})$/.exec(rawU);
+  if (!m) return undefined;
+  const [, op, gtid] = m;
+  if (op === 'C') return spool.queueCount(gtid);
+  if (op === 'D') return spool.queueDisplay(gtid);
+  if (op === 'S') return spool.restart(gtid);
+  return spool.queueDelete(gtid);
+}

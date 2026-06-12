@@ -69,6 +69,7 @@ import { renderEncodeDecode } from '../galileo/encode-decode.js';
 import { renderGalileoHelp } from '../galileo/help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
 import { renderAreaStatus } from '../../session/area-status.js';
+import { handlePrintQueueVerb } from '../../session/print-spool.js';
 import { renderMarkets } from '../../session/markets-status.js';
 
 /** Same `+` chain operator as Galileo (per Mini Format Guide v2). */
@@ -225,6 +226,8 @@ export class ApolloDialect implements Dialect {
         return `PRINTED - ${job.gtid}`; // reconstructed
       });
     }
+    const hq = handlePrintQueueVerb(raw.trim().toUpperCase(), ctx.backend.printSpool);
+    if (hq !== undefined) return hq;
     const translated = translateApolloToGalileo(raw);
     // OP/W* — work-area status (Worldspan B$ translates here; Apollo
     // passthrough). Pre-parse, like encode/decode.

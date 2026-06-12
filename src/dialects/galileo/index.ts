@@ -33,6 +33,7 @@ import type { HandlerContext } from '../../session/handlers/index.js';
 import { ParseError } from '../../protocol/errors.js';
 import { parseGalileoEntry } from './parser.js';
 import { dispatchGalileo, GALILEO_NOT_IMPLEMENTED } from './dispatch.js';
+import { handlePrintQueueVerb } from '../../session/print-spool.js';
 import { GalileoResponse } from './responses.js';
 import { renderEncodeDecode } from './encode-decode.js';
 import { renderAreaStatus } from '../../session/area-status.js';
@@ -123,6 +124,12 @@ export class GalileoDialect implements Dialect {
         return `PRINTED - ${job.gtid}`; // reconstructed
       });
     }
+
+    // HQ<op><gtid> — printer host queue (GPM.net appendix; responses
+    // verbatim where documented). Checked before bare HQC, which
+    // stays the Trams MIR Pending/Sent counts verb.
+    const hq = handlePrintQueueVerb(rawU, ctx.backend.printSpool);
+    if (hq !== undefined) return hq;
 
     const hmlm = /^HMLM([A-Z0-9]{6})DA$/.exec(rawU);
     if (hmlm) {

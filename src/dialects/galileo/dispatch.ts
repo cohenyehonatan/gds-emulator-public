@@ -2500,7 +2500,14 @@ async function handleGalileoTicket(
       issued.push(record);
     }
   }
-  return renderGalileoIssuedTickets(issued);
+  const render = renderGalileoIssuedTickets(issued);
+  // GPM.net appendix: the printer buffer holds the ticket image
+  // (one per BF, count 0 or 1) until printed or restarted out —
+  // HQC counts it, HQS force-flushes it to the spool, HQX deletes.
+  if (issued.length > 0) {
+    ctx.backend.printSpool.holdTicketImage(wa.pnr.locator ?? 'PENDING', render);
+  }
+  return render;
 }
 
 /**

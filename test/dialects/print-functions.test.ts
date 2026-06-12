@@ -82,6 +82,61 @@ describe('Galileo P- print functions', () => {
   });
 });
 
+describe('HQ* host queue verbs (GTID-suffixed, appendix verbatim)', () => {
+  let host: GdsHost;
+  let wa: WorkArea;
+  let dir: string;
+
+  beforeEach(async () => {
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S' });
+    dir = mkdtempSync(join(tmpdir(), 'gds-print-'));
+    host.backend.printSpool.outputDir = dir;
+    wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('TKP holds the ticket image; HQC counts it; HQS flushes it to the spool', async () => {
+    expect(await host.process('HQCC5F062', wa)).toBe('SET ADDRESS C5F062 00');
+    await host.process('FQ', wa);
+    await host.process('TKP', wa);
+    expect(await host.process('HQCC5F062', wa)).toBe('SET ADDRESS C5F062 01');
+    expect(await host.process('HQDC5F062', wa)).toContain('TICKET IMAGE');
+    expect(await host.process('HQSC5F062', wa)).toBe('RESTART IN PROGRESS - PLEASE WAIT');
+    expect(await host.process('HQCC5F062', wa)).toBe('SET ADDRESS C5F062 00');
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(readFileSync(join(dir, files[0]), 'utf8')).toContain('TKT');
+  });
+
+  it('HQX deletes the held image without printing', async () => {
+    await host.process('FQ', wa);
+    await host.process('TKP', wa);
+    expect(await host.process('HQXC5F062', wa)).toBe('QUEUE C5F062 DELETED');
+    expect(await host.process('HQCC5F062', wa)).toBe('SET ADDRESS C5F062 00');
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+
+  it('bare HQC still serves the Trams MIR Pending/Sent counts', async () => {
+    const resp = await host.process('HQC', wa);
+    expect(resp).toContain('PENDING');
+    expect(resp).toContain('SENT');
+  });
+
+  it('HQ* works in the Apollo dialect too (appendix covers both)', async () => {
+    const a = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
+    const awa = a.newWorkArea();
+    await a.process('SON/ZHA', awa);
+    expect(await a.process('HQCC5F062', awa)).toBe('SET ADDRESS C5F062 00');
+  });
+});
+
 describe('Apollo P- print functions', () => {
   it('P-**-SMITH (Apollo name form) routes through the translator and prints', async () => {
     const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
