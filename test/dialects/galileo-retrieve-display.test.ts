@@ -54,6 +54,24 @@ describe('Galileo dialect — retrieve and display through the host', async () =
     locator = await host.process('E', wa);
   });
 
+  it('retrieve demands a FRESH R. before ER (live-oracle parity)', async () => {
+    await host.process(`*${locator}`, wa);
+    await host.process('@1HK', wa); // any modification
+    expect(await host.process('ER', wa)).toBe('NEED RECEIVED FROM - USE R.');
+    await host.process('R.AGT', wa);
+    const resp = await host.process('ER', wa);
+    expect(resp).toContain(locator); // commits once R. is fresh
+  });
+
+  it('on-screen edits do not write through to the store before commit', async () => {
+    await host.process(`*${locator}`, wa);
+    await host.process('N.JONES/AMY MS', wa); // edit the working copy only
+    await host.process('I', wa); // ignore — abandon the edit
+    const again = await host.process(`*${locator}`, wa);
+    expect(again).toContain('SMITH/JOHN MR');
+    expect(again).not.toContain('JONES/AMY'); // store untouched by the abandoned edit
+  });
+
   it('*R with no PNR returns NO BOOKING FILE', async () => {
     expect(await host.process('*R', wa)).toBe('NO BOOKING FILE');
   });
@@ -66,7 +84,11 @@ describe('Galileo dialect — retrieve and display through the host', async () =
     expect(resp).toContain('LAX');
     expect(resp).toContain('P. LON*02012345678');
     expect(resp).toContain('T. TAU/10JUN');
-    expect(resp).toContain('R. AGT');
+    // Parity with the live oracle (2026-06-12 log): a freshly pulled
+    // BF never carries received-from — R. is per-transaction, demanded
+    // fresh before each ER. The committed R. lives in history, not on
+    // the retrieved display.
+    expect(resp).not.toContain('R. AGT');
     expect(wa.state()).toBe(SessionState.DISPLAYED);
     expect(wa.pnr.locator).toBe(locator);
   });

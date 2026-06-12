@@ -157,6 +157,16 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
  * Tolerates missing fields (defaults to empty arrays / undefined) so
  * schema evolution stays forward-compat.
  */
+/**
+ * Deep-clone a Pnr via the same plain-object round-trip persistence
+ * uses (Dates/Sets handled). Retrieve paths hand the WORKING COPY to
+ * the work area instead of the store's own reference, so on-screen
+ * edits can't write through to the store before commit.
+ */
+export function clonePnr(pnr: Pnr): Pnr {
+  return pnrFromPlain(JSON.parse(JSON.stringify(pnrToPlain(pnr))) as Record<string, unknown>);
+}
+
 function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   const p = new Pnr();
   p.locator = plain.locator as string | undefined;

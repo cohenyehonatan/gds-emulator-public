@@ -48,6 +48,7 @@ import type { TicketRecord } from '../../models/ticket.js';
 import { ticketNumber } from '../../models/ticket.js';
 import { priceItinerary } from '../../session/handlers/pricing-handler.js';
 import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
+import { clonePnr } from '../../store/json-file-pnr-store.js';
 import {
   extractSearchIdentifier,
   mapCatalogProductOfferings,
@@ -778,6 +779,22 @@ function retrievedBfLiveModifyRefusal(locator: string): string {
   return `BF ${locator} IS COMMITTED - LIVE MODIFY NOT SUPPORTED - USE I TO RELEASE`; // reconstructed
 }
 
+/**
+ * Emulated retrieve: hand the work area a detached working copy of
+ * the stored BF, with received-from stripped. Parity with the live
+ * oracle (2026-06-12 session log): a freshly pulled BF never carries
+ * R. — it's per-transaction, so every retrieve demands a fresh one
+ * before ER. The clone also stops on-screen edits from writing
+ * through to the store before commit.
+ */
+function retrieveStoredBf(ctx: HandlerContext, locator: string): Pnr | undefined {
+  const stored = ctx.backend.pnrs.get(locator);
+  if (!stored) return undefined;
+  const pnr = clonePnr(stored);
+  pnr.receivedFrom = undefined;
+  return pnr;
+}
+
 const GALILEO_MISSING_RESPONSE: Record<MandatoryFieldKey, string> = {
   [MandatoryField.PHONE]: GalileoResponse.NEED_PHONE,
   [MandatoryField.RECEIVED_FROM]: GalileoResponse.NEED_RECEIVED_FROM,
@@ -840,7 +857,7 @@ async function handleGalileoIgnore(
     if (ctx.backend instanceof LiveTravelportBackend) {
       return retrieveGalileoLive(priorLocator, wa, ctx, ctx.backend, sig);
     }
-    const pnr = ctx.backend.pnrs.get(priorLocator);
+    const pnr = retrieveStoredBf(ctx, priorLocator);
     if (!pnr) return GalileoResponse.NO_PNR;
     wa.pnr = pnr;
     wa.machine.transition(SessionEvent.RETRIEVE);
@@ -1196,7 +1213,7 @@ function handleGalileoDisplay(
   // retains every committed PNR for the session lifetime.
   if (arg.startsWith('PQ-R:')) {
     const locator = arg.slice('PQ-R:'.length);
-    const pnr = ctx.backend.pnrs.get(locator);
+    const pnr = retrieveStoredBf(ctx, locator);
     if (!pnr) return 'PAST DATE BF NOT FOUND'; // reconstructed
     wa.pnr = pnr;
     wa.machine.transition(SessionEvent.RETRIEVE);
@@ -1252,7 +1269,7 @@ function handleGalileoDisplay(
     if (ctx.backend instanceof LiveTravelportBackend) {
       return retrieveGalileoLive(arg, wa, ctx, ctx.backend, sig);
     }
-    const pnr = ctx.backend.pnrs.get(arg);
+    const pnr = retrieveStoredBf(ctx, arg);
     if (!pnr) return GalileoResponse.NO_PNR;
     wa.pnr = pnr;
     wa.machine.transition(SessionEvent.RETRIEVE);
@@ -3592,7 +3609,7 @@ async function loadQueueBfAtCursor(wa: WorkArea, ctx: HandlerContext): Promise<s
   if (ctx.backend instanceof LiveTravelportBackend) {
     return retrieveGalileoLive(locator, wa, ctx, ctx.backend, sig);
   }
-  const pnr = ctx.backend.pnrs.get(locator);
+  const pnr = retrieveStoredBf(ctx, locator);
   if (!pnr) return GalileoResponse.NO_PNR;
   wa.pnr = pnr;
   wa.machine.transition(SessionEvent.RETRIEVE);
