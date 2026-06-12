@@ -138,6 +138,34 @@ describe('HQ* host queue verbs (GTID-suffixed, appendix verbatim)', () => {
 });
 
 describe('Apollo P- print functions', () => {
+  it('Apollo *HA/*HH/*HC/*H$ translate to the Galileo history subsets', async () => {
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
+    const wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    await host.process('N.SMITH/JOHN MR', wa);
+    const ha = await host.process('*HA', wa);
+    expect(ha).toContain('AIR');
+    expect(ha).toMatch(/AS .*SELL 1/);
+    expect(await host.process('*HH', wa)).toBe('NO HOTEL HISTORY');
+    expect(await host.process('*HC', wa)).toBe('NO CAR HISTORY');
+    expect(await host.process('*H$', wa)).toContain('NO FILED FARES');
+  });
+
+  it('P-*HA prints the air history (the appendix Apollo column, end to end)', async () => {
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
+    const dir = mkdtempSync(join(tmpdir(), 'gds-print-'));
+    host.backend.printSpool.outputDir = dir;
+    const wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('01Y1', wa);
+    expect(await host.process('P-*HA', wa)).toBe('PRINTED - C5F062');
+    expect(readFileSync(join(dir, readdirSync(dir)[0]), 'utf8')).toMatch(/AS .*SELL 1/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('P-**-SMITH (Apollo name form) routes through the translator and prints', async () => {
     const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
     const dir = mkdtempSync(join(tmpdir(), 'gds-print-'));

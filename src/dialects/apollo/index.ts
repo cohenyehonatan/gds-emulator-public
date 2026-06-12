@@ -162,6 +162,14 @@ export function translateApolloToGalileo(raw: string): string {
     // mirrors Galileo's `*S<n>` suffix.
     s = 'SA*' + s.slice(3);
   }
+  // (6) History subsets: the GPM.net print appendix's Apollo column
+  // documents *HA (air), *HH (hotel), *HC (car), *H$ (pricing)
+  // history displays; the Galileo Formats Guide documents the
+  // Travelport+ equivalents (*HIA/*HIH/*HIC air/hotel/car segment
+  // history, *HFF filed-fare history). Both sides sourced; the
+  // mapping itself is ours.
+  const hist = { '*HA': '*HIA', '*HH': '*HIH', '*HC': '*HIC', '*H$': '*HFF' }[s.trim().toUpperCase()];
+  if (hist) return hist;
   // (5) Name retrieve: Apollo `**-SMITH` → Galileo `*-SMITH`. The
   // GPM.net print appendix's Apollo column uses P-**-SMITH ("Prints
   // unretrieved PNR, referencing last name of passenger"), pinning
