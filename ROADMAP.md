@@ -1150,3 +1150,38 @@ The original survey (all items now resolved or annotated):
       cursor wrap, so without the redraw, typed characters past column
       W-1 pile up and overwrite the border. Verified on macOS Terminal +
       iTerm2 + Ghostty.
+
+## 2026-06-12 — interface records · print spool · BF displays (chunk refs in git log)
+
+- [x] **Back-office interface pipeline** (`e670087`..`fa32ba8`) — InterfacePos
+      emulates SJPM (one .txt per record → GDS_INTERFACE_DIR); DX/DW/DV (Sabre,
+      Tres guide), B* (Amadeus, Trams), HM* (Galileo, Trams) control verbs;
+      IUR fixed-column per in-tree Programmer Guide v40; MIR header fixed-column
+      per in-tree MIR User Guide; AIR line-oriented skeleton (full grammar gated
+      on login-only Amadeus AIR User Guide).
+- [x] **Print spool / GPM.net** (`622d22f`..`7a7edda`) — PrintSpool (GDS_PRINT_DIR);
+      P- print router in Galileo + Apollo; HQC/HQD/HQS/HQX<gtid> with verbatim
+      responses; TKP holds the ≤1-deep ticket image.
+- [x] **BF field displays + history** (`83fbbba`..`7cb3153`, `17510c0`, `f4788cc`) —
+      full H/BFD table, typed itinerary slices, combination chains, H/HIST codes
+      + *H<field> subsets, Apollo *HA/*HH/*HC/*H$, F. FOP field, *TE selectors.
+      Source: references/galileo/booking-file-display-options.md (Wayback).
+
+### Future work (honest gaps, in rough priority order)
+
+- [ ] **F. → structured FOP + ticketing flow.** F. stores the raw body; no
+      vendor/PAN/expiry decomposition (that exists only in the separate
+      ticket-time TMU/W¥F channel). Real-host behavior: the BF F. field is the
+      default FOP at TKP when no ticket modifier overrides it — wiring that
+      means parsing F. into the shared FormOfPayment model and threading it
+      through the ticket handler + live addFormOfPayment.
+- [ ] **Live BF modify (buildfromlocator).** Retrieved-BF edits refuse on live
+      (no phantom workbenches); the real modify flow opens a workbench FROM the
+      locator. Spec + offer-UUID extraction already proven in
+      issueTicketsPostCommit.
+- [ ] **Vendor remarks (*VI/*VO/*VR/*VL) + *CI data models** — verbs answer
+      honestly empty; need models + a source for screen shapes.
+- [ ] **Surface/tour/air-taxi segment types (*IS/*IT/*IX)** — honest-empty.
+- [ ] **Amadeus AIR full line grammar** — gated on the login-only AIR User
+      Guide; skeleton uses real line IDs.
+- [ ] **Worldspan IR records + queue verbs** — no public spec found yet.
