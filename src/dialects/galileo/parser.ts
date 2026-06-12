@@ -26,6 +26,7 @@
  */
 
 import type {
+  FrequentFlyerEntry,
   ParsedEntry,
   SignInEntry,
   SignOutEntry,
@@ -121,6 +122,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u === 'QPB*') return parseQueueTitles(trimmed);
   if (u.startsWith('SI.')) return parseSpecialService(trimmed);
   if (u.startsWith('NP.')) return parseNotepad(trimmed);
+  if (/^M\.[A-Z0-9]/.test(u)) return parseGalileoMileage(trimmed, u);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -1081,6 +1083,25 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     nameRef,
     segmentRef,
   };
+}
+
+/**
+ * `M.<cxr><number>` — Mileage Membership (frequent flyer) add, and
+ * `M.@` delete-all. Source: Travelport webhelp Apollo→Travelport+
+ * BF-fields compare (verbatim rows: "Add frequent flyer number …
+ * M.UA12345678", "Delete frequent flyer number … M.@", help H/M.)
+ * + the Formats Guide *MM display row.
+ */
+function parseGalileoMileage(raw: string, u: string): FrequentFlyerEntry {
+  const body = u.slice(2);
+  if (body === '@') {
+    return { kind: 'frequent_flyer', raw, timestamp: new Date(), operation: 'delete' };
+  }
+  const m = /^([A-Z0-9]{2})(\w+)$/.exec(body);
+  if (!m) {
+    throw new ParseError(`Galileo M.: expected M.<carrier><number> or M.@, got ${raw}`);
+  }
+  return { kind: 'frequent_flyer', raw, timestamp: new Date(), operation: 'add', carrier: m[1], number: m[2] };
 }
 
 /**

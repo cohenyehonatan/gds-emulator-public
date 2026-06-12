@@ -70,7 +70,7 @@ import { parseNameText } from '../../models/name-element.js';
 import { SessionEvent } from '../../session/session-state.js';
 import { InvalidTransitionError } from '../../session/session-machine.js';
 import { dayOfWeekLetter, dayOfWeekNumber } from '../../session/handlers/context.js';
-import {
+import { renderGalileoFieldDisplay,
   renderGalileoSignInResponse,
   renderGalileoSignOffResponse,
   renderGalileoSwitchAreaResponse,
@@ -315,6 +315,19 @@ function dispatchGalileoInner(
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
+
+      case 'frequent_flyer': {
+        // M.<cxr><number> add / M.@ delete-all — webhelp BF-fields
+        // compare rows verbatim; response wording reconstructed.
+        if (entry.operation === 'delete') {
+          wa.pnr.frequentFlyers = [];
+          addFieldTransition(wa, 'MM DELETE ALL');
+          return GalileoResponse.OK;
+        }
+        wa.pnr.frequentFlyers.push({ carrier: entry.carrier!, number: entry.number! });
+        addFieldTransition(wa, `MM ADD ${entry.carrier}${entry.number}`);
+        return GalileoResponse.OK;
+      }
 
       case 'ticket_modifier':
         return handleGalileoTicketModifier(entry, wa);
@@ -1232,6 +1245,19 @@ function handleGalileoDisplay(
   if (arg.toUpperCase() === 'I') {
     if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
     return renderGalileoItinerary(wa.pnr);
+  }
+
+  // `*<field>` — Booking File field displays per the Formats Guide
+  // H/BFD table (references/galileo/booking-file-display-options.md).
+  // Checked before the history family so *NP/*SD/*SI resolve here;
+  // keys that aren't field displays fall through.
+  {
+    const fieldKey = arg.toUpperCase();
+    const body = renderGalileoFieldDisplay(wa.pnr, sig, fieldKey);
+    if (body !== undefined) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      return body;
+    }
   }
 
   // `*HTI` / `*HTE` — display ticket numbers / etickets. Source: Mini

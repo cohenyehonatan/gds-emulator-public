@@ -123,6 +123,96 @@ export function renderGalileoPnr(pnr: Pnr, sig: GalileoSignature): string {
   return out.join('\n');
 }
 
+/**
+ * `*<field>` — Booking File field displays, per the Galileo Formats
+ * Guide "BOOKING FILE DISPLAY" table (H/BFD; in-tree at
+ * references/galileo/booking-file-display-options.md, entries +
+ * meanings verbatim). Section LAYOUTS reconstructed — the guide
+ * documents what each entry displays, not the screen text.
+ * Returns undefined for keys that aren't field displays so the
+ * dispatch can fall through to other *-forms.
+ */
+export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: string): string | undefined {
+  const none = (what: string) => `NO ${what}`; // reconstructed
+  switch (key) {
+    case 'N':
+      return pnr.names.length ? pnr.names.map((n, i) => `${i + 1}.${formatNameItem(n)}`).join('\n') : none('NAMES');
+    case 'P':
+    case 'P1': {
+      const phones = key === 'P1' ? pnr.phones.slice(0, 2) : pnr.phones;
+      return phones.length ? phones.map((p, i) => `P. ${i + 1} ${p.number}`).join('\n') : none('PHONE FIELDS');
+    }
+    case 'TD':
+      return pnr.ticketing ? `T. ${pnr.ticketing}` : none('TICKETING DATA');
+    case 'RV':
+      return pnr.receivedFrom ? `R. ${pnr.receivedFrom}` : none('RECEIVED DATA');
+    case 'SR':
+      return pnr.ssrs.length
+        ? pnr.ssrs.map((r, i) => `SI. ${i + 1} SSR ${r.code} ${r.carrier} ${r.status}${r.text ? ' ' + r.text : ''}`).join('\n')
+        : none('SSR DATA');
+    case 'SO':
+      return pnr.osis.length
+        ? pnr.osis.map((o, i) => `SI. ${i + 1} OSI ${o.carrier} ${o.text}`).join('\n')
+        : none('OSI DATA');
+    case 'SI': {
+      const sr = renderGalileoFieldDisplay(pnr, sig, 'SR');
+      const so = renderGalileoFieldDisplay(pnr, sig, 'SO');
+      if (!pnr.ssrs.length && !pnr.osis.length) return none('SERVICE INFORMATION');
+      return [pnr.ssrs.length ? sr : undefined, pnr.osis.length ? so : undefined].filter(Boolean).join('\n');
+    }
+    case 'FF':
+      return pnr.priceQuotes.length
+        ? pnr.priceQuotes.map((q, i) => renderGalileoFareQuote(q, i + 1)).join('\n')
+        : none('FILED FARES');
+    case 'FOP':
+      // Form of payment isn't modeled on the PNR yet (FOP rides the
+      // ticketing flow); honest empty until it lands.
+      return none('FORM OF PAYMENT DATA');
+    case 'MM':
+      return pnr.frequentFlyers.length
+        ? pnr.frequentFlyers.map((f, i) => `M. ${i + 1} ${f.carrier}${f.number}`).join('\n')
+        : none('MILEAGE MEMBERSHIP DATA');
+    case 'SD':
+      return pnr.seatRequests.length
+        ? pnr.seatRequests.map((r, i) => `S. ${i + 1} ${r.code}${r.segment != null ? ' S' + r.segment : ''}`).join('\n')
+        : none('SEAT DATA');
+    case 'NP':
+      return pnr.remarks.length
+        ? pnr.remarks.map((r, i) => `NP. ${i + 1} ${r.text}`).join('\n')
+        : none('NOTEPAD DATA');
+    case 'AD':
+    case 'AW':
+    case 'AA': {
+      const kinds = key === 'AA' ? ['delivery', 'written'] : key === 'AD' ? ['delivery'] : ['written'];
+      const rows = pnr.addresses.filter((a) => kinds.includes(a.kind));
+      return rows.length
+        ? rows.map((a) => `${a.kind === 'delivery' ? 'D' : 'W'}. ${a.text}`).join('\n')
+        : none('ADDRESS DATA');
+    }
+    case 'CD': {
+      // "Customer Data" — the client-file-sourced fields: addresses
+      // plus account remarks. Honest empty when nothing is on file.
+      const addr = pnr.addresses.map((a) => `${a.kind === 'delivery' ? 'D' : 'W'}. ${a.text}`);
+      if (addr.length === 0) return none('CUSTOMER DATA');
+      return addr.join('\n');
+    }
+    case 'ALL': {
+      // "Display All Booking File Data" — every populated section,
+      // including the fields *R hides behind field displays.
+      const sections = [
+        renderGalileoPnr(pnr, sig),
+        ...['SI', 'MM', 'SD', 'NP', 'AA', 'FF'].map((k) => {
+          const body = renderGalileoFieldDisplay(pnr, sig, k);
+          return body && !body.startsWith('NO ') ? body : undefined;
+        }),
+      ];
+      return sections.filter(Boolean).join('\n');
+    }
+    default:
+      return undefined;
+  }
+}
+
 /** `*I` — itinerary-only display (Module 2 p.27). */
 export function renderGalileoItinerary(pnr: Pnr): string {
   if (pnr.segments.length === 0) return 'NO ITINERARY'; // reconstructed
