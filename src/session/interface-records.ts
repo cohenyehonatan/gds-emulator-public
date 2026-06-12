@@ -35,6 +35,46 @@ export interface InterfaceRecord {
   transmitted: boolean;
 }
 
+/**
+ * Per-kind record body. Structure follows the now-in-tree specs
+ * (references/interface/): the Sabre IUR Programmer Guide v40's
+ * M0-M9 sub-records with their 2-char message IDs, the Travelport
+ * MIR User Guide's T5 header (T50TRC system code, T50SPC accounting
+ * code — Galileo 7733 / Apollo 5880), and the Trams Amadeus guide's
+ * AIR interface level 206. Full fixed-column fidelity is NOT
+ * claimed — the specs are in-tree for that — but the record/section
+ * skeleton is real, not invented.
+ */
+export function recordBody(r: InterfaceRecord): string {
+  const inv = String(r.invoiceNumber).padStart(7, '0');
+  if (r.kind === 'IUR') {
+    return [
+      `M0${r.pcc} 40 ${inv} ${r.locator} ${r.createdAt.toISOString().slice(0, 10)}`, // Control+Constant (IU0MID/IU0VER)
+      `M1${r.passenger}`,                                  // Passenger Invoice Data
+      `M2${r.documentNumber} ${r.currency}${r.total.toFixed(2)}`, // Ticket Data
+      `M5${r.currency}${r.total.toFixed(2)} TTL`,          // Accounting Data
+    ].join('\n');
+  }
+  if (r.kind === 'MIR') {
+    const trc = '1G'; // T50TRC — transmitting CRS (1G GCS / 1V APO)
+    const spc = '7733'; // T50SPC — Galileo accounting code (Apollo 5880)
+    return [
+      `T5${trc}${spc}${inv}${r.locator}`,  // Header Section (T50BID begins T5)
+      `A02 ${r.passenger}`,                 // Passenger Data Section
+      `A07 ${r.documentNumber} ${r.currency}${r.total.toFixed(2)}`, // Fare Value Section
+    ].join('\n');
+  }
+  if (r.kind === 'AIR') {
+    return [
+      'AIR-BLK206;1A;',                     // interface level 206 (Trams guide)
+      `AMD ${r.pcc};${inv};${r.locator}`,
+      `I-${r.passenger}`,
+      `T-${r.documentNumber};${r.currency}${r.total.toFixed(2)}`,
+    ].join('\n');
+  }
+  return [`IR ${r.pcc} ${inv} ${r.locator} ${r.passenger} ${r.documentNumber} ${r.currency}${r.total.toFixed(2)}`].join('\n');
+}
+
 export class InterfacePos {
   /** POS queue status (article: "On hold" / "Active"). */
   status: 'ON HOLD' | 'ACTIVE' = 'ON HOLD';
@@ -75,16 +115,7 @@ export class InterfacePos {
     try {
       mkdirSync(this.outputDir, { recursive: true });
       for (const r of queue) {
-        const body = [
-          `* EMULATED ${r.kind} INTERFACE RECORD - layout reconstructed (real ${r.kind} spec is proprietary)`,
-          `INVOICE ${String(r.invoiceNumber).padStart(7, '0')}`,
-          `PCC ${r.pcc}`,
-          `LOCATOR ${r.locator}`,
-          `PASSENGER ${r.passenger}`,
-          `DOCUMENT ${r.documentNumber}`,
-          `TOTAL ${r.currency}${r.total.toFixed(2)}`,
-          `CREATED ${r.createdAt.toISOString()}`,
-        ].join('\n');
+        const body = recordBody(r);
         writeFileSync(join(this.outputDir, `${r.pcc}-${String(r.invoiceNumber).padStart(7, '0')}.txt`), body + '\n');
         r.transmitted = true;
       }

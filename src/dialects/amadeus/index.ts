@@ -1992,6 +1992,50 @@ export class AmadeusDialect implements Dialect {
       return renderAreaStatus(wa);
     }
 
+    // --- AIR interface control (Trams Amadeus Interface Guide,
+    //     entry forms + warnings verbatim; responses reconstructed).
+    //     AIRs sit on the Application queue (28 days) pending
+    //     transmission; BB shows START/STOPPED. ---
+    if (entry === 'BB') {
+      const pos = ctx.backend.interfacePos;
+      return `APPLICATION QUEUE ${pos.status === 'ACTIVE' ? 'START' : 'STOPPED'} - ${pos.pending().length} AIR(S) PENDING`;
+    }
+    if (entry === 'BASTART') {
+      const pos = ctx.backend.interfacePos;
+      const pending = pos.pending().length;
+      // The guide's verbatim throttle: 100 records 6AM-6PM local.
+      if (pending > 100) {
+        pos.status = 'ACTIVE';
+        return '* TOO MANY AIRS - BASTART TO CONTINUE TRANSMISSION';
+      }
+      const { sent, error } = pos.transmit();
+      if (error) return 'TRANSMISSION ERROR - CHECK PRINT MANAGER'; // reconstructed
+      pos.status = 'ACTIVE';
+      return `TRANSMISSION STARTED - ${sent} AIR(S) SENT`;
+    }
+    if (entry === 'BSSTOP') {
+      ctx.backend.interfacePos.status = 'ON HOLD';
+      return 'TRANSMISSION STOPPED';
+    }
+    if (entry === 'BD') {
+      const recs = ctx.backend.interfacePos.records;
+      if (recs.length === 0) return 'NO AIRS';
+      return ['AIR LIST', ...recs.map((r) =>
+        ` ${String(r.seq).padStart(4, '0')}  ${r.locator}  ${r.passenger}  ${r.transmitted ? 'SENT' : 'PENDING'}`,
+      )].join('\n');
+    }
+    const brMatch = /^BR(\d{1,4})$/.exec(entry);
+    if (brMatch) {
+      const hour = new Date().getUTCHours();
+      // The guide's verbatim daytime restriction.
+      if (hour >= 6 && hour < 18) return 'RESTRICTED DAY/TIME (SYSTEM SECURITY)';
+      const rec = ctx.backend.interfacePos.records.find((r) => r.seq === parseInt(brMatch[1], 10));
+      if (!rec) return 'NO AIRS';
+      rec.transmitted = false;
+      const { sent } = ctx.backend.interfacePos.transmit();
+      return `RETRANSMITTED ${sent} AIR(S)`;
+    }
+
     // --- v2: PNR build cycle ---
     // All v2 verbs require an active sign-in (Amadeus QRG semantics).
     // The check is per-AREA: the agent sign is session-level, but a

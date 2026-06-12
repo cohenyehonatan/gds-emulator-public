@@ -97,6 +97,43 @@ export class GalileoDialect implements Dialect {
   }
 
   processEntry(raw: string, wa: WorkArea, ctx: HandlerContext): string | Promise<string> {
+    // MIR interface control (Trams Apollo/Galileo Interface Guide,
+    // entry forms verbatim; responses reconstructed):
+    //   HMLM<lniata>DA   establish the link to the MIR device
+    //   HMLD             link status (MIR DEV + U up / D down)
+    //   HQC              queue message count (Pending/Sent table)
+    //   HMOM<lniata>-U/-D  bring the link up / down
+    const rawU = raw.trim().toUpperCase();
+    const hmlm = /^HMLM([A-Z0-9]{6})DA$/.exec(rawU);
+    if (hmlm) {
+      ctx.backend.interfacePos.log(`LINK ESTABLISHED ${hmlm[1]}`);
+      return `LINKAGE ESTABLISHED - MIR DEV ${hmlm[1]}`;
+    }
+    if (rawU === 'HMLD') {
+      const up = ctx.backend.interfacePos.status === 'ACTIVE';
+      return `MIR DEV  STATUS\nC0FFEE   ${up ? 'U' : 'D'}`;
+    }
+    if (rawU === 'HQC') {
+      const pos = ctx.backend.interfacePos;
+      const sent = pos.records.filter((r) => r.transmitted).length;
+      return [
+        'TYPE   PORT   PENDING   SENT',
+        `ACC    02     ${String(pos.pending().length).padEnd(9)} ${sent}`,
+      ].join('\n');
+    }
+    const hmom = /^HMOM([A-Z0-9]{6})-([UD])$/.exec(rawU);
+    if (hmom) {
+      const pos = ctx.backend.interfacePos;
+      if (hmom[2] === 'U') {
+        const { sent, error } = pos.transmit();
+        if (error) return 'LINK ERROR - DEVICE NOT READY'; // reconstructed
+        pos.status = 'ACTIVE';
+        return `MIR DEV ${hmom[1]} UP - ${sent} RECORD(S) SENT`;
+      }
+      pos.status = 'ON HOLD';
+      return `MIR DEV ${hmom[1]} DOWN`;
+    }
+
     // OP/W* — work-area status display (the all-areas view; the
     // Worldspan B$ translation lands here). Layout reconstructed.
     if (raw.trim().toUpperCase() === 'OP/W*') {

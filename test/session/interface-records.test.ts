@@ -101,3 +101,55 @@ describe('DX/DW control family (forms verbatim from the Tres guide)', () => {
     expect(pe).toContain('VOD');
   });
 });
+
+describe('spec-shaped record bodies (specs in references/interface/)', () => {
+  it('IUR carries M0/M1/M2/M5 message IDs; MIR the T5+7733 header; AIR the 206 block', async () => {
+    const { recordBody } = await import('../../src/session/interface-records.js');
+    const base = {
+      seq: 1, invoiceNumber: 1234, locator: 'GZW1CS', passenger: 'COHEN/Y',
+      documentNumber: '0064692507094', total: 273.48, currency: 'USD',
+      pcc: 'A0UC', createdAt: new Date('2026-06-12T00:00:00Z'), transmitted: false,
+    };
+    const iur = recordBody({ ...base, kind: 'IUR' as const });
+    expect(iur.split('\n').map((l) => l.slice(0, 2))).toEqual(['M0', 'M1', 'M2', 'M5']);
+    const mir = recordBody({ ...base, kind: 'MIR' as const });
+    expect(mir).toMatch(/^T51G7733/); // T50BID T5 + T50TRC 1G + T50SPC 7733
+    const air = recordBody({ ...base, kind: 'AIR' as const });
+    expect(air).toContain('AIR-BLK206');
+  });
+});
+
+describe('Amadeus B* + Galileo HM* control families (Trams guides, forms verbatim)', () => {
+  it('Amadeus: BB status, BD list, BASTART transmits, BSSTOP stops', async () => {
+    const { AmadeusDialect } = await import('../../src/dialects/amadeus/index.js');
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new AmadeusDialect(), pcc: 'A0UC' });
+    const wa = h.newWorkArea();
+    await h.process('JI2345HA/GS', wa);
+    expect(await h.process('BB', wa)).toContain('APPLICATION QUEUE STOPPED - 0 AIR(S) PENDING');
+    await h.process('AN15JULJFKLAX', wa);
+    await h.process('SS1Y1', wa);
+    await h.process('NM1SMITH/KATY MS', wa);
+    await h.process('FXP', wa);
+    await h.process('TTP', wa);
+    expect(await h.process('BD', wa)).toContain('PENDING');
+    expect(await h.process('BASTART', wa)).toMatch(/TRANSMISSION STARTED - \d+ AIR\(S\) SENT/);
+    expect(await h.process('BSSTOP', wa)).toBe('TRANSMISSION STOPPED');
+    expect(await h.process('BB', wa)).toContain('STOPPED');
+  });
+
+  it('Galileo: HMLM link, HMLD status, HQC counts, HMOM up/down', async () => {
+    const h = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: 'AB' });
+    const wa = h.newWorkArea();
+    await h.process('SON/ZGS', wa);
+    expect(await h.process('HMLMC0FFEEDA', wa)).toBe('LINKAGE ESTABLISHED - MIR DEV C0FFEE');
+    expect(await h.process('HMLD', wa)).toContain('MIR DEV');
+    await h.process('A15JULJFKLAX', wa);
+    await h.process('N1Y1', wa);
+    await h.process('N.SMITH/A', wa);
+    await h.process('FQ', wa);
+    await h.process('TKP', wa);
+    expect(await h.process('HQC', wa)).toMatch(/PENDING +SENT/);
+    expect(await h.process('HMOMC0FFEE-U', wa)).toMatch(/UP - \d+ RECORD\(S\) SENT/);
+    expect(await h.process('HMOMC0FFEE-D', wa)).toContain('DOWN');
+  });
+});
