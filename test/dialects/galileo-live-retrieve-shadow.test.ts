@@ -67,6 +67,9 @@ describe('live retrieve preserves the shadow’s local-only fields', () => {
       { timestamp: new Date('2026-06-12T08:10:28Z'), text: 'SELL 1 DL1332E DL1851E', code: 'AS' },
     ];
     shadow.fopField = 'S';
+    shadow.ticketing = 'TAU/29JUN';
+    shadow.ssrs.push({ code: 'VGML', carrier: 'YY', status: 'NN' });
+    shadow.osis.push({ carrier: 'YY', text: 'VIP' });
     shadow.remarks.push({ type: 'document', text: 'AC-AAA.IBM54' });
     backend.pnrs.commit(shadow);
   });
@@ -84,6 +87,16 @@ describe('live retrieve preserves the shadow’s local-only fields', () => {
 
     // The mirror-commit no longer clobbers the store either.
     expect(backend.pnrs.get('GZWFTM')?.history).toHaveLength(2);
+  });
+
+  it('ticketing + SSRs + OSIs survive the round-trip (mapper gaps, shadow-preserved)', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(reservationResp('GZWFTM'));
+    await host.process('*GZWFTM', wa);
+    expect(await host.process('*TD', wa)).toBe('T. TAU/29JUN');
+    expect(await host.process('*SR', wa)).toContain('VGML');
+    expect(await host.process('*SO', wa)).toContain('VIP');
+    // receivedFrom stays stripped — R. is per-transaction by design.
+    expect(await host.process('*RV', wa)).toBe('NO RECEIVED DATA');
   });
 
   it('vendor-truth fields still come from the live response', async () => {

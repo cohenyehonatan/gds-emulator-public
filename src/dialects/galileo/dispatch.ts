@@ -1717,6 +1717,16 @@ async function retrieveGalileoLive(
         .filter((r) => r.type === 'itinerary' || r.type === 'document')
         .map((r) => ({ ...r }))
     );
+    // Mapper gaps (spec doc: "mapReservation ignores ticketing field,
+    // received-from, SSRs, OSIs, remarks, and pricing"): the server
+    // KNOWS these — ticketing rode the commit inline, SSRs/OSIs were
+    // posted to the workbench — but the retrieve mapper has no
+    // verified payload keys for them yet (needs a TVP_CAPTURE pass).
+    // Until then the shadow's copy beats an empty field. receivedFrom
+    // stays stripped: R. is per-transaction by design.
+    if (!pnr.ticketing) pnr.ticketing = stored.ticketing;
+    if (pnr.ssrs.length === 0) pnr.ssrs = stored.ssrs.map((x) => ({ ...x }));
+    if (pnr.osis.length === 0) pnr.osis = stored.osis.map((x) => ({ ...x }));
   }
   wa.pnr = pnr;
   // Mirror to local pnrStore so a subsequent surname search finds it,
