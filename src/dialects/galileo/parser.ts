@@ -1064,6 +1064,36 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     };
   }
 
+  // Compound SSR form — webhelp BF-fields compare, contact rows
+  // verbatim: `SI.P1/SSRCTCMYYHK1/31648928321` (mobile),
+  // `SI.P1/SSRCTCEYYHK1/J.SMIT//GMAIL.COM` (email — the help page
+  // itself typos this row as SSRCTCEMYYHK1; we parse the canonical
+  // shape), `SI.P1/SSRDOCSBAHK1/P/GB/…` (DOCS). Shape:
+  // SSR<4-code><2-carrier><2-status><1-count>/<data>.
+  const compound = /^SSR([A-Z]{4})([A-Z0-9]{2})(HK|KK|NN|HN|HX|UN)(\d)\/(.+)$/.exec(code);
+  if (compound) {
+    const [, cCode, cCarrier, cStatus, , cData] = compound;
+    let cNameRef: SsrEntry['nameRef'];
+    let cSegmentRef: number | undefined;
+    if (scope.length > 0) {
+      const m = /^(?:P(\d+))?(?:S(\d+))?$/.exec(scope);
+      if (!m) throw new ParseError(`Galileo SI: malformed scope "${scope}" in "${raw}"`);
+      if (m[1]) cNameRef = { item: Number(m[1]) };
+      if (m[2]) cSegmentRef = Number(m[2]);
+    }
+    return {
+      kind: 'ssr',
+      raw,
+      timestamp: new Date(),
+      code: cCode,
+      carrier: cCarrier,
+      status: cStatus,
+      text: cData,
+      nameRef: cNameRef,
+      segmentRef: cSegmentRef,
+    };
+  }
+
   if (!/^[A-Z0-9]{2,}$/.test(code)) {
     throw new ParseError(`Galileo SI: expected SSR code (≥2 alphanumeric) in "${raw}"`);
   }

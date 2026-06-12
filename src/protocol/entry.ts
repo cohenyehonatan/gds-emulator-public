@@ -94,6 +94,12 @@ export interface SsrEntry extends BaseEntry {
    * workbench-side offer UUID from `wa.liveWorkbenchOfferIds`.
    */
   segmentRef?: number;
+  /**
+   * Compound-form status (`SI.P1/SSRCTCMYYHK1/<data>` carries HK
+   * inline — webhelp BF-fields compare, contact-information rows).
+   * Absent on plain SI. entries (the handler defaults to NN).
+   */
+  status?: string;
 }
 
 export interface OsiEntry extends BaseEntry {

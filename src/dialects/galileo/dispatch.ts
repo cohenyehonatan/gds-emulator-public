@@ -816,6 +816,25 @@ async function handleGalileoName(
     .join(' ');
   addFieldTransition(wa, `NAME ADD ${nameSummary}`);
   wa.pnr.names.push(nameItem);
+  // Child PTC (`*P-C<age>` [+ DOB]): the webhelp BF-fields compare
+  // notes "SSR can be added automatically based on system settings.
+  // Otherwise add the SSR manually: SI.P2/CHLD*18MAR15". This
+  // emulator's "system setting" is ON — and the response carries a
+  // note naming the auto-added SSR so the operator isn't surprised
+  // by an element they never typed. Note wording reconstructed.
+  if (nameItem.ptc && /^P-C/.test(nameItem.ptc)) {
+    const first = nameItem.passengers[0]?.firstName ?? '';
+    const item = wa.pnr.names.length;
+    wa.pnr.ssrs.push({
+      code: 'CHLD',
+      carrier: 'YY',
+      status: 'NN',
+      text: nameItem.dob ?? (nameItem.ptc.slice(2) || undefined),
+      nameRef: { item },
+    });
+    addFieldTransition(wa, `SSR CHLD YY ${nameItem.surname}/${first}`);
+    return `OK - SSR CHLD ADDED AUTOMATICALLY P${item}${nameItem.dob ? ' DOB' + nameItem.dob : ''}`; // reconstructed
+  }
   // Infant name (N.I/…): "A SSR INFT will be added automatically to
   // the BF. The infant will be related to the first ADT in the
   // booking." — webhelp BF-fields compare, verbatim note. The *<date>
@@ -2063,7 +2082,9 @@ async function handleGalileoSsr(
     carrier: entry.carrier,
     text: entry.text,
     nameRef: entry.nameRef,
-    status: 'NN', // requested; airline confirms HK/HN/KK asynchronously
+    // Compound entries carry their status inline (HK on the webhelp
+    // contact rows); plain SI. requests default to NN.
+    status: entry.status ?? 'NN',
   });
   return renderGalileoSsrs(wa.pnr);
 }

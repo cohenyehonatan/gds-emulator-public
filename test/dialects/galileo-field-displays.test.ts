@@ -321,8 +321,13 @@ describe('Galileo *<field> displays', () => {
     expect(await host.process('N.JONES/ROBERT J*P-MIL', wa)).toBe('OK');
     expect(await host.process('*N', wa)).toContain('JONES/ROBERT J*P-MIL');
 
-    expect(await host.process('N.1RYAN/TIM*P-C08 DOB18MAR15', wa)).toBe('OK');
+    // Child PTC: auto-CHLD with an operator note (emulator's "system
+    // setting" is ON; the note prevents surprise at the silent SSR).
+    expect(await host.process('N.1RYAN/TIM*P-C08 DOB18MAR15', wa)).toBe(
+      'OK - SSR CHLD ADDED AUTOMATICALLY P3 DOB18MAR15'
+    );
     expect(await host.process('*N', wa)).toContain('RYAN/TIM*P-C08 DOB18MAR15');
+    expect(await host.process('*SR', wa)).toContain('SSR CHLD YY NN 18MAR15');
 
     // "A SSR INFT will be added automatically to the BF. The infant
     // will be related to the first ADT in the booking." (verbatim)
@@ -330,6 +335,18 @@ describe('Galileo *<field> displays', () => {
     const sr = await host.process('*SR', wa);
     expect(sr).toContain('SSR INFT YY NN LEE/ANNA 02MAR23');
     // Infants don't occupy seats — passengerCount unchanged by I/.
+  });
+
+  it('compound SI. form (webhelp contact rows): CTCM, CTCE, DOCS parse with inline status', async () => {
+    expect(await host.process('SI.P1/SSRCTCMYYHK1/31648928321', wa)).toContain('CTCM');
+    expect(await host.process('SI.P1/SSRCTCEYYHK1/J.SMIT//GMAIL.COM', wa)).toContain('CTCE');
+    expect(await host.process('SI.P1/SSRDOCSYYHK1//////21FEB83/M//SHERMAN/ANDREW', wa)).toContain('DOCS');
+    const sr = await host.process('*SR', wa);
+    expect(sr).toContain('SSR CTCM YY HK 31648928321'); // inline HK honored, not NN
+    expect(sr).toContain('SSR CTCE YY HK J.SMIT//GMAIL.COM');
+    // First '/' after the count is the separator; the remaining
+    // empty DOCS subfields ride in the data verbatim.
+    expect(sr).toContain('SSR DOCS YY HK /////21FEB83/M//SHERMAN/ANDREW');
   });
 
   it('T.@T* changes to ticketed, T.@ deletes; XT code in *HTD', async () => {
