@@ -317,6 +317,37 @@ describe('Galileo *<field> displays', () => {
     expect(await host.process('DI.9@', wa)).toBe('FORMAT');
   });
 
+  it('name qualifiers (webhelp verbatim): *P-MIL, *P-C08 DOB, infant auto-INFT', async () => {
+    expect(await host.process('N.JONES/ROBERT J*P-MIL', wa)).toBe('OK');
+    expect(await host.process('*N', wa)).toContain('JONES/ROBERT J*P-MIL');
+
+    expect(await host.process('N.1RYAN/TIM*P-C08 DOB18MAR15', wa)).toBe('OK');
+    expect(await host.process('*N', wa)).toContain('RYAN/TIM*P-C08 DOB18MAR15');
+
+    // "A SSR INFT will be added automatically to the BF. The infant
+    // will be related to the first ADT in the booking." (verbatim)
+    expect(await host.process('N.I/LEE/ANNA*02MAR23', wa)).toBe('OK');
+    const sr = await host.process('*SR', wa);
+    expect(sr).toContain('SSR INFT YY NN LEE/ANNA 02MAR23');
+    // Infants don't occupy seats — passengerCount unchanged by I/.
+  });
+
+  it('T.@T* changes to ticketed, T.@ deletes; XT code in *HTD', async () => {
+    expect(await host.process('T.@T*', wa)).toBe('OK');
+    expect(await host.process('*TD', wa)).toBe('T. T*');
+    expect(await host.process('T.@', wa)).toBe('OK');
+    expect(await host.process('*TD', wa)).toBe('NO TICKETING DATA');
+    expect(await host.process('T.@', wa)).toBe('FORMAT'); // nothing to delete
+    const htd = await host.process('*HTD', wa);
+    expect(htd).toMatch(/XT .*TKTG CHANGE T\*/);
+    expect(htd).toMatch(/XT .*TKTG DELETE/);
+  });
+
+  it('P. email form rides through (P:BOIE/JS123//EMAIL.COM analogue)', async () => {
+    expect(await host.process('P.BOIE/JS123//EMAIL.COM', wa)).toBe('OK');
+    expect(await host.process('*P', wa)).toContain('BOIE/JS123//EMAIL.COM');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

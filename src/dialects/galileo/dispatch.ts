@@ -176,6 +176,7 @@ function historyCodeFor(text: string): string | undefined {
     [/^(NP|NOTEPAD)/, 'AI'],
     [/^SEAT CANCEL/, 'SX'],
     [/^SEAT/, 'SA'],
+    [/^TKTG (CHANGE|DELETE)/, 'XT'],
     [/^ADDRESS WRITTEN ADD/, 'AW'],
     [/^ADDRESS WRITTEN (CHANGE|DELETE)/, 'XW'],
     [/^ADDRESS DELIVERY ADD/, 'AA'],
@@ -815,6 +816,21 @@ async function handleGalileoName(
     .join(' ');
   addFieldTransition(wa, `NAME ADD ${nameSummary}`);
   wa.pnr.names.push(nameItem);
+  // Infant name (N.I/…): "A SSR INFT will be added automatically to
+  // the BF. The infant will be related to the first ADT in the
+  // booking." — webhelp BF-fields compare, verbatim note. The *<date>
+  // suffix parses as the name reference and rides the SSR text.
+  if (nameItem.infant) {
+    const first = nameItem.passengers[0]?.firstName ?? '';
+    wa.pnr.ssrs.push({
+      code: 'INFT',
+      carrier: 'YY',
+      status: 'NN',
+      text: `${nameItem.surname}/${first}${nameItem.reference ? ' ' + nameItem.reference : ''}`,
+      nameRef: { item: 1 },
+    });
+    addFieldTransition(wa, `SSR INFT YY ${nameItem.surname}/${first}`);
+  }
   return GalileoResponse.OK;
 }
 
@@ -866,6 +882,21 @@ async function handleGalileoPhone(
  * inspect it as they need to.
  */
 function handleGalileoTicketing(entry: TicketingEntry, wa: WorkArea): string {
+  // `T.@T*` change-to-ticketed / `T.@` delete — webhelp BF-fields
+  // compare rows verbatim. H/HIST XT = "Changed or deleted ticket
+  // arrangement field".
+  if (entry.text.startsWith('@')) {
+    if (!wa.pnr.ticketing) return GalileoResponse.FORMAT;
+    const next = entry.text.slice(1).trim();
+    if (next.length === 0) {
+      wa.pnr.ticketing = undefined;
+      addFieldTransition(wa, 'TKTG DELETE');
+    } else {
+      wa.pnr.ticketing = next;
+      addFieldTransition(wa, `TKTG CHANGE ${next}`);
+    }
+    return GalileoResponse.OK;
+  }
   addFieldTransition(wa, `T. ${entry.text}`);
   wa.pnr.ticketing = entry.text;
   return GalileoResponse.OK;
@@ -1333,7 +1364,7 @@ const HISTORY_SUBSETS: Record<string, { title: string; pred: (h: { code?: string
   HSR: { title: 'SSR', pred: histCodeIn('AG', 'XG') },
   HSO: { title: 'OSI', pred: histCodeIn('AO', 'XO') },
   HSI: { title: 'SERVICE INFORMATION', pred: histCodeIn('AG', 'XG', 'AO', 'XO') },
-  HTD: { title: 'TICKETING', pred: histTextIs(/^T\. /) },
+  HTD: { title: 'TICKETING', pred: histTextIs(/^(T\. |TKTG)/) },
   HF: { title: 'FORM OF PAYMENT', pred: (h) => (h.code === 'FP') || /^FOP/.test(h.text) },
   HAD: { title: 'WRITTEN ADDRESS', pred: histCodeIn('AW', 'XW') },
   HQT: { title: 'QUEUE TRAIL', pred: histCodeIn('AQ', 'XQ') },

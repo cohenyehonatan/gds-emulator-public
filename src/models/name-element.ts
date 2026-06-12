@@ -29,6 +29,14 @@ export interface NameItem {
   infant?: boolean;
   /** Name reference number ("*5467") for the whole name field. */
   reference?: string;
+  /**
+   * Passenger type code remark — webhelp BF-fields compare rows
+   * verbatim: `N.JONES/ROBERT J*P-MIL` (military),
+   * `N.1RYAN/TIM*P-C08 DOB18MAR15` (child + date of birth).
+   */
+  ptc?: string;
+  /** DOB suffix riding the PTC remark (`DOB18MAR15`). */
+  dob?: string;
 }
 
 /** Parse one passenger token, e.g. "FRED MR" or "JANE MISS". */
@@ -50,6 +58,16 @@ export function parseNameText(text: string): NameItem {
     body = body.slice(2); // drop "I/"
   }
 
+  // Passenger-type-code remark + optional DOB: "...*P-C08 DOB18MAR15".
+  let ptc: string | undefined;
+  let dob: string | undefined;
+  const ptcMatch = /\*(P-[A-Z0-9]+)( DOB([A-Z0-9]+))?$/.exec(body);
+  if (ptcMatch) {
+    ptc = ptcMatch[1];
+    dob = ptcMatch[3];
+    body = body.slice(0, ptcMatch.index);
+  }
+
   // Trailing name reference number: "...*5467".
   let reference: string | undefined;
   const refMatch = /\*([A-Za-z0-9]+)$/.exec(body);
@@ -67,6 +85,8 @@ export function parseNameText(text: string): NameItem {
   const passengers = givenTokens.map(parsePassenger);
 
   return {
+    ptc,
+    dob,
     surname: surname.trim(),
     passengers,
     count: explicitCount ?? Math.max(1, passengers.length),
@@ -85,5 +105,6 @@ export function formatNameItem(item: NameItem): string {
     })
     .join('/');
   const itemRef = item.reference ? `*${item.reference}` : '';
-  return `${item.infant ? 'I/' : ''}${item.count}${item.surname}/${given}${itemRef}`;
+  const ptcTail = item.ptc ? `*${item.ptc}${item.dob ? ' DOB' + item.dob : ''}` : '';
+  return `${item.infant ? 'I/' : ''}${item.count}${item.surname}/${given}${itemRef}${ptcTail}`;
 }
