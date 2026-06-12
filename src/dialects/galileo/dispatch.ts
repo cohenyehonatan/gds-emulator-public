@@ -525,6 +525,19 @@ async function handleGalileoSell(
       // unique offer. wa.liveWorkbenchOfferIds still gets one entry
       // per leg (same UUID repeated for connection legs) so
       // downstream per-leg SSR / cancel can index it cleanly.
+      // Pre-flight duplicate guard (cross-entry): the offer pair may
+      // already be in the booking from an earlier sell — e.g. the
+      // auto-expanded other leg of this connection. Refuse locally
+      // rather than burning a vendor call on the server's
+      // duplicate-offer rejection. Polite-citizen + discoverable.
+      const postedKeys = wa.livePostedOfferKeys ?? new Set<string>();
+      for (const leg of legs) {
+        const line = avail.lines.find((l) => l.line === leg.line)!;
+        const key = `${line.vendorRef!.offerId!}|${line.vendorRef!.productId!}`;
+        if (postedKeys.has(key)) {
+          return 'OFFER ALREADY IN BOOKING - SEE SEGMENTS SOLD ABOVE'; // reconstructed
+        }
+      }
       const wbOfferIds = wa.liveWorkbenchOfferIds ?? [];
       const posted = new Map<string, string>(); // (offerId|productId) → workbench UUID
       for (const leg of legs) {
@@ -543,8 +556,10 @@ async function handleGalileoSell(
           posted.set(key, wbUuid);
         }
         wbOfferIds.push(wbUuid);
+        postedKeys.add(key);
       }
       wa.liveWorkbenchOfferIds = wbOfferIds;
+      wa.livePostedOfferKeys = postedKeys;
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }

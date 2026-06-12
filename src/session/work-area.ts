@@ -190,6 +190,14 @@ export class WorkAreaSlot {
   liveWorkbenchOfferIds?: string[];
 
   /**
+   * (offerId|productId) pairs already POSTed to the live workbench.
+   * Pre-flight duplicate guard: re-selling a line whose offer is
+   * already in the booking refuses locally instead of burning a
+   * vendor call on pre-prod's duplicate-offer rejection.
+   */
+  livePostedOfferKeys?: Set<string>;
+
+  /**
    * Clear the per-PNR scratch state — invoked by IG / E / a sign-out
    * that targets this slot. Crucially does NOT replace `machine`: the
    * session FSM is intentionally durable across IG/E (a signed-in agent
@@ -214,6 +222,7 @@ export class WorkAreaSlot {
     this.liveWorkbenchId = undefined;
     this.liveTravelerIds = undefined;
     this.liveWorkbenchOfferIds = undefined;
+    this.livePostedOfferKeys = undefined;
     this.lastFareDisplay = undefined;
     this.lastSeatMap = undefined;
     this.lastHotelAvail = undefined;
@@ -385,6 +394,12 @@ export class WorkArea {
   }
   set liveTravelerIds(v: string[] | undefined) {
     this.s.liveTravelerIds = v;
+  }
+  get livePostedOfferKeys(): Set<string> | undefined {
+    return this.s.livePostedOfferKeys;
+  }
+  set livePostedOfferKeys(v: Set<string> | undefined) {
+    this.s.livePostedOfferKeys = v;
   }
   get liveWorkbenchOfferIds(): string[] | undefined {
     return this.s.liveWorkbenchOfferIds;

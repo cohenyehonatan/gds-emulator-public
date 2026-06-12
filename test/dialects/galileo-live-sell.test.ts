@@ -130,24 +130,24 @@ describe('Galileo live sell (mocked fetch chain)', () => {
     expect(selection?.ProductIdentifier?.[0]?.Identifier?.value).toBe('p0');
   });
 
-  it('a second N<seats><class><line> reuses the existing workbench', async () => {
+  it('re-selling an offer already in the booking refuses locally — no vendor call', async () => {
+    // Previously this posted a SECOND addOffer for the same pair —
+    // the exact call pre-prod rejects with the duplicate-offer error.
+    // The cross-entry guard now refuses before fetch.
     fetchSpy
       .mockResolvedValueOnce(tokenResponse())
       .mockResolvedValueOnce(searchResponse())
       .mockResolvedValueOnce(createWorkbenchResponse('WB-001'))
-      .mockResolvedValueOnce(addOfferResponse())
-      .mockResolvedValueOnce(addOfferResponse());  // second sell — no second createWorkbench
+      .mockResolvedValueOnce(addOfferResponse());
 
     await host.process('A27JUNDENFRA', wa);
     await host.process('N1Y1', wa);
-    await host.process('N1Y1', wa);  // sell same line again
+    const again = await host.process('N1Y1', wa); // same line, same offer
 
-    expect(wa.liveWorkbenchId).toBe('WB-001');
-    expect(fetchSpy).toHaveBeenCalledTimes(5);  // not 6 — no second createWorkbench
-
-    // Confirm second-sell fetch was addOffer, not createWorkbench:
-    const [lastUrl] = fetchSpy.mock.calls[4];
-    expect(lastUrl).toContain('/offers/buildfromcatalogproductofferings');
+    expect(again).toBe('OFFER ALREADY IN BOOKING - SEE SEGMENTS SOLD ABOVE');
+    expect(wa.liveWorkbenchId).toBe('WB-001'); // workbench reused, not recreated
+    expect(fetchSpy).toHaveBeenCalledTimes(4); // no duplicate addOffer burned
+    expect(wa.pnr.segments).toHaveLength(1); // local mirror unchanged
   });
 
   it('refuses to sell a line whose vendorRef.offerId is missing', async () => {
