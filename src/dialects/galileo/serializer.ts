@@ -15,6 +15,9 @@
 
 import type { AvailabilityResult, AvailabilityLine } from '../../models/availability-result.js';
 import type { AirSegment } from '../../models/segment.js';
+import type { HotelSegment } from '../../models/hotel.js';
+import type { CarSegment } from '../../models/car.js';
+import type { RailSegment } from '../../models/rail.js';
 import type { Pnr } from '../../models/pnr.js';
 import type { FareQuote } from '../../models/fare.js';
 import type { TicketRecord } from '../../models/ticket.js';
@@ -116,7 +119,12 @@ export function renderGalileoPnr(pnr: Pnr, sig: GalileoSignature): string {
   const out: string[] = [];
   out.push(renderGalileoBfHeader(pnr, sig));
   if (pnr.names.length > 0) out.push(renderGalileoNames(pnr));
-  if (pnr.segments.length > 0) out.push(renderGalileoItinerary(pnr));
+  if (
+    pnr.segments.length > 0 || pnr.hotelSegments.length > 0 ||
+    pnr.carSegments.length > 0 || pnr.railSegments.length > 0
+  ) {
+    out.push(renderGalileoItinerary(pnr));
+  }
   for (const p of pnr.phones) out.push(`P. ${p.number}`);
   if (pnr.ticketing) out.push(`T. ${pnr.ticketing}`);
   if (pnr.receivedFrom) out.push(`R. ${pnr.receivedFrom}`);
@@ -213,10 +221,46 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
   }
 }
 
-/** `*I` — itinerary-only display (Module 2 p.27). */
-export function renderGalileoItinerary(pnr: Pnr): string {
-  if (pnr.segments.length === 0) return 'NO ITINERARY'; // reconstructed
-  return pnr.segments.map(renderGalileoSoldSegment).join('\n');
+/** Hotel segment line — reconstructed (HHL convention). */
+function renderGalileoHotelLine(h: HotelSegment): string {
+  return ` ${h.segmentNumber}. HHL ${h.chain} ${h.status}${h.rooms} ${h.city} ${h.checkIn}-${h.checkOut} ${h.name}${h.confirmationNumber ? ' CF-' + h.confirmationNumber : ''}`;
+}
+
+/** Car segment line — reconstructed (CCR convention). */
+function renderGalileoCarLine(c: CarSegment): string {
+  return ` ${c.segmentNumber}. CCR ${c.company} ${c.status}1 ${c.city} ${c.pickup}-${c.dropoff} ${c.vehicleType}${c.confirmationNumber ? ' CF-' + c.confirmationNumber : ''}`;
+}
+
+/** Rail segment line — reconstructed (TRN convention). */
+function renderGalileoRailLine(r: RailSegment): string {
+  return ` ${r.segmentNumber}. TRN ${r.provider} ${r.trainNumber} ${r.bookingClass} ${r.date} ${r.origin} ${r.destination} ${r.status}${r.seats} ${to24h(r.departTime)} ${to24h(r.arriveTime)}`;
+}
+
+/**
+ * `*I` — itinerary display (Module 2 p.27), now ALL segment types in
+ * segment-number order — the Formats Guide's *I row covers the whole
+ * itinerary, with *IA/*IH/*IC/*IN as the typed slices (H/BFD table).
+ */
+export function renderGalileoItinerary(pnr: Pnr, slice: 'ALL' | 'A' | 'H' | 'C' | 'N' = 'ALL'): string {
+  type Row = { n: number; line: string };
+  const rows: Row[] = [];
+  if (slice === 'ALL' || slice === 'A') {
+    rows.push(...pnr.segments.map((x) => ({ n: x.segmentNumber, line: renderGalileoSoldSegment(x) })));
+  }
+  if (slice === 'ALL' || slice === 'H' || slice === 'N') {
+    rows.push(...pnr.hotelSegments.map((x) => ({ n: x.segmentNumber, line: renderGalileoHotelLine(x) })));
+  }
+  if (slice === 'ALL' || slice === 'C' || slice === 'N') {
+    rows.push(...pnr.carSegments.map((x) => ({ n: x.segmentNumber, line: renderGalileoCarLine(x) })));
+  }
+  if (slice === 'ALL' || slice === 'N') {
+    rows.push(...pnr.railSegments.map((x) => ({ n: x.segmentNumber, line: renderGalileoRailLine(x) })));
+  }
+  if (rows.length === 0) {
+    const what = { ALL: 'ITINERARY', A: 'AIR SEGMENTS', H: 'HOTEL SEGMENTS', C: 'CAR SEGMENTS', N: 'NON-AIR SEGMENTS' }[slice];
+    return `NO ${what}`; // reconstructed
+  }
+  return rows.sort((a, b) => a.n - b.n).map((r) => r.line).join('\n');
 }
 
 /** `<LOCATOR> <PCC>/<AGENT>` — BF header line. Reconstructed. */

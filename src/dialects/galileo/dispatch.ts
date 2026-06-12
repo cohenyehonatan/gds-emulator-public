@@ -1246,6 +1246,21 @@ function handleGalileoDisplay(
     if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
     return renderGalileoItinerary(wa.pnr);
   }
+  // `*IA`/`*IH`/`*IC`/`*IN` — typed itinerary slices (H/BFD table).
+  // *IS/*IT/*IX (surface/tour/air-taxi) — segment types we don't
+  // model; honest empty.
+  {
+    const sliceKey = { IA: 'A', IH: 'H', IC: 'C', IN: 'N' }[arg.toUpperCase() as string];
+    if (sliceKey) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      return renderGalileoItinerary(wa.pnr, sliceKey as 'A' | 'H' | 'C' | 'N');
+    }
+    if (['IS', 'IT', 'IX'].includes(arg.toUpperCase())) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      const what = { IS: 'SURFACE', IT: 'TOUR', IX: 'AIR TAXI' }[arg.toUpperCase() as string];
+      return `NO ${what} SEGMENTS`; // reconstructed — segment types not modeled
+    }
+  }
 
   // `*<field>` — Booking File field displays per the Formats Guide
   // H/BFD table (references/galileo/booking-file-display-options.md).

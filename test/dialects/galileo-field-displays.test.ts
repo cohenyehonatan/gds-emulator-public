@@ -75,6 +75,43 @@ describe('Galileo *<field> displays', () => {
     expect(resp).not.toContain('NO MILEAGE'); // empty sections omitted
   });
 
+  it('*IA/*IH/*IC/*IN slice the itinerary by type; *I and *R show all types', async () => {
+    await host.process('HOA6FEB-09FEBLON2', wa);
+    await host.process('N1A1D3', wa); // hotel sell from availability
+    await host.process('CAL23AUG-25AUGLON', wa);
+    await host.process('N1A1', wa); // car sell
+
+    const ia = await host.process('*IA', wa);
+    expect(ia).toContain('B6'); // the air segment
+    expect(ia).not.toContain('HHL');
+
+    const ih = await host.process('*IH', wa);
+    expect(ih).toContain('HHL');
+    expect(ih).not.toContain('CCR');
+
+    const ic = await host.process('*IC', wa);
+    expect(ic).toContain('CCR');
+
+    const inn = await host.process('*IN', wa);
+    expect(inn).toContain('HHL');
+    expect(inn).toContain('CCR');
+    expect(inn).not.toContain('B6 615'); // air excluded from non-air
+
+    const i = await host.process('*I', wa);
+    expect(i).toContain('B6');
+    expect(i).toContain('HHL');
+    expect(i).toContain('CCR');
+
+    const r = await host.process('*R', wa);
+    expect(r).toContain('HHL'); // *R now shows aux segments too
+  });
+
+  it('*IS/*IT/*IX answer honestly for unmodeled segment types', async () => {
+    expect(await host.process('*IS', wa)).toBe('NO SURFACE SEGMENTS');
+    expect(await host.process('*IT', wa)).toBe('NO TOUR SEGMENTS');
+    expect(await host.process('*IX', wa)).toBe('NO AIR TAXI SEGMENTS');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);
