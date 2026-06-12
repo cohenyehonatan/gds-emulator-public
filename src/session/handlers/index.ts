@@ -168,6 +168,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         // Galileo-only `TMU<n>F<form>` — Sabre's parser never emits this.
         return Response.FORMAT;
 
+      case 'fop_field':
+        // Galileo-only `F.<fop>` BF field — Sabre's parser never emits this.
+        return Response.FORMAT;
+
       case 'fare_display':
         // Galileo-only `FD<...>` — Sabre's parser never emits this.
         return Response.FORMAT;

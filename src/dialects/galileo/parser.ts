@@ -26,6 +26,7 @@
  */
 
 import type {
+  FopFieldEntry,
   FrequentFlyerEntry,
   ParsedEntry,
   SignInEntry,
@@ -123,6 +124,7 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   if (u.startsWith('SI.')) return parseSpecialService(trimmed);
   if (u.startsWith('NP.')) return parseNotepad(trimmed);
   if (/^M\.[A-Z0-9]/.test(u)) return parseGalileoMileage(trimmed, u);
+  if (u.startsWith('F.')) return parseGalileoFop(trimmed, u);
   // QRQ/ALL must come BEFORE the generic QR/ prefix so it doesn't get
   // mis-parsed as "QR plus Q/ALL".
   if (u === 'QRQ/ALL') return parseQueueRemoveAll(trimmed);
@@ -1083,6 +1085,36 @@ function parseSpecialService(raw: string): SsrEntry | OsiEntry {
     nameRef,
     segmentRef,
   };
+}
+
+/**
+ * `F.<fop>` — Booking File FORM OF PAYMENT FIELD (single item).
+ * Formats Guide BF chapter rows, verbatim (in-tree). Accepted bodies:
+ * S · CK · INV <text> · MS <text> · NONREF<text> ·
+ * [<2-letter vendor>]<card digits>/D<MMYY>[/E[<nn>]] ·
+ * CC<vendor><digits>/D<MMYY> · TP<digits>/D<MMYY>. `F.@` deletes,
+ * `F.@ <new>` changes. Anything else is FORMAT.
+ */
+function parseGalileoFop(raw: string, u: string): FopFieldEntry {
+  const body = raw.trim().slice(2);
+  if (body === '@') return { kind: 'fop_field', raw, timestamp: new Date(), op: 'delete' };
+  if (body.startsWith('@ ') && body.length > 2) {
+    return { kind: 'fop_field', raw, timestamp: new Date(), op: 'change', text: body.slice(2).trim() };
+  }
+  // NOTE: the parser's `u` strips ALL whitespace — free-text forms
+  // (INV/MS) must be validated against the body, not u.
+  const ub = body.toUpperCase();
+  const ok =
+    ub === 'S' ||
+    ub === 'CK' ||
+    /^INV .{1,38}$/.test(ub) ||
+    /^MS( .{1,39})?$/.test(ub) ||
+    ub.startsWith('NONREF') ||
+    /^(CC[A-Z0-9]{2})?[A-Z]{0,2}\d{10,19}\/D\d{4}(\/E\d{0,2})?$/.test(ub);
+  if (!ok) {
+    throw new ParseError(`Galileo F.: unrecognized form of payment body: ${raw}`);
+  }
+  return { kind: 'fop_field', raw, timestamp: new Date(), op: 'add', text: body };
 }
 
 /**

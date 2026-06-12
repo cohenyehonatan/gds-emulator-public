@@ -181,9 +181,7 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
     case 'VL':
       return none('VENDOR LOCATOR DATA');
     case 'FOP':
-      // Form of payment isn't modeled on the PNR yet (FOP rides the
-      // ticketing flow); honest empty until it lands.
-      return none('FORM OF PAYMENT DATA');
+      return pnr.fopField ? `F. ${pnr.fopField}` : none('FORM OF PAYMENT DATA');
     case 'MM':
       return pnr.frequentFlyers.length
         ? pnr.frequentFlyers.map((f, i) => `M. ${i + 1} ${f.carrier}${f.number}`).join('\n')
@@ -217,7 +215,7 @@ export function renderGalileoFieldDisplay(pnr: Pnr, sig: GalileoSignature, key: 
       // including the fields *R hides behind field displays.
       const sections = [
         renderGalileoPnr(pnr, sig),
-        ...['SI', 'MM', 'SD', 'NP', 'AA', 'FF'].map((k) => {
+        ...['SI', 'MM', 'SD', 'NP', 'AA', 'FF', 'FOP'].map((k) => {
           const body = renderGalileoFieldDisplay(pnr, sig, k);
           return body && !body.startsWith('NO ') ? body : undefined;
         }),

@@ -176,6 +176,7 @@ function historyCodeFor(text: string): string | undefined {
     [/^(NP|NOTEPAD)/, 'AI'],
     [/^SEAT CANCEL/, 'SX'],
     [/^SEAT/, 'SA'],
+    [/^FOP (CHANGE|DELETE)/, 'FP'],
     [/^QUEUE PLACE/, 'AQ'],
     [/^QUEUE REMOVE/, 'XQ'],
   ];
@@ -345,6 +346,27 @@ function dispatchGalileoInner(
 
       case 'remark':
         return handleGalileoRemark(entry, wa, ctx);
+
+      case 'fop_field': {
+        // F. is a single-item BF field (Formats Guide: "Single item
+        // field."). Local-only on live: the v11 FOP rides the ticket
+        // flow (addFormOfPayment at issuance), not the BF build.
+        if (entry.op === 'delete') {
+          if (!wa.pnr.fopField) return GalileoResponse.FORMAT;
+          wa.pnr.fopField = undefined;
+          addFieldTransition(wa, 'FOP DELETE');
+          return GalileoResponse.OK;
+        }
+        if (entry.op === 'change') {
+          if (!wa.pnr.fopField) return GalileoResponse.FORMAT;
+          wa.pnr.fopField = entry.text;
+          addFieldTransition(wa, `FOP CHANGE ${entry.text}`);
+          return GalileoResponse.OK;
+        }
+        wa.pnr.fopField = entry.text;
+        addFieldTransition(wa, `FOP ADD ${entry.text}`);
+        return GalileoResponse.OK;
+      }
 
       case 'frequent_flyer': {
         // M.<cxr><number> add / M.@ delete-all — webhelp BF-fields
@@ -1276,6 +1298,7 @@ const HISTORY_SUBSETS: Record<string, { title: string; pred: (h: { code?: string
   HSO: { title: 'OSI', pred: histCodeIn('AO', 'XO') },
   HSI: { title: 'SERVICE INFORMATION', pred: histCodeIn('AG', 'XG', 'AO', 'XO') },
   HTD: { title: 'TICKETING', pred: histTextIs(/^T\. /) },
+  HF: { title: 'FORM OF PAYMENT', pred: (h) => (h.code === 'FP') || /^FOP/.test(h.text) },
   HQT: { title: 'QUEUE TRAIL', pred: histCodeIn('AQ', 'XQ') },
 };
 

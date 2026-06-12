@@ -113,6 +113,21 @@ export interface TimeLimitEntry extends BaseEntry {
   text: string; // e.g. "6P/17JUN"
 }
 
+/**
+ * Galileo `F.<fop>` — the Booking File FORM OF PAYMENT FIELD (single-
+ * item). Source: Formats Guide BF chapter (in-tree, verbatim):
+ * F.S cash · F.CK cheque · F.INV <text> · F.MS <text> ·
+ * F.NONREF<text> · F.AX<num>/D<mmyy>[/E[nn]] card · F.TP<num>/D<mmyy>
+ * · F.CC<vendor><num>/D<mmyy> non-agreement card · F.@ <new> change ·
+ * F.@ delete. Apollo F- translates onto this.
+ */
+export interface FopFieldEntry extends BaseEntry {
+  kind: 'fop_field';
+  op: 'add' | 'change' | 'delete';
+  /** Raw FOP body (everything after `F.`, change text after `F.@ `). */
+  text?: string;
+}
+
 export interface FrequentFlyerEntry extends BaseEntry {
   kind: 'frequent_flyer';
   operation: 'add' | 'change' | 'delete';
@@ -643,6 +658,7 @@ export type ParsedEntry =
   | OsiEntry
   | RemarkEntry
   | TimeLimitEntry
+  | FopFieldEntry
   | FrequentFlyerEntry
   | FlightInfoEntry
   | SeatMapEntry

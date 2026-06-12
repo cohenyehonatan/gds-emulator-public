@@ -148,6 +148,7 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
     ticketing: pnr.ticketing,
     optionField: pnr.optionField,
     receivedFrom: pnr.receivedFrom,
+    fopField: pnr.fopField,
     createdAt: pnr.createdAt?.toISOString(),
   };
 }
@@ -207,6 +208,7 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.ticketing = plain.ticketing as string | undefined;
   p.optionField = plain.optionField as string | undefined;
   p.receivedFrom = plain.receivedFrom as string | undefined;
+  p.fopField = plain.fopField as string | undefined;
   if (typeof plain.createdAt === 'string') p.createdAt = new Date(plain.createdAt);
   return p;
 }

@@ -183,6 +183,48 @@ describe('Galileo *<field> displays', () => {
     expect(await host.process('*N.ZZZQ', wa)).toBe('FORMAT');
   });
 
+  it('F. forms (Formats Guide verbatim) populate the single-item FOP field', async () => {
+    expect(await host.process('F.S', wa)).toBe('OK'); // cash
+    expect(await host.process('*FOP', wa)).toBe('F. S');
+    expect(await host.process('F.@ AX373912345678901/D1209/E03', wa)).toBe('OK'); // change
+    expect(await host.process('*FOP', wa)).toBe('F. AX373912345678901/D1209/E03');
+    expect(await host.process('F.@', wa)).toBe('OK'); // delete
+    expect(await host.process('*FOP', wa)).toBe('NO FORM OF PAYMENT DATA');
+    expect(await host.process('F.CK', wa)).toBe('OK'); // cheque
+    expect(await host.process('F.INV PAY BY INVOICE', wa)).toBe('OK'); // replaces (single item)
+    expect(await host.process('F.TOTALLYWRONG!!', wa)).toBe('FORMAT');
+  });
+
+  it('*HF shows the FOP history with the FP code on change/delete', async () => {
+    await host.process('F.S', wa);
+    await host.process('F.@ CK', wa);
+    await host.process('F.@', wa);
+    const hf = await host.process('*HF', wa);
+    expect(hf).toContain('FOP ADD S');
+    expect(hf).toMatch(/FP +\d{2}:\d{2} FOP CHANGE CK/);
+    expect(hf).toMatch(/FP +\d{2}:\d{2} FOP DELETE/);
+  });
+
+  it('FOP survives commit + retrieve (persistence round-trip)', async () => {
+    await host.process('F.S', wa);
+    const loc = await host.process('E', wa);
+    const fresh = host.newWorkArea();
+    await host.process('SON/ZGS', fresh);
+    await host.process(`*${loc}`, fresh);
+    expect(await host.process('*FOP', fresh)).toBe('F. S');
+  });
+
+  it('Apollo F-S translates (webhelp compare row)', async () => {
+    const { ApolloDialect } = await import('../../src/dialects/apollo/index.js');
+    const a = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: '7K9S' });
+    const awa = a.newWorkArea();
+    await a.process('SON/ZHA', awa);
+    await a.process('A15JUNJFKLAX', awa);
+    await a.process('01Y1', awa);
+    expect(await a.process('F-S', awa)).toBe('OK');
+    expect(await a.process('*FOP', awa)).toBe('F. S');
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

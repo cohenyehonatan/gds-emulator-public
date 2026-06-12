@@ -119,6 +119,11 @@ export class Pnr {
   ticketing?: string;
   optionField?: string; // time-limit / option field (sigil 8)
   receivedFrom?: string;
+  /**
+   * Booking File FORM OF PAYMENT FIELD (`F.` — single item per the
+   * Formats Guide). Raw body as typed: "S", "CK", "AX…/D1209/E03".
+   */
+  fopField?: string;
   createdAt?: Date;
 
   /** Seat-occupying passengers (infants don't occupy a seat). */
@@ -154,6 +159,7 @@ export class Pnr {
     p.tsms = this.tsms.map((t) => ({ ...t }));
     p.manualAccountingLines = this.manualAccountingLines.map((m) => ({ ...m }));
     p.accountingHistory = this.accountingHistory.map((h) => ({ ...h }));
+    p.fopField = this.fopField;
     p.history = this.history.map((h) => ({ ...h }));
     p.accountingLinesHidden = new Set(this.accountingLinesHidden);
     p.ticketing = this.ticketing;

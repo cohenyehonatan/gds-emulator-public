@@ -162,6 +162,11 @@ export function translateApolloToGalileo(raw: string): string {
     // mirrors Galileo's `*S<n>` suffix.
     s = 'SA*' + s.slice(3);
   }
+  // (7) Form of payment: Apollo `F-S` / `F-AX…/D1223` → Galileo
+  // `F.S` / `F.AX…/D1223` (webhelp FOP compare page, rows verbatim).
+  if (/^F-/.test(s.trim().toUpperCase())) {
+    s = 'F.' + s.trim().slice(2);
+  }
   // (6) History subsets: the GPM.net print appendix's Apollo column
   // documents *HA (air), *HH (hotel), *HC (car), *H$ (pricing)
   // history displays; the Galileo Formats Guide documents the
