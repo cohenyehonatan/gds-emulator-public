@@ -529,17 +529,31 @@ function flightToSegment(flight: any, segmentNumber: number): AirSegment | null 
  */
 function mapReservationPhones(root: any): PhoneElement[] {
   const out: PhoneElement[] = [];
+  // Dedupe across the two sources: our own build flow posts the same
+  // number through ensureLiveTravelersPosted (traveler Telephone) AND
+  // addPrimaryContact (reservation contact), so committed BFs come
+  // back with the number twice (dogfooding find 2026-06-12: P. shown
+  // twice on every retrieved BF). Distinct numbers all survive —
+  // only exact duplicates (digits-only comparison) collapse. Root
+  // cause is the double-post; single-posting needs validation against
+  // pre-prod (ROADMAP) before we touch the build flow.
+  const seen = new Set<string>();
+  const push = (num: unknown) => {
+    if (typeof num !== 'string' || num.length === 0) return;
+    const key = num.replace(/\D/g, '') || num;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ number: num });
+  };
   const travelers = arrayish(root?.Traveler ?? root?.Travelers ?? root?.travelers);
   for (const t of travelers) {
     for (const tel of arrayish(t?.Telephone ?? t?.telephone)) {
-      const num = tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number;
-      if (typeof num === 'string' && num.length > 0) out.push({ number: num });
+      push(tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number);
     }
   }
   for (const pc of arrayish(root?.PrimaryContact ?? root?.primaryContact)) {
     for (const tel of arrayish(pc?.Telephone ?? pc?.telephone)) {
-      const num = tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number;
-      if (typeof num === 'string' && num.length > 0) out.push({ number: num });
+      push(tel?.phoneNumber ?? tel?.PhoneNumber ?? tel?.number);
     }
   }
   return out;

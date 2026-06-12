@@ -29,7 +29,13 @@ describe('live retrieve preserves the shadow’s local-only fields', () => {
       JSON.stringify({
         Reservation: {
           Identifier: { value: loc },
-          Traveler: [{ PersonName: { Given: 'YEHONATAN', Surname: 'COHEN' } }],
+          Traveler: [
+            {
+              PersonName: { Given: 'YEHONATAN', Surname: 'COHEN' },
+              Telephone: [{ phoneNumber: '19293177108' }],
+            },
+          ],
+          PrimaryContact: [{ Telephone: [{ phoneNumber: '1-929-317-7108' }] }],
           AirReservation: {
             Flights: [
               {
@@ -84,5 +90,13 @@ describe('live retrieve preserves the shadow’s local-only fields', () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(reservationResp('GZWFTM'));
     const r = await host.process('*GZWFTM', wa);
     expect(r).toContain('DL 1332'); // segments are the MAPPED ones
+  });
+
+  it('the double-posted phone dedupes on retrieve (digits-only comparison)', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(reservationResp('GZWFTM'));
+    await host.process('*GZWFTM', wa);
+    // Traveler Telephone (19293177108) + PrimaryContact (1-929-317-7108)
+    // are the same number through different posts — one P. line.
+    expect(await host.process('*P', wa)).toBe('P. 1 19293177108');
   });
 });

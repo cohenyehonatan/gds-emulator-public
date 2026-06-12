@@ -1185,3 +1185,9 @@ The original survey (all items now resolved or annotated):
 - [ ] **Amadeus AIR full line grammar** — gated on the login-only AIR User
       Guide; skeleton uses real line IDs.
 - [ ] **Worldspan IR records + queue verbs** — no public spec found yet.
+- [ ] **Single-post the phone on live builds.** ensureLiveTravelersPosted
+      attaches the phone to the traveler AND addPrimaryContact posts it as
+      the reservation contact — committed BFs carry the number twice
+      server-side. The mapper dedupes on display; the real fix is dropping
+      one post, which needs a pre-prod validation pass (does addTraveler
+      accept a phoneless body?) before touching the build flow.
