@@ -121,6 +121,44 @@ describe('Galileo *<field> displays', () => {
     expect(await host.process('*SVC9', wa)).toBe('SEGMENT NOT IN ITINERARY');
   });
 
+  it('*H rows carry real history codes (H/HIST table): AN, AS, AG, AO, AM', async () => {
+    await host.process('M.BA12345678', wa);
+    const h = await host.process('*H', wa);
+    expect(h).toMatch(/AN +\d{2}:\d{2} NAME ADD SMITH/);
+    expect(h).toMatch(/AS +\d{2}:\d{2} SELL 1/);
+    expect(h).toMatch(/AG +\d{2}:\d{2} SSR VGML/);
+    expect(h).toMatch(/AO +\d{2}:\d{2} OSI YY/);
+    expect(h).toMatch(/AM +\d{2}:\d{2} MM ADD BA12345678/);
+  });
+
+  it('history subsets filter by code: *HN names, *HSR SSRs, *HSI both SI kinds', async () => {
+    const hn = await host.process('*HN', wa);
+    expect(hn).toContain('NAME ADD SMITH');
+    expect(hn).not.toContain('SELL');
+    const hsr = await host.process('*HSR', wa);
+    expect(hsr).toContain('SSR VGML');
+    expect(hsr).not.toContain('OSI');
+    const hsi = await host.process('*HSI', wa);
+    expect(hsi).toContain('SSR VGML');
+    expect(hsi).toContain('OSI YY');
+    expect(await host.process('*HMM', wa)).toBe('NO MILEAGE MEMBERSHIP HISTORY');
+  });
+
+  it('*HQT shows the queue trail after QEB and QR (codes AQ / XQ)', async () => {
+    await host.process('QEB/50', wa);
+    const fresh = host.newWorkArea();
+    await host.process('SON/ZGS', fresh);
+    const list = await host.process('Q/50', fresh);
+    const locator = list.slice(0, 6);
+    await host.process('QR', fresh);
+    await host.process(`*${locator}`, fresh);
+    const hqt = await host.process('*HQT', fresh);
+    expect(hqt).toContain('QUEUE PLACE 50');
+    expect(hqt).toContain('QUEUE REMOVE 50');
+    expect(hqt).toMatch(/AQ /);
+    expect(hqt).toMatch(/XQ /);
+  });
+
   it('field displays with no BF on screen answer NO BOOKING FILE', async () => {
     const fresh = host.newWorkArea();
     await host.process('SON/ZGS', fresh);

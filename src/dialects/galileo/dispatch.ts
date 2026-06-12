@@ -151,7 +151,36 @@ function sellTransition(wa: WorkArea, historyText?: string): void {
  * only source. No-op if there's no PNR yet (sign-on / pre-build).
  */
 function recordHistory(wa: WorkArea, text: string): void {
-  wa.pnr.history.push({ timestamp: new Date(), text });
+  wa.pnr.history.push({ timestamp: new Date(), text, code: historyCodeFor(text) });
+}
+
+/**
+ * Map a mutation text to its Galileo history code (H/HIST table,
+ * verbatim in references/galileo/booking-file-display-options.md).
+ * Prefix-keyed off the texts our handlers record. AI ("Added Special
+ * Remarks field") is the closest documented add-code for notepads.
+ * Mutations without a documented code stay uncoded.
+ */
+function historyCodeFor(text: string): string | undefined {
+  const RULES: [RegExp, string][] = [
+    [/^NAME ADD/, 'AN'],
+    [/^NAME (CHANGE|DELETE)/, 'XN'],
+    [/^(SELL|HOTEL|CAR|RAIL)/, 'AS'],
+    [/^CANCEL/, 'XS'],
+    [/^STATUS/, 'SC'],
+    [/^SSR/, 'AG'],
+    [/^OSI/, 'AO'],
+    [/^MM ADD/, 'AM'],
+    [/^MM DELETE/, 'XM'],
+    [/^PHONE (CHANGE|DELETE)/, 'XP'],
+    [/^(NP|NOTEPAD)/, 'AI'],
+    [/^SEAT CANCEL/, 'SX'],
+    [/^SEAT/, 'SA'],
+    [/^QUEUE PLACE/, 'AQ'],
+    [/^QUEUE REMOVE/, 'XQ'],
+  ];
+  for (const [re, code] of RULES) if (re.test(text)) return code;
+  return undefined;
 }
 
 /**
@@ -1331,7 +1360,38 @@ function handleGalileoDisplay(
   // shadow it client-side) the rendering surface stays stable.
   const upper = arg.toUpperCase();
   if (upper === 'H') return appendLocalOnlyTrailer(historyAllGalileo(wa), ctx);
-  if (upper === 'HI' || upper === 'HIA') return appendLocalOnlyTrailer(historyItineraryGalileo(wa), ctx);
+  // History subsets (Formats Guide H/DIH + H/DCDH tables, in-tree).
+  // When a client-side mutation log exists, filter it by history
+  // code / mutation text; with no log, *HI/*HIA keep the legacy
+  // current-state stand-in. Hotel/car/rail rows all carry code AS —
+  // the per-type itinerary slices discriminate on the text.
+  {
+    const codeIn = (...codes: string[]) => (h: { code?: string }) => codes.includes(h.code ?? '');
+    const textIs = (re: RegExp) => (h: { text: string }) => re.test(h.text);
+    const SUBSETS: Record<string, { title: string; pred: (h: { code?: string; text: string }) => boolean }> = {
+      HI: { title: 'ITINERARY', pred: codeIn('AS', 'XS', 'SC', 'HS') },
+      HIA: { title: 'AIR', pred: (h) => codeIn('AS', 'XS', 'SC')(h) && !/^(HOTEL|CAR|RAIL)/.test(h.text) },
+      HIH: { title: 'HOTEL', pred: textIs(/^HOTEL/) },
+      HIC: { title: 'CAR', pred: textIs(/^CAR/) },
+      HIN: { title: 'NON-AIR', pred: textIs(/^(HOTEL|CAR|RAIL)/) },
+      HN: { title: 'NAME', pred: codeIn('AN', 'XN') },
+      HP: { title: 'PHONE', pred: textIs(/^PHONE/) },
+      HMM: { title: 'MILEAGE MEMBERSHIP', pred: codeIn('AM', 'XM') },
+      HSR: { title: 'SSR', pred: codeIn('AG', 'XG') },
+      HSO: { title: 'OSI', pred: codeIn('AO', 'XO') },
+      HSI: { title: 'SERVICE INFORMATION', pred: codeIn('AG', 'XG', 'AO', 'XO') },
+      HTD: { title: 'TICKETING', pred: textIs(/^T\. /) },
+      HQT: { title: 'QUEUE TRAIL', pred: codeIn('AQ', 'XQ') },
+    };
+    const sub = SUBSETS[upper];
+    if (sub) {
+      if (!wa.pnr.hasContent()) return GalileoResponse.NO_PNR;
+      if (wa.pnr.history.length === 0 && (upper === 'HI' || upper === 'HIA')) {
+        return appendLocalOnlyTrailer(historyItineraryGalileo(wa), ctx);
+      }
+      return appendLocalOnlyTrailer(renderHistoryLog(wa, sub), ctx);
+    }
+  }
   if (upper === 'HFF') return appendLocalOnlyTrailer(historyFiledFaresGalileo(wa), ctx);
   if (upper === 'HNP') return appendLocalOnlyTrailer(historyNotepadsGalileo(wa), ctx);
 
@@ -3136,13 +3196,15 @@ function historyAllGalileo(wa: WorkArea): string {
  * Reconstructed format `<n>.<HH:MM> <text>` — Mini Guide documents
  * the entry but not the display layout.
  */
-function renderHistoryLog(wa: WorkArea): string {
-  const head = `HISTORY ${wa.pnr.locator ?? ''}`.trim();
-  const rows = wa.pnr.history.map((h, i) => {
+function renderHistoryLog(wa: WorkArea, opts?: { pred?: (h: import('../../models/pnr.js').HistoryEntry) => boolean; title?: string }): string {
+  const head = `HISTORY ${wa.pnr.locator ?? ''}${opts?.title ? ' - ' + opts.title : ''}`.trim();
+  const entries = opts?.pred ? wa.pnr.history.filter(opts.pred) : wa.pnr.history;
+  if (opts?.pred && entries.length === 0) return `NO ${opts.title ?? ''} HISTORY`.replace('  ', ' '); // reconstructed
+  const rows = entries.map((h, i) => {
     const ts = h.timestamp;
     const hh = String(ts.getUTCHours()).padStart(2, '0');
     const mm = String(ts.getUTCMinutes()).padStart(2, '0');
-    return `${String(i + 1).padStart(3)}. ${hh}:${mm} ${h.text}`;
+    return `${String(i + 1).padStart(3)}. ${(h.code ?? '').padEnd(3)} ${hh}:${mm} ${h.text}`;
   });
   return [head, ...rows].join('\n');
 }
@@ -3364,6 +3426,14 @@ async function handleGalileoQueue(
   const label = branchPcc
     ? `${branchPcc}/${queues.map((q) => q.value).join('+')}`
     : queues.map((q) => q.value).join('+');
+  // Queue-trail history (H/HIST code AQ "Added to queue trail") —
+  // stamped on the stored PNR so *HQT shows it on a later retrieve.
+  const stored = ctx.backend.pnrs.get(locator);
+  if (stored) {
+    for (const q of queues) {
+      stored.history.push({ timestamp: new Date(), text: `QUEUE PLACE ${q.value}`, code: 'AQ' });
+    }
+  }
   // When QEB performed the implicit end-transaction, surface the
   // newly-assigned locator — otherwise the operator's only record
   // of their BF's identity is never shown (a live session placed a
@@ -3425,6 +3495,15 @@ async function handleGalileoQueueRemove(
     if (idx !== -1) {
       list.splice(idx, 1);
       ctx.backend.queues.set(q, list);
+    }
+  }
+  // Queue-trail history (H/HIST code XQ "Removed from queue").
+  {
+    const stored = ctx.backend.pnrs.get(locator);
+    if (stored) {
+      for (const q of queues) {
+        stored.history.push({ timestamp: new Date(), text: `QUEUE REMOVE ${q}`, code: 'XQ' });
+      }
     }
   }
 
@@ -3599,6 +3678,15 @@ async function handleGalileoQueueRemoveAll(
     if (idx !== -1) {
       list.splice(idx, 1);
       ctx.backend.queues.set(q, list);
+    }
+  }
+  // Queue-trail history (H/HIST code XQ "Removed from queue").
+  {
+    const stored = ctx.backend.pnrs.get(locator);
+    if (stored) {
+      for (const q of queues) {
+        stored.history.push({ timestamp: new Date(), text: `QUEUE REMOVE ${q}`, code: 'XQ' });
+      }
     }
   }
   return 'OK-QUEUE REMOVE ALL'; // reconstructed

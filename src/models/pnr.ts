@@ -34,6 +34,13 @@ import { MandatoryField, type MandatoryFieldKey } from '../protocol/constants.js
 export interface HistoryEntry {
   timestamp: Date;
   text: string;
+  /**
+   * Galileo history code (Formats Guide H/HIST table, in-tree at
+   * references/galileo/booking-file-display-options.md): AN added
+   * name, XS cancelled segment, AG added SSR, … Derived from the
+   * mutation at record time; absent when no documented code fits.
+   */
+  code?: string;
 }
 
 export class Pnr {
