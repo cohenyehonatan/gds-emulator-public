@@ -14,3 +14,4 @@ junit.xml
 pnr-store.json
 pnr-store.queues.json
 interface-output/
+print-output/

@@ -36,6 +36,7 @@
 import { Inventory } from '../store/inventory.js';
 import { PnrStore, type PnrStoreLike } from '../store/pnr-store.js';
 import { InterfacePos } from '../session/interface-records.js';
+import { PrintSpool } from '../session/print-spool.js';
 import type { Backend } from './backend.js';
 
 export interface LiveTravelportCredentials {
@@ -210,6 +211,9 @@ export class LiveTravelportBackend implements Backend {
 
   /** Back-office interface pipeline (POS queue, DX/DW/DV verbs). */
   readonly interfacePos = new InterfacePos();
+
+  /** Print spool — GPM.net emulation (references/print/). */
+  readonly printSpool = new PrintSpool();
 
   /** Record carriers seen in a mapped availability result. */
   recordObservedMarket(origin: string, destination: string, carriers: Iterable<string>): void {
