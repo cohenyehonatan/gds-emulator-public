@@ -93,12 +93,22 @@ export function recordBody(r: InterfaceRecord): string {
     return [m0, m1, m2].join('\n');
   }
   if (r.kind === 'MIR') {
-    const trc = '1G'; // T50TRC — transmitting CRS (1G GCS / 1V APO)
-    const spc = '7733'; // T50SPC — Galileo accounting code (Apollo 5880)
+    // Header FIXED-COLUMN per the in-tree Travelport MIR User Guide
+    // table (decimal offsets, 0-indexed): T50BID "T5" @0/2 ·
+    // T50TRC @2/2 (1G Travelport+ / 1V Apollo) · T50SPC @4/4
+    // (Galileo 7733 / Apollo 5880) · T50RCL record locator @98/6.
+    // Section lines (Passenger Data, Fare Value) keep real section
+    // IDs; their interior column tables are still open.
+    const header = placeFields(104, [
+      [1, 'T5'],    // T50BID
+      [3, '1G'],    // T50TRC
+      [5, '7733'],  // T50SPC
+      [99, r.locator.padEnd(6).slice(0, 6)], // T50RCL @98 (0-indexed) = col 99
+    ]);
     return [
-      `T5${trc}${spc}${inv}${r.locator}`,  // Header Section (T50BID begins T5)
+      header,
       `A02 ${r.passenger}`,                 // Passenger Data Section
-      `A07 ${r.documentNumber} ${r.currency}${r.total.toFixed(2)}`, // Fare Value Section
+      `A07 ${r.documentNumber} ${r.currency}${r.total.toFixed(2)} INV${inv}`, // Fare Value Section
     ].join('\n');
   }
   if (r.kind === 'AIR') {

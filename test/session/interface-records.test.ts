@@ -125,7 +125,12 @@ describe('spec-shaped record bodies (specs in references/interface/)', () => {
     expect(m2.slice(4, 7)).toBe('ADT');       // IU2PTY @5/3
     expect(m2.slice(233, 243)).toBe('4692507094'); // IU2TNO @234/10
     const mir = recordBody({ ...base, kind: 'MIR' as const });
-    expect(mir).toMatch(/^T51G7733/); // T50BID T5 + T50TRC 1G + T50SPC 7733
+    const hdr = mir.split('\n')[0];
+    // Fixed columns per the in-tree MIR User Guide (0-indexed offsets):
+    expect(hdr.slice(0, 2)).toBe('T5');     // T50BID @0/2
+    expect(hdr.slice(2, 4)).toBe('1G');     // T50TRC @2/2
+    expect(hdr.slice(4, 8)).toBe('7733');   // T50SPC @4/4
+    expect(hdr.slice(98, 104)).toBe('GZW1CS'); // T50RCL @98/6
     const air = recordBody({ ...base, kind: 'AIR' as const });
     expect(air).toContain('AIR-BLK206');
   });
