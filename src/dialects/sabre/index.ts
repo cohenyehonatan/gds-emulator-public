@@ -58,6 +58,18 @@ export class SabreDialect implements Dialect {
   readonly bannerText =
     'SABRE GDS terminal — type a cryptic entry. SI to sign in, .q to quit.';
   readonly screenName = 'SABRE GDS';
+  // AGENT SIGN IN mask — verbatim from the Sabre Basic Reservation
+  // Course p.10 (example field values blanked). One SI*<id> sign-in
+  // covers all six work areas A-F.
+  readonly signOnScreen = [
+    '                        AGENT SIGN IN',
+    '',
+    ' CURRENT PASSCODE                   ID   <      >     SUF   <      >',
+    '',
+    ' DUTY CODE       <.> AREA     <*>      NEW PASSCODE',
+    '',
+    ' Sign in:  SI*<agent ID>   (one sign-in covers all six areas A-F)',
+  ].join('\n');
 
   normalizeKeyboard(raw: string): string {
     return normalizeKeyboard(raw);

@@ -201,6 +201,16 @@ export class ApolloDialect implements Dialect {
   readonly bannerText =
     'Apollo (1V) terminal — type a cryptic entry. SON/Z<usercode> to sign on, .q to quit.';
   readonly screenName = 'APOLLO 1V';
+  // Reconstructed — Apollo signs on with SON/ZAW (GDS Format Comparison
+  // Guide, "Sign onto workstation"), same Smartpoint pop-up family as
+  // Galileo; no host-rendered cryptic mask. SON/Z entry is sourced.
+  readonly signOnScreen = [
+    'APOLLO 1V — SIGN ON REQUIRED',
+    '',
+    'SIGN ON:  SON/Z<USERCODE>',
+    '',
+    '(In Smartpoint a sign-on / password pop-up appears here.)',
+  ].join('\n');
 
   normalizeKeyboard(raw: string): string {
     return raw;

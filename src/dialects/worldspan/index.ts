@@ -515,6 +515,15 @@ export class WorldspanDialect implements Dialect {
   readonly bannerText =
     'Worldspan (1P) terminal — type a cryptic entry. BSI$<num><agent>/GS to sign on, .q to quit.';
   readonly screenName = 'WORLDSPAN 1P';
+  // Reconstructed — Worldspan sign-on is a bare command with no
+  // host-rendered mask. BSIA (one area) / BSI$ (all six) + the
+  // "firma = 4 digits + 2 letters" rule are verbatim from the Go! Res
+  // manual 4022 (FIRMA EN WORLDSPAN, p.14).
+  readonly signOnScreen = [
+    'WORLDSPAN 1P — SIGN ON REQUIRED',
+    '',
+    'SIGN ON:  BSI$<firma>/GS    (firma = 4 digits + 2 letters; BSIA<firma> for one area)',
+  ].join('\n');
 
   normalizeKeyboard(raw: string): string {
     return raw;

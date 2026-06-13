@@ -1814,6 +1814,14 @@ export class AmadeusDialect implements Dialect {
   readonly bannerText =
     'Amadeus terminal — type a cryptic entry. JI<duty><initials>/<system> to sign on, .q to quit.';
   readonly screenName = 'AMADEUS';
+  // Reconstructed — Amadeus sign-in ("Jump In") is a bare cryptic
+  // command with no host-rendered mask (Complete Amadeus Manual,
+  // Sign In/Sign Out). JI entry + the JI* all-areas form are sourced.
+  readonly signOnScreen = [
+    'AMADEUS — SIGN ON REQUIRED',
+    '',
+    'SIGN ON:  JI<agent sign>/<duty>     (JI*<sign> signs into all six areas)',
+  ].join('\n');
 
   normalizeKeyboard(raw: string): string {
     return raw;

@@ -34,6 +34,15 @@ export interface Dialect {
   readonly bannerText: string;
   /** Short header label for the CRT screen status bar. */
   readonly screenName: string;
+  /**
+   * Sign-on screen presented on (re-)connect before any functional entry
+   * is allowed (the session is sign-on-gated). Sabre's is the verbatim
+   * `AGENT SIGN IN` mask from the Basic Reservation Course; the others
+   * are reconstructed (their real sign-on is a GUI pop-up or a bare
+   * command with no host-rendered mask) and embed the dialect's actual
+   * sourced sign-on entry.
+   */
+  readonly signOnScreen: string;
 
   /**
    * Map physical-key aliases (ASCII) to this dialect's glyphs. Sabre maps

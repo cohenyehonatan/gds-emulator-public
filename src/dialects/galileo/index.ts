@@ -103,6 +103,16 @@ export class GalileoDialect implements Dialect {
   readonly bannerText =
     'Galileo (1G) terminal — type a cryptic entry. SON/Z<usercode> to sign on, .q to quit.';
   readonly screenName = 'GALILEO 1G';
+  // Reconstructed — real Galileo sign-on is a Smartpoint GUI pop-up
+  // ("fill in your sign-on and password", Mini Format Guide v2 p.6),
+  // not a host-rendered cryptic mask. SON/Z entry is sourced.
+  readonly signOnScreen = [
+    'GALILEO 1G — SIGN ON REQUIRED',
+    '',
+    'SIGN ON:  SON/Z<USERCODE>',
+    '',
+    '(In Smartpoint a sign-on / password pop-up appears here.)',
+  ].join('\n');
 
   normalizeKeyboard(raw: string): string {
     return raw;
