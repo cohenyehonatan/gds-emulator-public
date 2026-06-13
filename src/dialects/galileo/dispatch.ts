@@ -614,54 +614,60 @@ async function handleGalileoSell(
       if (!line.vendorRef?.offerId) return 'LIVE OFFER ID MISSING'; // reconstructed
       if (!line.vendorRef?.productId) return 'LIVE PRODUCT ID MISSING'; // reconstructed
     }
+    // Pre-flight duplicate guard (cross-entry, no network): the offer
+    // pair may already be in the booking from an earlier sell — e.g. the
+    // auto-expanded other leg of this connection. Refuse locally rather
+    // than burning a vendor call on the server's duplicate-offer
+    // rejection. Runs OUTSIDE the recovery wrapper because it returns a
+    // handler-level response, not because it touches the wire.
+    const guardKeys = wa.livePostedOfferKeys ?? new Set<string>();
+    for (const leg of legs) {
+      const line = avail.lines.find((l) => l.line === leg.line)!;
+      const key = `${line.vendorRef!.offerId!}|${line.vendorRef!.productId!}`;
+      if (guardKeys.has(key)) {
+        return 'OFFER ALREADY IN BOOKING - SEE SEGMENTS SOLD ABOVE'; // reconstructed
+      }
+    }
     try {
-      if (!wa.liveWorkbenchId) {
-        wa.liveWorkbenchId = await liveBackend.createWorkbench();
-      }
-      // Connection legs share the same offer + product (a single
-      // CatalogProductOffering covers the whole journey including all
-      // its segments). Posting addOffer twice with the same
-      // (offerId, productId) pair triggers pre-prod's "OFFER ID AND
-      // PRODUCT ID CANNOT BE DUPLICATE WHEN ADDING AN OFFER TO THE
-      // BOOKING" — so dedupe by the pair and only POST once per
-      // unique offer. wa.liveWorkbenchOfferIds still gets one entry
-      // per leg (same UUID repeated for connection legs) so
-      // downstream per-leg SSR / cancel can index it cleanly.
-      // Pre-flight duplicate guard (cross-entry): the offer pair may
-      // already be in the booking from an earlier sell — e.g. the
-      // auto-expanded other leg of this connection. Refuse locally
-      // rather than burning a vendor call on the server's
-      // duplicate-offer rejection. Polite-citizen + discoverable.
-      const postedKeys = wa.livePostedOfferKeys ?? new Set<string>();
-      for (const leg of legs) {
-        const line = avail.lines.find((l) => l.line === leg.line)!;
-        const key = `${line.vendorRef!.offerId!}|${line.vendorRef!.productId!}`;
-        if (postedKeys.has(key)) {
-          return 'OFFER ALREADY IN BOOKING - SEE SEGMENTS SOLD ABOVE'; // reconstructed
+      await withWorkbenchRecovery(wa, liveBackend, async () => {
+        if (!wa.liveWorkbenchId) {
+          wa.liveWorkbenchId = await liveBackend.createWorkbench();
         }
-      }
-      const wbOfferIds = wa.liveWorkbenchOfferIds ?? [];
-      const posted = new Map<string, string>(); // (offerId|productId) → workbench UUID
-      for (const leg of legs) {
-        const line = avail.lines.find((l) => l.line === leg.line)!;
-        const offerId = line.vendorRef!.offerId!;
-        const productId = line.vendorRef!.productId!;
-        const key = `${offerId}|${productId}`;
-        let wbUuid = posted.get(key);
-        if (wbUuid === undefined) {
-          const result = await liveBackend.addOffer(wa.liveWorkbenchId, {
-            searchIdentifier: avail.searchIdentifier,
-            offerId,
-            productId,
-          });
-          wbUuid = result.workbenchOfferId ?? '';
-          posted.set(key, wbUuid);
+        // Connection legs share the same offer + product (a single
+        // CatalogProductOffering covers the whole journey including all
+        // its segments). Posting addOffer twice with the same
+        // (offerId, productId) pair triggers pre-prod's "OFFER ID AND
+        // PRODUCT ID CANNOT BE DUPLICATE WHEN ADDING AN OFFER TO THE
+        // BOOKING" — so dedupe by the pair and only POST once per
+        // unique offer. wa.liveWorkbenchOfferIds still gets one entry
+        // per leg (same UUID repeated for connection legs) so
+        // downstream per-leg SSR / cancel can index it cleanly. Read
+        // wa.* fresh inside the thunk so a post-rebuild retry picks up
+        // the rebuilt offer list.
+        const wbOfferIds = wa.liveWorkbenchOfferIds ?? [];
+        const postedKeys = wa.livePostedOfferKeys ?? new Set<string>();
+        const posted = new Map<string, string>(); // (offerId|productId) → workbench UUID
+        for (const leg of legs) {
+          const line = avail.lines.find((l) => l.line === leg.line)!;
+          const offerId = line.vendorRef!.offerId!;
+          const productId = line.vendorRef!.productId!;
+          const key = `${offerId}|${productId}`;
+          let wbUuid = posted.get(key);
+          if (wbUuid === undefined) {
+            const result = await liveBackend.addOffer(wa.liveWorkbenchId!, {
+              searchIdentifier: avail.searchIdentifier!, // guarded above (LIVE SEARCH ID MISSING)
+              offerId,
+              productId,
+            });
+            wbUuid = result.workbenchOfferId ?? '';
+            posted.set(key, wbUuid);
+          }
+          wbOfferIds.push(wbUuid);
+          postedKeys.add(key);
         }
-        wbOfferIds.push(wbUuid);
-        postedKeys.add(key);
-      }
-      wa.liveWorkbenchOfferIds = wbOfferIds;
-      wa.livePostedOfferKeys = postedKeys;
+        wa.liveWorkbenchOfferIds = wbOfferIds;
+        wa.livePostedOfferKeys = postedKeys;
+      });
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -710,6 +716,145 @@ async function handleGalileoSell(
   }
   for (const s of added) wa.pnr.segments.push(s);
   return added.map(renderGalileoSoldSegment).join('\n');
+}
+
+/**
+ * Detect Travelport's workbench-expiry signal. Pre-prod returns the
+ * expiry as HTTP 200 with the error buried in the response body, so it
+ * surfaces here as a thrown `assertNoSemanticErrors` message — NOT a
+ * 404/410. (The original recovery sketch in live-travelport-backend.ts
+ * guessed a 404/410 status-code signal; the real one is a 200 +
+ * `[PROCESS/200] HOST SESSION HAS EXPIRED. IGNORE AND REINITIATE
+ * WORKBENCH AND RETRY`, which a status check would sail right past.)
+ * Match on the stable phrase.
+ */
+function isWorkbenchExpiredError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /HOST SESSION HAS EXPIRED|REINITIATE WORKBENCH/i.test(msg);
+}
+
+/**
+ * Rebuild a fresh live workbench from the COMMITTED local PNR after the
+ * server-side workbench expired (30-min TTL). `wa.pnr` is the source of
+ * truth: every build handler posts to live FIRST and commits to wa.pnr
+ * only on success, so anything already in wa.pnr was accepted at least
+ * once and is safe to replay. We discard the dead server-side handles
+ * and re-stage onto a new workbench in canonical order — offers (from
+ * each sold segment's vendorRef, deduped exactly like the sell handler),
+ * travelers (names + first phone), primary contact, then SSRs.
+ *
+ * The in-flight op that hit the expiry is NOT yet in wa.pnr, so it is
+ * re-applied by the caller's retry — not here. That split is what keeps
+ * the retry from double-posting: rebuild restores the saved state, the
+ * retry's own delta/dedup logic adds exactly the new element.
+ *
+ * wa.pnr is never mutated. Throws if the rebuild itself fails (the
+ * caller surfaces a LIVE BACKEND ERROR, same as any other live failure).
+ */
+async function rebuildLiveWorkbench(
+  wa: WorkArea,
+  backend: LiveTravelportBackend
+): Promise<void> {
+  // Discard the dead handles; wa.pnr (local truth) is preserved.
+  wa.liveWorkbenchId = undefined;
+  wa.liveTravelerIds = undefined;
+  wa.liveWorkbenchOfferIds = undefined;
+  wa.livePostedOfferKeys = undefined;
+
+  const workbenchId = await backend.createWorkbench();
+  wa.liveWorkbenchId = workbenchId;
+
+  // 1. Offers — one per sold segment, deduped by (offerId|productId) so
+  //    connection legs sharing an offer POST once but still get one
+  //    wbOfferIds entry per leg (index alignment for per-leg SSR/cancel).
+  const wbOfferIds: string[] = [];
+  const postedKeys = new Set<string>();
+  const postedUuid = new Map<string, string>();
+  for (const seg of wa.pnr.segments) {
+    const vr = seg.vendorRef;
+    if (!vr?.offerId || !vr?.productId || !vr?.searchIdentifier) continue; // non-live segment
+    const key = `${vr.offerId}|${vr.productId}`;
+    let wbUuid = postedUuid.get(key);
+    if (wbUuid === undefined) {
+      const result = await backend.addOffer(workbenchId, {
+        searchIdentifier: vr.searchIdentifier,
+        offerId: vr.offerId,
+        productId: vr.productId,
+      });
+      wbUuid = result.workbenchOfferId ?? '';
+      postedUuid.set(key, wbUuid);
+    }
+    wbOfferIds.push(wbUuid);
+    postedKeys.add(key);
+  }
+  wa.liveWorkbenchOfferIds = wbOfferIds;
+  wa.livePostedOfferKeys = postedKeys;
+
+  // 2. Travelers — only once a phone exists (commit needs the embedded
+  //    Telephone[]), mirroring ensureLiveTravelersPosted. Batch >1.
+  const phone = wa.pnr.phones[0]?.number;
+  if (phone && wa.pnr.names.length > 0) {
+    const travelers = wa.pnr.names.flatMap((ni) =>
+      ni.passengers.map((p) => ({ givenName: p.firstName, surname: ni.surname, phone }))
+    );
+    if (travelers.length === 1) {
+      const r = await backend.addTraveler(workbenchId, travelers[0]);
+      wa.liveTravelerIds = [r.travelerId ?? ''];
+    } else if (travelers.length > 1) {
+      const r = await backend.addTravelers(workbenchId, travelers);
+      wa.liveTravelerIds = r.travelerIds;
+    }
+  }
+
+  // 3. Primary contact — first phone, same as the P. handler.
+  if (phone) {
+    await backend.addPrimaryContact(workbenchId, phone);
+  }
+
+  // 4. SSRs — replay saved requests. Stored SpecialServiceRequest has no
+  //    segmentRef, so per-segment scope can't be reconstructed; the offer
+  //    association falls back to the first workbench offer — the same
+  //    default the live SSR handler uses for whole-BF scope.
+  for (const ssr of wa.pnr.ssrs) {
+    let travelerId: string | undefined;
+    if (ssr.nameRef && wa.liveTravelerIds) {
+      const tid = wa.liveTravelerIds[ssr.nameRef.item - 1];
+      if (tid) travelerId = tid;
+    }
+    const offerId = wa.liveWorkbenchOfferIds?.[0];
+    await backend.addSpecialServices(workbenchId, [
+      { ssrCode: ssr.code, travelerId, offerId, freeText: ssr.text },
+    ]);
+  }
+
+  // Received-from notepad comments (polite-citizen R.) are intentionally
+  // NOT replayed: they're advisory audit text (non-fatal by design), the
+  // OAuth token still identifies the agent, and re-adding risks duplicate
+  // notepad lines on the rebuilt BF.
+}
+
+/**
+ * Run a live workbench op, transparently recovering from a server-side
+ * workbench expiry ("REINITIATE WORKBENCH AND RETRY"). On the expiry
+ * signal we rebuild a fresh workbench from wa.pnr (rebuildLiveWorkbench)
+ * and run `op` again — exactly once. `op` MUST read `wa.liveWorkbenchId`
+ * (and any wa.liveXxxIds) at call time, not close over a captured value,
+ * so the retry targets the rebuilt workbench and recomputes its deltas.
+ * Non-expiry errors propagate unchanged. A second expiry on the retry
+ * also propagates (we don't loop) — the caller surfaces it.
+ */
+async function withWorkbenchRecovery<T>(
+  wa: WorkArea,
+  backend: LiveTravelportBackend,
+  op: () => Promise<T>
+): Promise<T> {
+  try {
+    return await op();
+  } catch (err) {
+    if (!isWorkbenchExpiredError(err)) throw err;
+    await rebuildLiveWorkbench(wa, backend);
+    return await op();
+  }
 }
 
 /**
@@ -802,10 +947,12 @@ async function handleGalileoName(
       // extra name via the override so the helper can include it in
       // the post without us having to push to wa.pnr.names first
       // (which would leak local state on a live error).
-      if (!wa.liveWorkbenchId) {
-        wa.liveWorkbenchId = await liveBackend.createWorkbench();
-      }
-      await ensureLiveTravelersPosted(wa, liveBackend, undefined, [nameItem]);
+      await withWorkbenchRecovery(wa, liveBackend, async () => {
+        if (!wa.liveWorkbenchId) {
+          wa.liveWorkbenchId = await liveBackend.createWorkbench();
+        }
+        await ensureLiveTravelersPosted(wa, liveBackend, undefined, [nameItem]);
+      });
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -874,15 +1021,17 @@ async function handleGalileoPhone(
     if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
     const liveBackend = ctx.backend;
     try {
-      if (!wa.liveWorkbenchId) {
-        wa.liveWorkbenchId = await liveBackend.createWorkbench();
-      }
-      // Post deferred Traveler(s) first (canonical workflow: Traveler
-      // before PrimaryContact), then the PrimaryContact. Pass the
-      // phone explicitly so we don't have to mutate wa.pnr.phones
-      // before the live call (which would leak local state on failure).
-      await ensureLiveTravelersPosted(wa, liveBackend, entry.text);
-      await liveBackend.addPrimaryContact(wa.liveWorkbenchId, entry.text);
+      await withWorkbenchRecovery(wa, liveBackend, async () => {
+        if (!wa.liveWorkbenchId) {
+          wa.liveWorkbenchId = await liveBackend.createWorkbench();
+        }
+        // Post deferred Traveler(s) first (canonical workflow: Traveler
+        // before PrimaryContact), then the PrimaryContact. Pass the
+        // phone explicitly so we don't have to mutate wa.pnr.phones
+        // before the live call (which would leak local state on failure).
+        await ensureLiveTravelersPosted(wa, liveBackend, entry.text);
+        await liveBackend.addPrimaryContact(wa.liveWorkbenchId, entry.text);
+      });
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
@@ -1195,9 +1344,15 @@ async function commitGalileoLive(
 ): Promise<string> {
   let locator: string;
   try {
-    locator = await backend.commitWorkbench(workbenchId, {
-      ticketing: wa.pnr.ticketing, // T.T* / T.TAU/10JUN — rides inline on the commit per v11 spec
-    });
+    // Recover from a workbench expiry between build and commit: rebuild
+    // the workbench from wa.pnr and retry the commit against the fresh
+    // one. Read wa.liveWorkbenchId at call time so the retry targets the
+    // rebuilt workbench, not the dead `workbenchId` captured at entry.
+    locator = await withWorkbenchRecovery(wa, backend, () =>
+      backend.commitWorkbench(wa.liveWorkbenchId ?? workbenchId, {
+        ticketing: wa.pnr.ticketing, // T.T* / T.TAU/10JUN — rides inline on the commit per v11 spec
+      })
+    );
   } catch (err) {
     return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
   }
@@ -2058,46 +2213,53 @@ async function handleGalileoSsr(
   }
 
   if (ctx.backend instanceof LiveTravelportBackend && wa.liveWorkbenchId) {
-    // Resolve traveler ref: nameRef.item → liveTravelerIds index.
-    // For whole-BF scope (no nameRef), omit TravelerIdentifier and
-    // let pre-prod tell us if it's actually required.
-    let travelerId: string | undefined;
-    if (entry.nameRef && wa.liveTravelerIds) {
-      const tid = wa.liveTravelerIds[entry.nameRef.item - 1];
-      if (tid) travelerId = tid;
-    }
-    // VERIFIED PRE-PROD 2026-06-06: SSR's AppliesTo.OfferIdentifier
-    // needs the WORKBENCH-side offer UUID assigned at addOffer time
-    // (captured on wa.liveWorkbenchOfferIds), NOT the search-side
-    // short ref (`o1`) cached in vendorRef. The earlier vendorRef-
-    // based version returned 200 + Result.Error: OFFER ID/IDENTIFIER
-    // VALUES MUST MATCH WITH THE RESERVATION WORKBENCH OFFER ID/
-    // IDENTIFIER VALUES.
-    //
-    // Per-leg scope: `SI.S<n>/<code>` targets segment <n>. Pick the
-    // workbench offer UUID for THAT segment (index = segmentRef-1).
-    // No segment scope (whole-BF SSR) defaults to the first offer —
-    // for multi-offer BFs this is the simplest pre-prod-tolerated
-    // shape; future variants can pass all UUIDs in the array.
-    //
-    // Falls back to the search-side ID for emulated mocks that don't
-    // populate the workbench offer list.
-    const offerIdx =
-      entry.segmentRef && entry.segmentRef > 0 ? entry.segmentRef - 1 : 0;
-    const offerId =
-      wa.liveWorkbenchOfferIds?.[offerIdx] ||
-      wa.liveWorkbenchOfferIds?.[0] ||
-      wa.lastAvailability?.lines[offerIdx]?.vendorRef?.offerId ||
-      wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
+    const liveBackend = ctx.backend;
     try {
-      await ctx.backend.addSpecialServices(wa.liveWorkbenchId, [
-        {
-          ssrCode: entry.code,
-          travelerId,
-          offerId,
-          freeText: entry.text,
-        },
-      ]);
+      // Resolve traveler/offer refs INSIDE the recovery thunk: a
+      // workbench rebuild regenerates liveTravelerIds and
+      // liveWorkbenchOfferIds, so the retry must re-resolve against the
+      // fresh arrays, not values captured before the rebuild.
+      await withWorkbenchRecovery(wa, liveBackend, async () => {
+        // Resolve traveler ref: nameRef.item → liveTravelerIds index.
+        // For whole-BF scope (no nameRef), omit TravelerIdentifier and
+        // let pre-prod tell us if it's actually required.
+        let travelerId: string | undefined;
+        if (entry.nameRef && wa.liveTravelerIds) {
+          const tid = wa.liveTravelerIds[entry.nameRef.item - 1];
+          if (tid) travelerId = tid;
+        }
+        // VERIFIED PRE-PROD 2026-06-06: SSR's AppliesTo.OfferIdentifier
+        // needs the WORKBENCH-side offer UUID assigned at addOffer time
+        // (captured on wa.liveWorkbenchOfferIds), NOT the search-side
+        // short ref (`o1`) cached in vendorRef. The earlier vendorRef-
+        // based version returned 200 + Result.Error: OFFER ID/IDENTIFIER
+        // VALUES MUST MATCH WITH THE RESERVATION WORKBENCH OFFER ID/
+        // IDENTIFIER VALUES.
+        //
+        // Per-leg scope: `SI.S<n>/<code>` targets segment <n>. Pick the
+        // workbench offer UUID for THAT segment (index = segmentRef-1).
+        // No segment scope (whole-BF SSR) defaults to the first offer —
+        // for multi-offer BFs this is the simplest pre-prod-tolerated
+        // shape; future variants can pass all UUIDs in the array.
+        //
+        // Falls back to the search-side ID for emulated mocks that don't
+        // populate the workbench offer list.
+        const offerIdx =
+          entry.segmentRef && entry.segmentRef > 0 ? entry.segmentRef - 1 : 0;
+        const offerId =
+          wa.liveWorkbenchOfferIds?.[offerIdx] ||
+          wa.liveWorkbenchOfferIds?.[0] ||
+          wa.lastAvailability?.lines[offerIdx]?.vendorRef?.offerId ||
+          wa.lastAvailability?.lines[0]?.vendorRef?.offerId;
+        await liveBackend.addSpecialServices(wa.liveWorkbenchId!, [
+          {
+            ssrCode: entry.code,
+            travelerId,
+            offerId,
+            freeText: entry.text,
+          },
+        ]);
+      });
     } catch (err) {
       return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
     }
