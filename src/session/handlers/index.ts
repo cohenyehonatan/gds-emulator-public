@@ -63,6 +63,7 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
         wa.machine.transition(SessionEvent.SIGN_OFF);
         const msg = entry.allAreas ? 'A.B.C.D.E.F..SIGNED OUT' : `${wa.area} SIGNED OUT`;
         wa.reset();
+        wa.agent = undefined; // session no longer signed on (reset() only clears the active slot)
         return msg;
       }
 
@@ -156,6 +157,10 @@ export function dispatch(entry: ParsedEntry, wa: WorkArea, ctx: HandlerContext):
       case 'void':
         return handleVoid(entry, wa, ctx);
       case 'switch_area':
+        // Area switch presupposes a signed-on session — gate on wa.agent
+        // like sell (FSM) and Amadeus JM do; without it, ¤<a> pre-sign-on
+        // flipped areas with no session behind it.
+        if (!wa.agent) return Response.NEED_SIGN_ON;
         if (!wa.switchTo(entry.targetArea)) return Response.FORMAT;
         return renderSwitchAreaResponse({ pcc: ctx.pcc, agent: wa.agent }, wa.area);
       case 'end_transaction':

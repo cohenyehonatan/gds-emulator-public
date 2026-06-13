@@ -25,6 +25,7 @@ export const Response = {
   NEED_NAME: 'NO NAMES IN PNR',
   // General:
   FORMAT: 'FORMAT', // generic unrecognized/invalid entry
+  NEED_SIGN_ON: 'NEED SIGN ON - USE SI', // reconstructed — session verb before sign-on; follows the NEED…-USE pattern
   RECORD_LOCATOR_NOT_FOUND: 'RECORD LOCATOR NOT FOUND', // TODO: confirm
   NO_PNR: 'NO PNR IN AAA', // TODO: confirm — nothing in the work area
   NO_ITINERARY: 'NO ITINERARY', // TODO: confirm — cancel/status with no segments

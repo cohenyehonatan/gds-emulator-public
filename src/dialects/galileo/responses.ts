@@ -19,6 +19,12 @@
 export const GalileoResponse = {
   /** Generic format / unrecognized entry — matches Sabre's `FORMAT`. */
   FORMAT: 'FORMAT', // reconstructed — Galileo's actual format-error wording isn't published
+  /**
+   * Session verb attempted before sign-on (area switch, etc.). No source
+   * quotes the wording; follows the verified `NEED … - USE <entry>`
+   * pattern and points at the Galileo sign-on entry.
+   */
+  NOT_SIGNED_ON: 'NEED SIGN ON - USE SON/Z', // reconstructed
   /** Empty / null fallback for handlers that can't act. */
   OK: 'OK', // reconstructed
   /** Successful ignore (Mini Guide p.18: "I — Ignore Transact"). */

@@ -256,10 +256,16 @@ function dispatchGalileoInner(
         wa.machine.transition(SessionEvent.SIGN_OFF);
         const agent = wa.agent;
         wa.reset();
+        wa.agent = undefined; // session is no longer signed on (reset() only clears the active slot)
         return renderGalileoSignOffResponse({ pcc: ctx.pcc, agent });
       }
 
       case 'switch_area':
+        // Area switch presupposes a signed-on session (the AAA work area
+        // is a facet of a sign-on) — mirror how sell is FSM-gated and how
+        // Amadeus JM gates on wa.agent. Without it, S<a> pre-sign-on
+        // silently flipped areas with no session behind it.
+        if (!wa.agent) return GalileoResponse.NOT_SIGNED_ON;
         if (!wa.switchTo(entry.targetArea)) return GalileoResponse.FORMAT;
         return renderGalileoSwitchAreaResponse({ pcc: ctx.pcc, agent: wa.agent }, wa.area);
 
