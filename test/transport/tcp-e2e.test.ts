@@ -107,6 +107,8 @@ describe('CRT-over-TCP state-trailer protocol (v6)', () => {
     // The hello identifies the host: dialect screen name + backend.
     expect(helloParts[3]).toBeTruthy();
     expect(helloParts[4]).toBe('EMULATED');
+    // 6th field carries the dialect sign-on screen (rendered on connect).
+    expect(helloParts[5]).toContain('AGENT SIGN IN'); // Sabre default mask
 
     const signIn = await terminal.enter('SI*');
     const parts = signIn.split('\x1F');

@@ -117,6 +117,12 @@ function startCrtMode(host: GdsHost, wa: WorkArea): Promise<void> {
   screen.print(host.dialect.bannerText);
   for (const line of backendAdvisory(host)) screen.print(line);
   screen.print('');
+  // Sign-on screen first — the session is sign-on-gated, so present the
+  // dialect's sign-on mask/prompt before the operator can do anything.
+  if (!wa.agent) {
+    for (const line of host.dialect.signOnScreen.split('\n')) screen.print(line);
+    screen.print('');
+  }
 
   // Mouse wheel: response area scrolls the CRT scrollback; the input
   // row scrolls readline command history (arrow-key substitution).
@@ -206,12 +212,14 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
   let crt = false;
   let remoteName = 'REMOTE GDS (TCP)';
   let remoteBackend = '';
+  let remoteSignOnScreen = '';
   try {
     const hello = await terminal.enter('.CRT');
     crt = hello.startsWith('CRT OK') && process.stdout.isTTY === true;
     const parts = hello.split('\x1F');
     if (parts[3]) remoteName = `${parts[3]} (TCP)`;
     if (parts[4]) remoteBackend = parts[4];
+    if (parts[5]) remoteSignOnScreen = parts[5];
   } catch {
     crt = false;
   }
@@ -231,7 +239,12 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
         await new Promise((r) => setTimeout(r, 500));
         try {
           await terminal.reconnect();
-          if (crt) await terminal.enter('.CRT');
+          if (crt) {
+            // Re-send the hello; refresh the sign-on screen so the
+            // reconnect handler can re-present it (fresh work area).
+            const re = await terminal.enter('.CRT');
+            remoteSignOnScreen = re.split('\x1F')[5] ?? remoteSignOnScreen;
+          }
           return { resp: await terminal.enter(entry), reconnected: true };
         } catch { /* server still down — keep trying */ }
       }
@@ -259,6 +272,11 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
       screen.print('  Entries reach the LIVE Travelport pre-prod tenant.');
     }
     screen.print('');
+    // Sign-on screen first — the session is sign-on-gated server-side.
+    if (remoteSignOnScreen) {
+      for (const l of remoteSignOnScreen.split('\n')) screen.print(l);
+      screen.print('');
+    }
 
     const mouse = wireCrtMouse(screen, () => redraw());
     const rl = readline.createInterface({ input: mouse.input, output: out, prompt: '› ', terminal: true });
@@ -288,6 +306,9 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
           const { resp, reconnected } = await enterWithReconnect(entry);
           if (reconnected) {
             screen.print('── RECONNECTED (server restarted — fresh work area, sign on again) ──');
+            if (remoteSignOnScreen) {
+              for (const l of remoteSignOnScreen.split('\n')) screen.print(l);
+            }
           }
           const { body, state, agent } = splitTrailer(resp);
           lastState = state;
