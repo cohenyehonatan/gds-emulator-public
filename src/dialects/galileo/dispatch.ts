@@ -86,6 +86,8 @@ import { renderGalileoFieldDisplay,
   renderGalileoQueueList,
   renderGalileoFareDisplay,
 } from './serializer.js';
+import type { GalileoSignature } from './serializer.js';
+import type { Pnr } from '../../models/pnr.js';
 import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
