@@ -19,8 +19,12 @@
  * with spaces around the slash for readability. The parser strips
  * whitespace inside the entry before matching.
  *
- * Unimplemented Galileo verbs (deferred): SAI (sign back in), SB/SA/SC/...
- * (work-area switch), OP/W* (active work area), SEM (emulate PCC),
+ * Handled before the parser as pre-parse intercepts in index.ts (so they
+ * never reach here): the S<A-E> work-area switch and OP/W* (active work
+ * area status).
+ *
+ * Unimplemented Galileo verbs (deferred): SAI (sign back in), SEM (emulate
+ * PCC — service-bureau only; PCC emulation, NOT a signed-in-agents list),
  * STD/Z... (security profile), #RESTART, #DELETEPLUGIN — all land as a
  * `ParseError` which the dialect surfaces as `FORMAT` until they're wired.
  */

@@ -6,11 +6,25 @@
  * the response screens, so the layout is reconstructed: one row per
  * area with an active marker, the per-slot session state, and the
  * session-level agent sign.
+ *
+ * The optional `ctx` adds a context header naming the PCC and backend
+ * kind. PCC is real sign-on context; the LIVE/EMULATED tag is
+ * emulator meta (same operator-facing "which backend am I driving"
+ * signal as the REPL banner and the local-only trailer) — it answers
+ * "am I on the shared pre-prod tenant?" at the cryptic surface. Opt-in
+ * so dialects that don't pass it keep the bare `WORK AREAS` header.
  */
 
 import type { WorkArea } from './work-area.js';
 
-export function renderAreaStatus(wa: WorkArea, onlyActive = false): string {
+export function renderAreaStatus(
+  wa: WorkArea,
+  onlyActive = false,
+  ctx?: { pcc?: string; live?: boolean }
+): string {
+  const header = ctx?.pcc
+    ? `WORK AREAS  PCC ${ctx.pcc}  ${ctx.live ? 'LIVE' : 'EMULATED'}`
+    : 'WORK AREAS';
   const rows = wa
     .allAreaLetters()
     .filter((l) => !onlyActive || l === wa.area)
@@ -21,5 +35,5 @@ export function renderAreaStatus(wa: WorkArea, onlyActive = false): string {
       const pnr = slot.pnr.hasContent() ? ' PNR IN PROGRESS' : '';
       return `${marker}${l}  ${state}${state === 'SIGNED_OFF' ? '' : `  ${wa.agent ?? ''}`}${pnr}`.trimEnd();
     });
-  return ['WORK AREAS', ...rows].join('\n');
+  return [header, ...rows].join('\n');
 }

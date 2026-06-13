@@ -37,6 +37,7 @@ import { handlePrintQueueVerb } from '../../session/print-spool.js';
 import { GalileoResponse } from './responses.js';
 import { renderEncodeDecode } from './encode-decode.js';
 import { renderAreaStatus } from '../../session/area-status.js';
+import { LiveTravelportBackend } from '../../backends/live-travelport-backend.js';
 
 /** Galileo's "combine entries" operator (Mini Format Guide v2, Symbols page). */
 const COMBINE = '+';
@@ -176,9 +177,15 @@ export class GalileoDialect implements Dialect {
     }
 
     // OP/W* — work-area status display (the all-areas view; the
-    // Worldspan B$ translation lands here). Layout reconstructed.
+    // Worldspan B$ translation lands here). Layout reconstructed. The
+    // PCC + backend-kind header tells the operator whether they're on
+    // the shared pre-prod tenant (LIVE) or local data (EMULATED) — the
+    // forensic context for "is this BF on screen actually mine?".
     if (raw.trim().toUpperCase() === 'OP/W*') {
-      return renderAreaStatus(wa);
+      return renderAreaStatus(wa, false, {
+        pcc: ctx.pcc,
+        live: ctx.backend instanceof LiveTravelportBackend,
+      });
     }
 
     // Encode/decode family — .CD/.CE (city) and .AD/.AE (airline),
