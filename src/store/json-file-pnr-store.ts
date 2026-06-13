@@ -150,6 +150,8 @@ function pnrToPlain(pnr: Pnr): Record<string, unknown> {
     receivedFrom: pnr.receivedFrom,
     fopField: pnr.fopField,
     createdAt: pnr.createdAt?.toISOString(),
+    responsiblePcc: pnr.responsiblePcc,
+    responsibleAgent: pnr.responsibleAgent,
   };
 }
 
@@ -210,5 +212,7 @@ function pnrFromPlain(plain: Record<string, unknown>): Pnr {
   p.receivedFrom = plain.receivedFrom as string | undefined;
   p.fopField = plain.fopField as string | undefined;
   if (typeof plain.createdAt === 'string') p.createdAt = new Date(plain.createdAt);
+  p.responsiblePcc = plain.responsiblePcc as string | undefined;
+  p.responsibleAgent = plain.responsibleAgent as string | undefined;
   return p;
 }

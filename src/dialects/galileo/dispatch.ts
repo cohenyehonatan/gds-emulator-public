@@ -203,6 +203,19 @@ function addFieldTransition(wa: WorkArea, historyText: string): void {
   recordHistory(wa, historyText);
 }
 
+/**
+ * Stamp BF responsibility (creating PCC + agent) on first commit, so the
+ * Galileo BF header attributes the file to its creator rather than to
+ * whoever later retrieves it. Idempotent — keyed on responsiblePcc, so a
+ * modify/re-file keeps the original creator. Call right before commit.
+ */
+function stampResponsibility(wa: WorkArea, ctx: HandlerContext): void {
+  if (wa.pnr.responsiblePcc === undefined) {
+    wa.pnr.responsiblePcc = ctx.pcc;
+    wa.pnr.responsibleAgent = wa.agent;
+  }
+}
+
 export function dispatchGalileo(
   entry: ParsedEntry,
   wa: WorkArea,
@@ -1306,6 +1319,7 @@ function handleGalileoEndTransaction(
   wa.pnr.segments.forEach((s) => {
     if (s.status === 'LL') s.status = 'HL';
   });
+  stampResponsibility(wa, ctx);
 
   // Live path: commit the workbench → server returns the real locator
   // → we stamp it on the in-memory PNR and ALSO write to the local
@@ -1869,6 +1883,11 @@ async function retrieveGalileoLive(
   if (stored) {
     pnr.history = stored.history.map((h) => ({ ...h }));
     if (!pnr.fopField) pnr.fopField = stored.fopField;
+    // BF responsibility is a GDS-host fact the v11 retrieve doesn't
+    // return; if WE committed this BF the shadow has the real creator,
+    // so the header shows it instead of the neutral placeholder.
+    pnr.responsiblePcc = stored.responsiblePcc;
+    pnr.responsibleAgent = stored.responsibleAgent;
     pnr.remarks.push(
       ...stored.remarks
         .filter((r) => r.type === 'itinerary' || r.type === 'document')
@@ -4315,6 +4334,7 @@ async function commitForQueueEnd(
   wa.pnr.segments.forEach((s) => {
     if (s.status === 'LL') s.status = 'HL';
   });
+  stampResponsibility(wa, ctx);
   if (ctx.backend instanceof LiveTravelportBackend) {
     if (!wa.liveWorkbenchId) return { error: 'LIVE WORKBENCH MISSING' }; // reconstructed
     let locator: string;

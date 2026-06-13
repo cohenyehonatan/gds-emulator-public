@@ -125,6 +125,16 @@ export class Pnr {
    */
   fopField?: string;
   createdAt?: Date;
+  /**
+   * Booking-file responsibility — the PCC/OID and agent sign-on code that
+   * CREATED the BF, stamped once at first commit. Galileo's BF header
+   * (`<locator>  <pcc>/<agent>`) attributes the file to its creator, not
+   * to whoever later retrieves it (see renderGalileoBfHeader). Absent on
+   * PNRs created before this field landed and on foreign BFs retrieved
+   * live whose creator we don't know. Survives the JsonFile round-trip.
+   */
+  responsiblePcc?: string;
+  responsibleAgent?: string;
 
   /** Seat-occupying passengers (infants don't occupy a seat). */
   passengerCount(): number {
@@ -166,6 +176,8 @@ export class Pnr {
     p.optionField = this.optionField;
     p.receivedFrom = this.receivedFrom;
     p.createdAt = this.createdAt;
+    p.responsiblePcc = this.responsiblePcc;
+    p.responsibleAgent = this.responsibleAgent;
     return p;
   }
 

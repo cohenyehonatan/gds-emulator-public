@@ -288,9 +288,19 @@ export function renderGalileoItinerary(pnr: Pnr, slice: 'ALL' | 'A' | 'H' | 'C' 
 
 /** `<LOCATOR> <PCC>/<AGENT>` — BF header line. Reconstructed. */
 function renderGalileoBfHeader(pnr: Pnr, sig: GalileoSignature): string {
-  const code = sig.agent ?? 'AGT';
   const loc = pnr.locator ?? '------';
-  return `${loc}  ${sig.pcc}/${code}`; // reconstructed
+  // Attribute the BF to its CREATOR, not to whoever is currently viewing
+  // it. Precedence:
+  //  - stamped responsibility (set at first commit) wins — the header is
+  //    stable across retrieves by other agents;
+  //  - an in-build BF (no locator yet) shows the current sign-on, the
+  //    owner-to-be;
+  //  - a committed/retrieved BF whose creator we don't know (e.g. a
+  //    foreign live BF) uses the neutral placeholder rather than the
+  //    current viewer's agent.
+  const pcc = pnr.responsiblePcc ?? sig.pcc;
+  const code = pnr.responsibleAgent ?? (pnr.locator ? 'AGT' : sig.agent ?? 'AGT');
+  return `${loc}  ${pcc}/${code}`; // reconstructed
 }
 
 /** Name lines, Galileo-style. `1.1SMITH/JOHN MR` per industry convention. */
