@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GalileoDialect } from '../../src/dialects/galileo/index.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import { LiveTravelportBackend } from '../../src/backends/live-travelport-backend.js';
-import { mapHotelSearch } from '../../src/backends/travelport-mapper.js';
+import { mapHotelSearch, mapHotelAvailability } from '../../src/backends/travelport-mapper.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
 /**
@@ -98,6 +98,114 @@ describe('mapHotelSearch — Stays PropertiesResponse → HotelProperty[]', () =
   });
 });
 
+// Real-shaped availability 200 body (HOC), trimmed VERBATIM from a live DEN
+// rate-detail capture (stays-den-avail.json, Westin DEN, 48 offerings):
+// CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[].
+const AVAIL_RESPONSE = {
+  CatalogOfferingsHospitalityResponse: {
+    '@type': 'CatalogOfferingsResponseHospitality',
+    CatalogOfferings: {
+      '@type': 'CatalogOfferings',
+      totalCatalogOffering: 2,
+      CatalogOffering: [
+        {
+          '@type': 'CatalogOfferingHospitality',
+          id: 'off-1',
+          Identifier: { value: '3f215c9f-e05b-45ba-984c-bfb3b784681a:75e9666108f2', authority: 'TVPT' },
+          ProductOptions: [
+            {
+              '@type': 'ProductOptions',
+              Product: [
+                {
+                  '@type': 'ProductHospitalityOffer',
+                  bookingCode: 'A00H18A',
+                  RoomType: {
+                    '@type': 'RoomType',
+                    Description: { value: 'AAA Caa Hot Deals, Membership Card Required, Prepay In Full, Traditional, Guest Room, 1 King' },
+                  },
+                },
+              ],
+            },
+          ],
+          Price: {
+            '@type': 'PriceDetail',
+            CurrencyCode: { value: 'USD' },
+            Base: 910.1,
+            TotalTaxes: 143.34,
+            TotalPrice: 1053.44,
+            PriceBreakdown: [
+              { '@type': 'PriceBreakdownHospitality', roomPricingType: 'Per night', AverageNightlyRate: [{ value: 455.05, code: 'USD', approximateInd: true }] },
+            ],
+          },
+          TermsAndConditions: { '@type': 'TermsAndConditions', ProductRateCodeInfo: [{ '@type': 'ProductRateCodeInfo', RateCodeInfo: { rateCategory: 'Association' } }] },
+        },
+        {
+          '@type': 'CatalogOfferingHospitality',
+          id: 'off-2',
+          Identifier: { value: 'aa11bb22:cc33dd44', authority: 'TVPT' },
+          ProductOptions: [
+            {
+              '@type': 'ProductOptions',
+              Product: [
+                {
+                  '@type': 'ProductHospitalityOffer',
+                  bookingCode: 'X00PJNX',
+                  RoomType: { '@type': 'RoomType', Description: { value: 'Parking, Deluxe, Guest Room, 2 Queen, High Floor' } },
+                },
+              ],
+            },
+          ],
+          Price: {
+            '@type': 'PriceDetail',
+            CurrencyCode: { value: 'USD' },
+            Base: 1708,
+            TotalTaxes: 269.01,
+            TotalPrice: 1977.01,
+            PriceBreakdown: [
+              { '@type': 'PriceBreakdownHospitality', roomPricingType: 'Per night', AverageNightlyRate: [{ value: 854, code: 'USD' }] },
+            ],
+          },
+          TermsAndConditions: { '@type': 'TermsAndConditions', ProductRateCodeInfo: [{ '@type': 'ProductRateCodeInfo', RateCodeInfo: { rateCategory: 'Package' } }] },
+        },
+      ],
+    },
+    Result: { '@type': 'Result', Warning: [{ '@type': 'Warning', StatusCode: 404, Message: 'Rates returned without cancel policy require a rule request for complete information' }] },
+  },
+};
+
+describe('mapHotelAvailability — Stays CatalogOfferings → HotelRateDetail[]', () => {
+  it('maps each CatalogOffering (real DEN shape, verified 2026-06-14)', () => {
+    const rates = mapHotelAvailability(AVAIL_RESPONSE);
+    expect(rates).toHaveLength(2);
+    expect(rates[0]).toMatchObject({
+      bookingCode: 'A00H18A',
+      base: 910.1,
+      total: 1053.44,
+      averageNightly: 455.05,
+      currency: 'USD',
+      category: 'Association',
+    });
+    expect(rates[0].description).toContain('Membership Card Required');
+    expect(rates[0].offerId).toBe('3f215c9f-e05b-45ba-984c-bfb3b784681a:75e9666108f2');
+    expect(rates[1]).toMatchObject({ bookingCode: 'X00PJNX', total: 1977.01, category: 'Package' });
+  });
+
+  it('tolerates a missing rate-code / breakdown (category + avg undefined)', () => {
+    const minimal = { CatalogOfferingsHospitalityResponse: { CatalogOfferings: { CatalogOffering: [
+      { Identifier: { value: 'x' }, ProductOptions: [{ Product: [{ bookingCode: 'B', RoomType: { Description: { value: 'D' } } }] }],
+        Price: { CurrencyCode: { value: 'USD' }, Base: 100, TotalPrice: 120 } },
+    ] } } };
+    const rates = mapHotelAvailability(minimal);
+    expect(rates[0]).toMatchObject({ bookingCode: 'B', total: 120, currency: 'USD' });
+    expect(rates[0].averageNightly).toBeUndefined();
+    expect(rates[0].category).toBeUndefined();
+  });
+
+  it('an empty offering list maps to no rates', () => {
+    expect(mapHotelAvailability({ CatalogOfferingsHospitalityResponse: { CatalogOfferings: { CatalogOffering: [] } } })).toHaveLength(0);
+  });
+});
+
 describe('Galileo live HOA — Stays hotel search', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let host: GdsHost;
@@ -107,6 +215,8 @@ describe('Galileo live HOA — Stays hotel search', () => {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   const searchResp = (body: unknown = PROPS_RESPONSE) =>
+    new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const availResp = (body: unknown = AVAIL_RESPONSE) =>
     new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   beforeEach(async () => {
@@ -226,5 +336,57 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(resp).toContain('MARRIOTT PARIS');
     expect(resp).toContain('RQ');
     expect(resp).not.toContain('Infinity');
+  });
+
+  it('HOC<line> is its own REST call — full rate detail for the cached property', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResp())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(availResp());
+    await host.process('HOA6FEB-09FEBPAR2', wa); // caches 2 properties
+    const resp = await host.process('HOC1', wa); // complete availability for line 1
+
+    // Header is the property; body is every bookable rate (not the lone search rate).
+    expect(resp).toContain('HNPAR1 HILTON PARIS OPERA');
+    expect(resp).toContain('A00H18A');
+    expect(resp).toContain('1053.44 USD');
+    expect(resp).toContain('AVG 455.05');
+    expect(resp).toContain('Association');
+    expect(resp).toContain('Membership Card Required'); // the description line
+    expect(resp).toContain('X00PJNX'); // second rate
+    expect(resp).toContain('Package');
+
+    // The availability call: verified endpoint, property key, dates, occupancy.
+    const [url, init] = fetchSpy.mock.calls[2];
+    expect(String(url)).toContain('/hotel/availability/catalogofferingshospitality');
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    const crit = body.CatalogOfferingsQueryRequest.CatalogOfferingsRequest[0];
+    expect(crit['@type']).toBe('CatalogOfferingsRequestHospitality');
+    expect(crit.StayDates).toMatchObject({ start: expect.stringMatching(/-02-06$/), end: expect.stringMatching(/-02-09$/) });
+    const pk = crit.HotelSearchCriterion.PropertyRequest[0].PropertyKey;
+    expect(pk).toMatchObject({ chainCode: 'HN', propertyCode: 'PAR1' });
+    expect(crit.HotelSearchCriterion.RoomStayCandidates.RoomStayCandidate[0].GuestCounts.GuestCount[0].count).toBe(2);
+  });
+
+  it('HOC before any hotel display → NO HOTEL DISPLAY (no live call)', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp());
+    expect(await host.process('HOC1', wa)).toBe('NO HOTEL DISPLAY');
+  });
+
+  it('HOC on an out-of-range line → INVALID LINE', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
+    await host.process('HOA6FEB-09FEBPAR2', wa);
+    expect(await host.process('HOC9', wa)).toBe('INVALID LINE');
+  });
+
+  it('HOC where the property has zero live rate offerings → NO RATES AVAILABLE', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResp())
+      .mockResolvedValueOnce(searchResp())
+      .mockResolvedValueOnce(availResp({ CatalogOfferingsHospitalityResponse: { CatalogOfferings: { CatalogOffering: [] } } }));
+    await host.process('HOA6FEB-09FEBPAR2', wa);
+    const resp = await host.process('HOC1', wa);
+    expect(resp).toContain('HNPAR1 HILTON PARIS OPERA');
+    expect(resp).toContain('NO RATES AVAILABLE');
   });
 });

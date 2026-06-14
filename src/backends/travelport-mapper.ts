@@ -47,7 +47,7 @@
 import type { AvailabilityLine, VendorRef } from '../models/availability-result.js';
 import { Pnr } from '../models/pnr.js';
 import type { AirSegment } from '../models/segment.js';
-import type { HotelSegment, HotelProperty } from '../models/hotel.js';
+import type { HotelSegment, HotelProperty, HotelRateDetail } from '../models/hotel.js';
 import type { CarSegment } from '../models/car.js';
 import type { NameItem } from '../models/name-element.js';
 import type { PhoneElement } from '../models/phone-element.js';
@@ -761,6 +761,51 @@ export function mapHotelSearch(response: unknown, fallbackCity: string): HotelPr
       city: str(p?.Address?.City) || fallbackCity,
       address: str(arrayish(p?.Address?.AddressLine)[0] ?? p?.Address?.Street),
       rates,
+    });
+  }
+  return out;
+}
+
+/**
+ * Map a Stays availability response (the HOC "complete availability" call,
+ * POST /hotel/availability/catalogofferingshospitality) → HotelRateDetail[].
+ *
+ * Shape VERIFIED 2026-06-14 against a real live DEN response (Westin DEN,
+ * 48 rate offerings):
+ *   CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[]
+ *     .Identifier.value                         → offerId
+ *     .ProductOptions[0].Product[0]
+ *        .bookingCode                            → bookingCode
+ *        .RoomType.Description.value             → description
+ *     .Price.{Base,TotalPrice,CurrencyCode.value} → base/total/currency
+ *     .Price.PriceBreakdown[].AverageNightlyRate[0].value → averageNightly
+ *     .TermsAndConditions.ProductRateCodeInfo[0].RateCodeInfo.rateCategory → category
+ */
+export function mapHotelAvailability(response: unknown): HotelRateDetail[] {
+  const r = response as any;
+  const root = r?.CatalogOfferingsHospitalityResponse ?? r;
+  const out: HotelRateDetail[] = [];
+  for (const off of arrayish(root?.CatalogOfferings?.CatalogOffering)) {
+    const o = off as any;
+    const product = arrayish(o?.ProductOptions)[0] != null ? arrayish(arrayish(o?.ProductOptions)[0]?.Product)[0] : undefined;
+    const price = o?.Price;
+    const currency = str(price?.CurrencyCode?.value);
+    // AverageNightlyRate lives on the "Per night" PriceBreakdown entry.
+    let avg: number | undefined;
+    for (const pb of arrayish(price?.PriceBreakdown)) {
+      const a = arrayish((pb as any)?.AverageNightlyRate)[0];
+      if (a?.value != null) { avg = num(a.value); break; }
+    }
+    const rateCode = arrayish(o?.TermsAndConditions?.ProductRateCodeInfo)[0] as any;
+    out.push({
+      bookingCode: str((product as any)?.bookingCode),
+      description: str((product as any)?.RoomType?.Description?.value),
+      base: num(price?.Base),
+      total: num(price?.TotalPrice),
+      averageNightly: avg,
+      currency,
+      category: str(rateCode?.RateCodeInfo?.rateCategory) || undefined,
+      offerId: str(o?.Identifier?.value) || undefined,
     });
   }
   return out;

@@ -60,6 +60,7 @@ import {
   mapQueueList,
   mapFareDisplay,
   mapHotelSearch,
+  mapHotelAvailability,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -3423,7 +3424,7 @@ async function handleGalileoHotel(
     }
     if (props.length === 0) return 'NO HOTELS';
     const nights = entry.checkIn && entry.checkOut ? galileoNights(entry.checkIn, entry.checkOut) : 1;
-    wa.lastHotelAvail = { city: displayCity, checkIn, checkOut, nights, properties: props };
+    wa.lastHotelAvail = { city: displayCity, checkIn, checkOut, nights, adults: entry.adults, properties: props };
     wa.lastCarAvail = undefined; // hotel display replaces a car display
 
     if (isIndex) {
@@ -3452,7 +3453,36 @@ async function handleGalileoHotel(
   if (!cached) return 'NO HOTEL DISPLAY';
   const prop = cached.properties[(entry.line ?? 0) - 1];
   if (!prop) return 'INVALID LINE';
-  const lines = [`${prop.chain}${prop.property} ${prop.name}`, `${prop.address} ${prop.city}`];
+  const header = [`${prop.chain}${prop.property} ${prop.name}`, `${prop.address} ${prop.city}`];
+
+  // LIVE: HOC is its own REST call — full rate detail for the one property
+  // (every bookable rate offering), not the single lowest rate the search
+  // cached. Emulated keeps the seed's rate list.
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    try {
+      const resp = await ctx.backend.hotelAvailability({
+        chain: prop.chain,
+        property: prop.property,
+        checkIn: ddmonToIso(cached.checkIn),
+        checkOut: ddmonToIso(cached.checkOut),
+        adults: cached.adults,
+      });
+      const rates = mapHotelAvailability(resp);
+      if (rates.length === 0) return [...header, 'NO RATES AVAILABLE'].join('\n');
+      const lines = header;
+      rates.forEach((r, i) => {
+        const avg = r.averageNightly != null ? `  AVG ${r.averageNightly.toFixed(2)}` : '';
+        const cat = r.category ? `  ${r.category}` : '';
+        lines.push(`${(i + 1).toString().padStart(2, ' ')} ${r.bookingCode.padEnd(8, ' ')} ${r.total.toFixed(2)} ${r.currency}${avg}${cat}`);
+        if (r.description) lines.push(`   ${r.description}`);
+      });
+      return lines.join('\n');
+    } catch (err) {
+      return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+    }
+  }
+
+  const lines = header;
   prop.rates.forEach((r, i) => {
     lines.push(`${(i + 1).toString().padStart(2, ' ')} ${r.code}  ${r.amount.toFixed(2)} ${r.currency}  AVL ${r.available}`);
   });

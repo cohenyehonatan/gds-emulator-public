@@ -109,11 +109,13 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    wraps in a **`PropertiesQuerySearch`** object (run 1 → "REQUIRED TYPE:
    PropertiesQuerySearch OBJECT"; run 2 with the wrapper → "CHECK IN DATE DATA IS
    INVALID", i.e. now validating fields). So live hotel is a **GO**.
-2. **Exact request body field shapes** — the public docs publish only the
-   `SearchBy` fragment; the wrapper is `PropertiesQuerySearch`, but the date/guest
-   field names/format still need the per-endpoint **API reference** or one
-   `TVP_CAPTURE` of a known-good request. Do NOT fuzz pre-prod field-by-field
-   (vendor-pacing rule). Same for availability/rules/book bodies.
+2. ~~**Exact request body field shapes**~~ **RESOLVED for search + availability**
+   (2026-06-14/15). Search body (`PropertiesQuerySearch`, `CheckInDate`/
+   `CheckOutDate` at root) and availability body
+   (`CatalogOfferingsQueryRequest` → `[CatalogOfferingsRequestHospitality]` with
+   `StayDates{start,end}` + `HotelSearchCriterion.PropertyRequest[].PropertyKey`)
+   both verified live (HTTP 200, real DEN data). Still open: the **book** body
+   (chunk 3). Do NOT fuzz pre-prod field-by-field (vendor-pacing rule).
 3. **Workbench vs direct book** — `/hotel/book/reservations/build` implies a
    workbench like air; confirm whether the active-sell flow needs the build step or
    the direct `POST /reservations` suffices.
@@ -141,9 +143,19 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    tests: `test/dialects/galileo-live-hotel.test.ts`. **`mapHotelSearch` VERIFIED
    2026-06-15** against a real live DEN search (100 properties; `LowestAvailableRate
    {value,code}` confirmed; 57 closed → no rate → `RQ`) — captured via
-   `TVP_STAYS_AIRPORT=DEN TVP_STAYS_OUT=… npm run validate:stays-creds`. Open: `HOC`
-   rate detail via `/hotel/availability/catalogofferingshospitality` (the
-   availability call). `HOI` stays emulated.
+   `TVP_STAYS_AIRPORT=DEN TVP_STAYS_OUT=… npm run validate:stays-creds`.
+   **`HOC<line>` rate detail — DONE + VERIFIED 2026-06-14.** It's its own REST
+   call (`LiveTravelportBackend.hotelAvailability()` →
+   `POST /hotel/availability/catalogofferingshospitality`) for the property on
+   the cached HOA line, mapped by `mapHotelAvailability` →
+   `HotelRateDetail[]` (bookingCode / room description / full-stay total / avg
+   nightly / rate category / offerId). Both the REQUEST body
+   (`CatalogOfferingsQueryRequest` → `[CatalogOfferingsRequestHospitality]` with
+   `StayDates{start,end}` + `HotelSearchCriterion.PropertyRequest[].PropertyKey`)
+   and the RESPONSE shape were verified live against a real Westin-DEN capture
+   (HTTP 200, 48 offerings) via the probe's opt-in third call
+   (`TVP_STAYS_AVAIL=1 TVP_STAYS_AVAIL_OUT=…`). `HOI` stays emulated; emulated
+   `HOC` keeps the seed's rate list.
 3. **Sell path** — active book (`N<rooms>A<line>` → `/hotel/book/reservations`) and
    passive book (`0HTL…MK` → `/hotel/book/reservations/passive`).
 4. **Cancel** — `X`-family hotel segment → `…/canceloffer`. Retrieve is already done.

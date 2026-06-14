@@ -8,6 +8,9 @@
  * air was.
  *
  * It makes at most TWO live calls: OAuth, then ONE hotel property search.
+ * Opt-in THIRD call (TVP_STAYS_AVAIL=1): rate detail for the first bookable
+ * property via /hotel/availability/catalogofferingshospitality — the HOC call.
+ * Capture it with TVP_STAYS_AVAIL_OUT=./stays-den-avail.json.
  * The answer is read from the HTTP status:
  *   200       → entitled AND our body shape is accepted (response dumped).
  *   400       → ENTITLED, but the request body needs the verified envelope
@@ -119,7 +122,7 @@ function extractMessages(body: unknown, out: string[] = [], depth = 0): string[]
   return out;
 }
 
-async function hotelSearch(token: string): Promise<void> {
+async function hotelSearch(token: string): Promise<unknown | undefined> {
   const url = API_BASE + SEARCH_PATH;
   console.log(`\n[2/2] Stays hotel search  →  POST ${url}`);
   console.log(`      ↳ airport ${AIRPORT}  ${CHECKIN} → ${CHECKOUT}  (1 room / 2 guests)`);
@@ -198,6 +201,8 @@ async function hotelSearch(token: string): Promise<void> {
     } else {
       console.log('  → re-run with TVP_STAYS_OUT=./stays-den-search.json to capture the shape.');
     }
+    console.log('══════════════════════════════════════════════════════');
+    return parsed;
   } else if (res.status === 400) {
     console.log('✓ ENTITLED — the tenant can reach Stays; only our REQUEST BODY shape is off.');
     console.log('  Body validation failed (see the message above). The entitlement gate is PASSED.');
@@ -213,6 +218,104 @@ async function hotelSearch(token: string): Promise<void> {
     console.log(`△ Unexpected ${res.status}. Body:\n${text.slice(0, 800)}`);
   }
   console.log('══════════════════════════════════════════════════════');
+  return undefined;
+}
+
+/** Pull the first bookable (availability "Open") property's key from a search response. */
+function firstOpenProperty(searchResponse: unknown): { chainCode: string; propertyCode: string; name: string } | undefined {
+  const root = (searchResponse as any)?.PropertiesResponse ?? searchResponse;
+  const list = root?.Properties?.PropertyInfo;
+  if (!Array.isArray(list)) return undefined;
+  // Prefer an Open property (has a rate); fall back to the first with a key.
+  const pick = (pred: (pi: any) => boolean) =>
+    list.find((pi: any) => pi?.Property?.PropertyKey?.chainCode && pi?.Property?.PropertyKey?.propertyCode && pred(pi));
+  const pi = pick((pi: any) => pi?.Property?.availability === 'Open') ?? pick(() => true);
+  if (!pi) return undefined;
+  const k = pi.Property.PropertyKey;
+  return { chainCode: k.chainCode, propertyCode: k.propertyCode, name: pi.Property.name ?? '' };
+}
+
+/**
+ * THIRD live call (opt-in via TVP_STAYS_AVAIL=1) — fetch full rate detail for ONE
+ * property via /hotel/availability/catalogofferingshospitality. This is the HOC
+ * rate-detail call. Body shape VERIFIED against the Stays v11.34 OpenAPI
+ * (CatalogOfferingsQueryRequestHospitalityWrapper → CatalogOfferingsQueryRequest
+ * → [CatalogOfferingsRequestHospitality] with StayDates + HotelSearchCriterion
+ * carrying the PropertyRequest[].PropertyKey from the search). Captures the
+ * response to TVP_STAYS_AVAIL_OUT so the HOC mapper is built from real data.
+ */
+async function hotelAvailability(
+  token: string,
+  prop: { chainCode: string; propertyCode: string; name: string },
+): Promise<void> {
+  const path = process.env.TVP_STAYS_AVAIL_PATH ?? '/hotel/availability/catalogofferingshospitality';
+  const url = API_BASE + path;
+  console.log(`\n[3/3] Stays availability  →  POST ${url}`);
+  console.log(`      ↳ property ${prop.chainCode}-${prop.propertyCode} (${prop.name})  ${CHECKIN} → ${CHECKOUT}`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Cache-Control': 'no-cache',
+    'Accept-Version': ACCEPT_VERSION,
+    'Content-Version': ACCEPT_VERSION,
+  };
+  if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
+  else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
+
+  const payload = {
+    CatalogOfferingsQueryRequest: {
+      '@type': 'CatalogOfferingsQueryRequest',
+      CatalogOfferingsRequest: [
+        {
+          '@type': 'CatalogOfferingsRequestHospitality',
+          StayDates: { start: CHECKIN, end: CHECKOUT },
+          HotelSearchCriterion: {
+            '@type': 'HotelSearchCriterion',
+            numberOfRooms: 1,
+            PropertyRequest: [
+              {
+                '@type': 'PropertyRequest',
+                PropertyKey: { '@type': 'PropertyKey', chainCode: prop.chainCode, propertyCode: prop.propertyCode },
+              },
+            ],
+            RoomStayCandidates: {
+              RoomStayCandidate: [
+                { GuestCounts: { '@type': 'GuestCounts', GuestCount: [{ '@type': 'GuestCount', count: 2 }] } },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const text = await res.text();
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { parsed = text; }
+  console.log(`      ↳ HTTP ${res.status} ${res.statusText}`);
+  for (const m of extractMessages(parsed)) console.log(`        • ${m}`);
+
+  console.log('\n════════════════════ AVAIL VERDICT ═══════════════════');
+  if (res.status === 200) {
+    const out = process.env.TVP_STAYS_AVAIL_OUT;
+    console.log('✓ AVAILABILITY RAN — rate detail returned for the property.');
+    if (out) {
+      const fs = await import('node:fs/promises');
+      await fs.writeFile(out, JSON.stringify(parsed, null, 2), 'utf8');
+      console.log(`  → full availability response written to ${out} — build the HOC mapper from it.`);
+    } else {
+      console.log('  → re-run with TVP_STAYS_AVAIL_OUT=./stays-den-avail.json to capture the shape.');
+    }
+  } else if (res.status === 400) {
+    console.log('△ 400 — entitled, but the availability BODY shape is off (likely StayDates/criterion field).');
+  } else {
+    console.log(`△ ${res.status} — see message above. Body:\n${text.slice(0, 600)}`);
+  }
+  console.log('══════════════════════════════════════════════════════');
 }
 
 async function main(): Promise<void> {
@@ -220,8 +323,14 @@ async function main(): Promise<void> {
   console.log(`PCC=${PCC}  GDS=${GDS}  API_BASE=${API_BASE}  ${ACCESS_GROUP ? 'ACCESS_GROUP set' : 'TVP-PCC-CORE'}`);
   requireCreds();
   const token = await getToken();
-  await hotelSearch(token);
-  console.log('\nDone. (Single live call — re-running hits the API again.)');
+  const searchResponse = await hotelSearch(token);
+  // Opt-in third call: rate detail (HOC) for the first bookable property.
+  if (process.env.TVP_STAYS_AVAIL && searchResponse) {
+    const prop = firstOpenProperty(searchResponse);
+    if (prop) await hotelAvailability(token, prop);
+    else console.log('\n△ TVP_STAYS_AVAIL set but no open property with a key found in the search — skipping availability.');
+  }
+  console.log('\nDone. (Live calls only — re-running hits the API again.)');
 }
 
 main().catch((err) => {

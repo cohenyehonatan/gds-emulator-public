@@ -137,7 +137,7 @@ const TOPICS: HelpTopic[] = [
       'HOA<d1>-<d2><city><adults>   availability (3-letter city/airport code)',
       'HOA<d1>-<d2>/GEO-<lat>,<lng> availability by lat/long (live; no-IATA towns)',
       'HOI<city>[/<chain>]          index',
-      'HOC<line>                    complete availability',
+      'HOC<line>                    complete availability (all rates; live = rate detail)',
       'N<rooms>A<line>D<days>       sell from display',
       '0HTL<chain><status><rooms><city><in>-OUT<out>[/H-<name>/P-<id>/R-<rate>]',
       '                             direct sell (no avail; status MK passive/HK active)',

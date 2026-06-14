@@ -700,6 +700,59 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Complete availability (rate detail) for ONE property — the HOC call.
+   * POST /hotel/availability/catalogofferingshospitality. Returns the full
+   * CatalogOfferingsHospitalityResponse (every bookable rate offering for
+   * the property over the stay dates); the dispatch layer runs it through
+   * mapHotelAvailability. Body shape VERIFIED 2026-06-14 against a real DEN
+   * response (HTTP 200, 48 offerings). postJsonRaw, NOT postJson — a rate
+   * detail legitimately returns informational warnings ("[?/404] Rates
+   * returned without cancel policy require a rule request…").
+   */
+  async hotelAvailability(req: {
+    chain: string;
+    property: string;
+    checkIn: string;
+    checkOut: string;
+    adults?: number;
+    rooms?: number;
+  }): Promise<unknown> {
+    const url = `${this.opts.apiBase}/hotel/availability/catalogofferingshospitality`;
+    const body = {
+      CatalogOfferingsQueryRequest: {
+        '@type': 'CatalogOfferingsQueryRequest',
+        CatalogOfferingsRequest: [
+          {
+            '@type': 'CatalogOfferingsRequestHospitality',
+            StayDates: { start: req.checkIn, end: req.checkOut },
+            HotelSearchCriterion: {
+              '@type': 'HotelSearchCriterion',
+              numberOfRooms: req.rooms ?? 1,
+              PropertyRequest: [
+                {
+                  '@type': 'PropertyRequest',
+                  PropertyKey: { '@type': 'PropertyKey', chainCode: req.chain, propertyCode: req.property },
+                },
+              ],
+              RoomStayCandidates: {
+                RoomStayCandidate: [
+                  {
+                    GuestCounts: {
+                      '@type': 'GuestCounts',
+                      GuestCount: [{ '@type': 'GuestCount', count: req.adults ?? 1 }],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    };
+    return this.postJsonRaw(url, body, 'hotelAvailability');
+  }
+
+  /**
    * Search seat availability for a previously-searched offer +
    * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
    * (SA* / SM*) and Sabre 4G display verbs.

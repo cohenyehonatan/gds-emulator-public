@@ -112,6 +112,8 @@ export class WorkAreaSlot {
     checkIn: string;
     checkOut: string;
     nights: number;
+    /** Guest count from the HOA search — replayed into the HOC rate-detail call. */
+    adults?: number;
     properties: import('../models/hotel.js').HotelProperty[];
   };
 

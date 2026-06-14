@@ -38,6 +38,31 @@ export interface HotelRate {
   available: number;
 }
 
+/**
+ * A single rate offering from the HOC "complete availability" call
+ * (Stays /hotel/availability/catalogofferingshospitality →
+ * CatalogOffering[]). Richer than HotelRate: it carries the room/rate
+ * description, the full-stay total, and the offer id needed for a
+ * later sell. Shape VERIFIED 2026-06-14 against a real DEN response.
+ */
+export interface HotelRateDetail {
+  /** Booking code (Product.bookingCode, e.g. A00H18A). */
+  bookingCode: string;
+  /** Room/rate description (RoomType.Description.value). */
+  description: string;
+  /** Full-stay base before taxes (Price.Base). */
+  base: number;
+  /** Full-stay total incl. taxes (Price.TotalPrice). */
+  total: number;
+  /** Average nightly rate (PriceBreakdown.AverageNightlyRate), if given. */
+  averageNightly?: number;
+  currency: string;
+  /** Rate category (ProductRateCodeInfo.RateCodeInfo.rateCategory, e.g. Association). */
+  category?: string;
+  /** Offer identifier (Identifier.value) — referenced by a later sell. */
+  offerId?: string;
+}
+
 export interface HotelSegment {
   segmentNumber: number;
   chain: string;
