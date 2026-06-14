@@ -182,21 +182,25 @@ async function hotelSearch(token: string): Promise<void> {
   for (const m of msgs) console.log(`        • ${m}`);
 
   console.log('\n══════════════════════ VERDICT ══════════════════════');
-  if (res.status === 200 && msgs.length === 0) {
-    console.log('✓ ENTITLED + body accepted — 7K9S can see the Stays API.');
-    console.log('  → Live hotel (HOA/HOC/sell) is wireable. Proceed with docs/live-stays-wiring.md chunk 2.');
+  if (res.status === 200) {
+    // A 200 means the search RAN — even with informational Result
+    // messages like "Rates unavailable for N properties" (DEN returns
+    // ~56 properties alongside that). Capture it; the messages are not
+    // errors.
+    const root = (parsed as any)?.PropertiesResponse ?? parsed;
+    const count = Array.isArray(root?.Properties?.PropertyInfo) ? root.Properties.PropertyInfo.length : 'unknown';
+    console.log(`✓ ENTITLED + LIVE DATA — search ran, ${count} properties returned.`);
+    if (msgs.length > 0) console.log(`  (informational, not errors: ${msgs.length} Result message(s) above.)`);
     if (OUT_FILE) {
       const fs = await import('node:fs/promises');
       await fs.writeFile(OUT_FILE, JSON.stringify(parsed, null, 2), 'utf8');
-      console.log(`  → response shape written to ${OUT_FILE} (map this onto HotelProperty[]).`);
+      console.log(`  → full response written to ${OUT_FILE} — verify mapHotelSearch against it.`);
     } else {
-      console.log('  → re-run with TVP_STAYS_OUT=./stays-search-response.json to capture the shape.');
+      console.log('  → re-run with TVP_STAYS_OUT=./stays-den-search.json to capture the shape.');
     }
-  } else if (res.status === 400 || (res.status === 200 && msgs.length > 0)) {
+  } else if (res.status === 400) {
     console.log('✓ ENTITLED — the tenant can reach Stays; only our REQUEST BODY shape is off.');
-    console.log('  (Expected: docs publish only the SearchBy fragment.) Live hotel is a GO;');
-    console.log('  chunk 2 needs the verified search/availability body — capture it via the API');
-    console.log('  reference or a TVP_CAPTURE run. The entitlement gate is PASSED.');
+    console.log('  Body validation failed (see the message above). The entitlement gate is PASSED.');
   } else if (res.status === 401 || res.status === 403) {
     console.log('✗ NOT ENTITLED — auth works but Stays is rejected for this tenant/PCC/access-group.');
     console.log(`  (TVP-PCC-CORE ${PCC}_${GDS}.) Try an issued hotel access group via`);

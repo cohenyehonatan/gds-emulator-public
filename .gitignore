@@ -5,7 +5,7 @@ references/*.txt
 
 # validate-*-creds.ts runtime artifacts (live API responses)
 travelport-response.json
-stays-search-response.json
+stays-*.json
 tvp-diag-*.json
 tvp-*.json
 

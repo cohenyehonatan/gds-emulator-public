@@ -138,10 +138,12 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    that its `SearchCity` is a 3-letter IATA city code, not a name — pre-prod
    400 "IATA CITY CODE IS MISSING OR INVALID" — and a town like Estes Park has
    no code at all.) Emulated has no geo index → NO HOTELS (live-only). Mocked
-   tests: `test/dialects/galileo-live-hotel.test.ts`. Open: `HOC` rate detail via
-   `/hotel/availability/catalogofferingshospitality` (the availability call), and
-   re-verifying `mapHotelSearch` against a real response (capture on an entitled
-   tenant). `HOI` stays emulated.
+   tests: `test/dialects/galileo-live-hotel.test.ts`. **`mapHotelSearch` VERIFIED
+   2026-06-15** against a real live DEN search (100 properties; `LowestAvailableRate
+   {value,code}` confirmed; 57 closed → no rate → `RQ`) — captured via
+   `TVP_STAYS_AIRPORT=DEN TVP_STAYS_OUT=… npm run validate:stays-creds`. Open: `HOC`
+   rate detail via `/hotel/availability/catalogofferingshospitality` (the
+   availability call). `HOI` stays emulated.
 3. **Sell path** — active book (`N<rooms>A<line>` → `/hotel/book/reservations`) and
    passive book (`0HTL…MK` → `/hotel/book/reservations/passive`).
 4. **Cancel** — `X`-family hotel segment → `…/canceloffer`. Retrieve is already done.

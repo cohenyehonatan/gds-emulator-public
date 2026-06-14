@@ -58,6 +58,31 @@ describe('mapHotelSearch — Stays PropertiesResponse → HotelProperty[]', () =
     expect(props[0].rates[0]).toMatchObject({ amount: 189, currency: 'EUR' });
   });
 
+  it('maps REAL DEN capture entries (verified 2026-06-15: 100 props, open + closed)', () => {
+    // Trimmed verbatim from a live DEN search (stays-den-search.json): an
+    // OPEN property with a rate and a CLOSED one without (the "Rates
+    // unavailable for 57 properties" case). Confirms the spec-derived
+    // field paths against real data.
+    const real = { PropertiesResponse: { Properties: { PropertyInfo: [
+      { '@type': 'PropertyInfo', id: 'GE-E7437', availability: 'Open',
+        LowestAvailableRate: { value: 609, code: 'USD' },
+        Property: { '@type': 'PropertyDetail', PropertyKey: { chainCode: 'GE', propertyCode: 'E7437' },
+          name: 'Gaylord Rockies Resort and Convention Center',
+          Address: { City: 'Aurora', AddressLine: ['6700 North Gaylord Rockies Boulevard'] } } },
+      { '@type': 'PropertyInfo', id: 'WI-B2095', availability: 'Close',
+        Property: { '@type': 'PropertyDetail', PropertyKey: { chainCode: 'WI', propertyCode: 'B2095' },
+          name: 'The Westin Denver International Airport',
+          Address: { City: 'Denver', AddressLine: ['8300 Pena Boulevard'] } } },
+    ] } } };
+    const props = mapHotelSearch(real, 'DEN');
+    expect(props).toHaveLength(2);
+    expect(props[0]).toMatchObject({ chain: 'GE', property: 'E7437', city: 'Aurora' });
+    expect(props[0].name).toContain('Gaylord');
+    expect(props[0].rates[0]).toMatchObject({ amount: 609, currency: 'USD' }); // open → rate
+    expect(props[1]).toMatchObject({ chain: 'WI', property: 'B2095', city: 'Denver' });
+    expect(props[1].rates).toHaveLength(0); // closed → no rate (HOA shows RQ)
+  });
+
   it('a property with no LowestAvailableRate maps to empty rates (→ HOA shows RQ)', () => {
     const r = { PropertiesResponse: { Properties: { PropertyInfo: [
       { Property: { PropertyKey: { chainCode: 'MC', propertyCode: 'X' }, name: 'M HOTEL', Address: { City: 'PAR' } } },

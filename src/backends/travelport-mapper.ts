@@ -729,16 +729,15 @@ function applyDisplaySequence(pnr: Pnr, root: any, hotels: HotelRef[], cars: Car
  * returns), so a live HOA renders + caches for sell exactly like the
  * emulated path.
  *
- * SPEC-DERIVED (Stays v11.34 OpenAPI, `references/galileo/Travelport-
- * Stays-v11.34-OpenAPI.json`), NOT capture-verified — the 7K9S trial
- * tenant 500s on hotel content, so there's no real response to pin
- * against yet. Field paths: `PropertiesResponse.Properties.PropertyInfo[]`,
- * each `.Property` is a `PropertyDetail` (= `Property` ⊕ address) carrying
- * `PropertyKey.{chainCode,propertyCode}` + `name` + `Address.City`, and
- * `.LowestAvailableRate` (a `CurrencyAmount` {value, code}) gives the
- * representative HOA rate. Re-verify against a real response (TVP_CAPTURE
- * on an entitled tenant) before trusting in production — the same
- * capture-first bar the multi-content retrieve mapper met.
+ * VERIFIED 2026-06-15 against a real live DEN search (100 properties).
+ * Field paths: `PropertiesResponse.Properties.PropertyInfo[]`, each
+ * `.Property` is a `PropertyDetail` (= `Property` ⊕ address) carrying
+ * `PropertyKey.{chainCode,propertyCode}` + `name` + `Address.City` +
+ * `Address.AddressLine[]`, and `.LowestAvailableRate` ({value, code})
+ * gives the representative HOA rate. `LowestAvailableRate` is OPTIONAL —
+ * confirmed 57/100 DEN properties were `availability: "Close"` with no
+ * rate (the "Rates unavailable for N properties" warning); those map to
+ * empty rates → `RQ` at the display.
  */
 export function mapHotelSearch(response: unknown, fallbackCity: string): HotelProperty[] {
   const r = response as any;
