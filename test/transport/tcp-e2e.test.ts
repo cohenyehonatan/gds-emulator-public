@@ -166,6 +166,34 @@ describe('server resilience — a bad entry must never kill the host', () => {
     expect(await terminal.enter('SON/Z01UC')).toContain('SIGNED ON');
     expect(await terminal.enter('N2F1')).toContain('AF 002');
   });
+
+  it('a client that disconnects mid-entry does not crash the host (send-to-closed)', async () => {
+    // A dialect whose processEntry takes 60ms, deterministically
+    // reproducing a slow LIVE entry that outlives its client.
+    class SlowDialect extends GalileoDialect {
+      async processEntry(): Promise<string> {
+        await new Promise((r) => setTimeout(r, 60));
+        return 'SLOW OK';
+      }
+    }
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new SlowDialect(), pcc: 'A0UC' });
+    await host.start();
+    const port = host.getPort();
+
+    const t = new AgentTerminal({ host: '127.0.0.1', port, logLevel: 'error' });
+    await t.connect();
+    void t.enter('ANYTHING').catch(() => undefined); // 60ms server-side
+    await new Promise((r) => setTimeout(r, 10)); // entry is mid-flight
+    t.disconnect(); // close WHILE the host is still in the 60ms delay
+    await new Promise((r) => setTimeout(r, 90)); // let the host attempt its now-doomed send
+
+    // The old code threw "Connection is closed" as an unhandled rejection
+    // here and took the host down (the dogfood crash). It must survive +
+    // serve a fresh client.
+    terminal = new AgentTerminal({ host: '127.0.0.1', port, logLevel: 'error' });
+    await terminal.connect();
+    expect(await terminal.enter('STILL ALIVE')).toBe('SLOW OK');
+  });
 });
 
 describe('dev-loop reconnect — the client survives a server bounce', () => {

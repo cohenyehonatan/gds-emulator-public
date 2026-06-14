@@ -48,8 +48,15 @@ export class AgentTerminal {
     this.logger.info('Reconnected to GDS host');
   }
 
-  /** Send a cryptic entry; resolve with the host's green-screen response. */
-  async enter(cryptic: string, timeoutMs = 5000): Promise<string> {
+  /**
+   * Send a cryptic entry; resolve with the host's green-screen response.
+   *
+   * 30s default: a LIVE entry (e.g. a Stays hotel search) routinely takes
+   * 5-6s, and the old 5s timeout fired mid-call — the client gave up,
+   * reconnected, and the slow response then landed on a closed socket
+   * (crashing the host before that was guarded).
+   */
+  async enter(cryptic: string, timeoutMs = 30000): Promise<string> {
     if (!this.conn) throw new Error('Not connected');
     this.logger.protocol('send', '»', cryptic);
     const response = await this.conn.sendAndWait(cryptic, timeoutMs);

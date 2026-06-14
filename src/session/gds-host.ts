@@ -127,22 +127,34 @@ export class GdsHost {
     let crtMode = false;
 
     conn.onMessage(async (raw: string) => {
-      if (raw === '.CRT') {
-        crtMode = true;
-        // Hello also identifies the host: dialect screen name +
-        // backend kind, so the remote terminal can title its CRT
-        // and tell the operator whether entries hit a live vendor.
-        const backendKind = this.backend.constructor.name === 'LiveTravelportBackend' ? 'LIVE' : 'EMULATED';
-        // 6th field: the dialect's sign-on screen (multi-line; newlines
-        // are safe inside a \x1F-delimited field). The client renders it
-        // on (re-)connect when the agent field is empty (fresh area).
-        conn.send(`CRT OK\x1F${wa.state()}\x1F${wa.agent ?? ''}\x1F${this.dialect.screenName}\x1F${backendKind}\x1F${this.dialect.signOnScreen}`);
-        return;
+      try {
+        if (raw === '.CRT') {
+          crtMode = true;
+          // Hello also identifies the host: dialect screen name +
+          // backend kind, so the remote terminal can title its CRT
+          // and tell the operator whether entries hit a live vendor.
+          const backendKind = this.backend.constructor.name === 'LiveTravelportBackend' ? 'LIVE' : 'EMULATED';
+          // 6th field: the dialect's sign-on screen (multi-line; newlines
+          // are safe inside a \x1F-delimited field). The client renders it
+          // on (re-)connect when the agent field is empty (fresh area).
+          conn.send(`CRT OK\x1F${wa.state()}\x1F${wa.agent ?? ''}\x1F${this.dialect.screenName}\x1F${backendKind}\x1F${this.dialect.signOnScreen}`);
+          return;
+        }
+        this.logger.protocol('send', 'ENTRY', raw);
+        const response = await this.process(raw, wa);
+        this.logger.protocol('receive', 'RESP', response.split('\n')[0]);
+        conn.send(crtMode ? `${response}\x1F${wa.state()}\x1F${wa.agent ?? ''}` : response);
+      } catch (err) {
+        // A slow (live) entry can OUTLIVE the client: it may disconnect
+        // or hit its own response timeout while we're still awaiting the
+        // vendor, so `conn` is closed by the time we send — `conn.send`
+        // throws "Connection is closed". That must NOT crash the host
+        // (an unhandled rejection in this async callback would). Log and
+        // move on; the operator reconnects and re-enters.
+        this.logger.error(
+          `entry handler error (client likely gone): ${err instanceof Error ? err.message : String(err)}`
+        );
       }
-      this.logger.protocol('send', 'ENTRY', raw);
-      const response = await this.process(raw, wa);
-      this.logger.protocol('receive', 'RESP', response.split('\n')[0]);
-      conn.send(crtMode ? `${response}\x1F${wa.state()}\x1F${wa.agent ?? ''}` : response);
     });
 
     conn.onDisconnect(() => this.logger.info('Terminal disconnected'));
