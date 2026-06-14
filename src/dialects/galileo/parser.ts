@@ -61,6 +61,8 @@ import type {
   TicketModifierEntry,
   FareDisplayEntry,
   FareNotesEntry,
+  HotelEntry,
+  CarEntry,
 } from '../../protocol/entry.js';
 import { parseSabreDate } from '../../utils/validation.js';
 import { ParseError } from '../../protocol/errors.js';
@@ -96,6 +98,18 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
   // @-modifies (class rebook, date change, pax-count change) are
   // deferred and will trip the catch-all below.
   if (upper.startsWith('@')) return parseModify(trimmed, upper);
+
+  // Direct sell hotel/car (Mini Format Guide v2 p.47/49). Parsed from
+  // `upper` (whitespace preserved) BEFORE the strip below, because the
+  // `/H-<name>` hotel-name qualifier carries spaces ("STRAND HOTEL").
+  if (upper.startsWith('0HTL')) {
+    const e = parseHotelDirectSell(trimmed, upper);
+    if (e) return e;
+  }
+  if (upper.startsWith('0CCR')) {
+    const e = parseCarDirectSell(trimmed, upper);
+    if (e) return e;
+  }
 
   // No-whitespace verbs: strip internal whitespace (`SON / ZHA` →
   // `SON/ZHA`) before sigil dispatch.
@@ -440,6 +454,47 @@ function parseAvailability(raw: string, u: string): AvailabilityEntry {
  *   - direct/long sell              (no availability cache needed)
  */
 const SELL_RE = /^N(\d+)((?:[A-Z]\d+)+)(\*)?$/;
+
+/**
+ * Direct sell hotel — Mini Format Guide v2 p.49 ("Direct sell hotel",
+ * `H/0HTL`). Verbatim long-sell example:
+ *   0HTLICMK1STO10NOV-OUT18NOV/H-STRAND HOTEL/P-10327/R-AIK/BC-I
+ * = chain IC · status MK (passive) · 1 room · city STO · in 10NOV ·
+ *   out 18NOV, then optional /H-name /P-propID /R-rate qualifiers.
+ * "Passive and Active hotel segments can be added via a direct sell."
+ */
+function parseHotelDirectSell(raw: string, upper: string): HotelEntry | null {
+  const m = /^0HTL([A-Z]{2})([A-Z]{2})(\d{1,2})([A-Z]{3})(\d{1,2}[A-Z]{3})-OUT(\d{1,2}[A-Z]{3})(\/.*)?$/.exec(upper);
+  if (!m) return null;
+  const quals = m[7] ?? '';
+  return {
+    kind: 'hotel', raw, timestamp: new Date(), action: 'direct_sell',
+    chain: m[1], status: m[2], rooms: parseInt(m[3], 10), city: m[4],
+    checkIn: m[5], checkOut: m[6],
+    hotelName: /\/H-([^/]+)/.exec(quals)?.[1]?.trim(),
+    propertyId: /\/P-([^/]+)/.exec(quals)?.[1],
+    rateCode: /\/R-([^/]+)/.exec(quals)?.[1],
+  };
+}
+
+/**
+ * Direct sell car — Mini Format Guide v2 p.47 ("Direct sell car",
+ * `H/0CCR`). Verbatim:
+ *   0CCRZENN1AMS1JUN-2JUNECMN/ARR-1100A/DT-1700/RC-BEST/SQ-NVS
+ * = vendor ZE · status NN · 1 car · city AMS · pickup 1JUN · dropoff
+ *   2JUN · type ECMN, then optional /RC-rate /ARR- /DT- qualifiers.
+ */
+function parseCarDirectSell(raw: string, upper: string): CarEntry | null {
+  const m = /^0CCR([A-Z]{2})([A-Z]{2})(\d{1,2})([A-Z]{3})(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})([A-Z]{4})(\/.*)?$/.exec(upper);
+  if (!m) return null;
+  const quals = m[8] ?? '';
+  return {
+    kind: 'car', raw, timestamp: new Date(), action: 'direct_sell',
+    vendor: m[1], status: m[2], count: parseInt(m[3], 10), city: m[4],
+    pickup: m[5], dropoff: m[6], vehicleType: m[7],
+    rateCode: /\/RC-([^/]+)/.exec(quals)?.[1],
+  };
+}
 
 function isSell(u: string): boolean {
   return SELL_RE.test(u);

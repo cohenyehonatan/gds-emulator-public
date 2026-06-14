@@ -291,13 +291,21 @@ export interface SeatRequestEntry extends BaseEntry {
  */
 export interface HotelEntry extends BaseEntry {
   kind: 'hotel';
-  action: 'availability' | 'index' | 'detail';
+  action: 'availability' | 'index' | 'detail' | 'direct_sell';
   checkIn?: string;
   checkOut?: string;
   city?: string;
   adults?: number;
   chain?: string;
   line?: number;
+  // Direct sell (`0HTL…`): segment built from agent-typed data, no
+  // availability. `status` is the typed segment code (MK passive, HK
+  // active, …); `chain` carries the 2-letter hotel chain.
+  status?: string;
+  rooms?: number;
+  hotelName?: string;
+  propertyId?: string;
+  rateCode?: string;
 }
 
 /**
@@ -307,10 +315,16 @@ export interface HotelEntry extends BaseEntry {
  */
 export interface CarEntry extends BaseEntry {
   kind: 'car';
-  action: 'availability' | 'index';
+  action: 'availability' | 'index' | 'direct_sell';
   pickup?: string;
   dropoff?: string;
   city?: string;
+  // Direct sell (`0CCR…`).
+  vendor?: string;
+  status?: string;
+  count?: number;
+  vehicleType?: string;
+  rateCode?: string;
 }
 
 /**

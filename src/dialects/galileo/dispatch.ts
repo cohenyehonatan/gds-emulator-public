@@ -3381,6 +3381,7 @@ function handleGalileoHotel(
   wa: WorkArea,
   ctx: HandlerContext,
 ): string {
+  if (entry.action === 'direct_sell') return handleGalileoHotelDirectSell(entry, wa);
   if (entry.action === 'availability' || entry.action === 'index') {
     const props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
     if (props.length === 0) return 'NO HOTELS';
@@ -3419,6 +3420,7 @@ function handleGalileoCar(
   wa: WorkArea,
   ctx: HandlerContext,
 ): string {
+  if (entry.action === 'direct_sell') return handleGalileoCarDirectSell(entry, wa);
   const rentals = ctx.backend.inventory.carsIn(entry.city!);
   if (rentals.length === 0) return 'NO CARS';
   if (entry.action === 'availability') {
@@ -3497,6 +3499,62 @@ function handleGalileoAuxSell(
   };
   wa.pnr.carSegments.push(seg);
   return `CAR SOLD ${seg.segmentNumber}. CCR ${rental.company} HK ${rental.city} ${cached.pickup}-${cached.dropoff} ${rental.vehicleType} ${rental.amount.toFixed(2)}${rental.currency}/DY ${seg.confirmationNumber}`;
+}
+
+/** Next global segment number across all booked content types. */
+function nextSegmentNumber(wa: WorkArea): number {
+  return wa.pnr.segments.length + wa.pnr.hotelSegments.length +
+    wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1;
+}
+
+/**
+ * `0HTL…` direct sell — Mini Format Guide v2 p.49. Builds a hotel
+ * segment with NO availability ("all the information must be known by
+ * the agent"), so it works in any market — and for PASSIVE segments
+ * (status MK/BK), the canonical way to record a hotel booked outside
+ * the GDS onto the BF. The typed status rides straight onto the
+ * segment (MK passive / HK active). Price is not part of the entry, so
+ * it stays unpriced. Response wording reconstructed.
+ */
+function handleGalileoHotelDirectSell(
+  entry: import('../../protocol/entry.js').HotelEntry,
+  wa: WorkArea,
+): string {
+  if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
+  const nights = galileoNights(entry.checkIn!, entry.checkOut!);
+  const seg: import('../../models/hotel.js').HotelSegment = {
+    segmentNumber: nextSegmentNumber(wa),
+    chain: entry.chain!, property: entry.propertyId ?? '', name: entry.hotelName ?? '',
+    city: entry.city!, checkIn: entry.checkIn!, checkOut: entry.checkOut!,
+    nights, rateCode: entry.rateCode ?? '', ratePerNight: 0, currency: '',
+    rooms: entry.rooms ?? 1, status: entry.status!,
+  };
+  sellTransition(wa, `HOTEL DIRECT ${entry.chain} ${entry.status} ${entry.city}`);
+  wa.pnr.hotelSegments.push(seg);
+  return `HOTEL SOLD ${seg.segmentNumber}. HHL ${entry.chain} ${entry.status}${entry.rooms ?? 1} ${entry.city} ${entry.checkIn}-${entry.checkOut}${entry.hotelName ? ' ' + entry.hotelName : ''}`;
+}
+
+/**
+ * `0CCR…` direct sell — Mini Format Guide v2 p.47. Car analogue of the
+ * hotel direct sell; same passive/active semantics.
+ */
+function handleGalileoCarDirectSell(
+  entry: import('../../protocol/entry.js').CarEntry,
+  wa: WorkArea,
+): string {
+  if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
+  const days = galileoNights(entry.pickup!, entry.dropoff!);
+  const seg: import('../../models/car.js').CarSegment = {
+    segmentNumber: nextSegmentNumber(wa),
+    company: entry.vendor!, companyName: '',
+    vehicleType: entry.vehicleType!, category: '',
+    rateCode: entry.rateCode ?? '', city: entry.city!,
+    pickup: entry.pickup!, dropoff: entry.dropoff!, days,
+    amount: 0, currency: '', status: entry.status!,
+  };
+  sellTransition(wa, `CAR DIRECT ${entry.vendor} ${entry.status} ${entry.city}`);
+  wa.pnr.carSegments.push(seg);
+  return `CAR SOLD ${seg.segmentNumber}. CCR ${entry.vendor} ${entry.status}${entry.count ?? 1} ${entry.city} ${entry.pickup}-${entry.dropoff} ${entry.vehicleType}`;
 }
 
 /** DJB2-based deterministic 5-digit confirmation (same scheme the

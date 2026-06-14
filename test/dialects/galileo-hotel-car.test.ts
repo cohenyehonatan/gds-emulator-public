@@ -175,3 +175,65 @@ describe('Apollo passthrough', () => {
     expect(wa.pnr.hotelSegments).toHaveLength(1);
   });
 });
+
+/**
+ * Direct sell — Mini Format Guide v2 p.47/49 ("Direct sell car/hotel",
+ * H/0CCR, H/0HTL). Needs NO availability, and the typed status (MK
+ * passive / HK active) rides onto the segment — the way an agent adds a
+ * hotel/car booked outside the GDS, or builds in an unloaded market.
+ */
+describe('0HTL / 0CCR — direct sell (passive/active, no availability)', () => {
+  it('0HTL builds a passive (MK) hotel from agent data; name keeps its space', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    const resp = await host.process('0HTLICMK1STO10NOV-OUT18NOV/H-STRAND HOTEL/P-10327/R-AIK/BC-I', wa);
+    expect(resp).toContain('HOTEL SOLD');
+    const h = wa.pnr.hotelSegments[0];
+    expect(h.chain).toBe('IC');
+    expect(h.status).toBe('MK'); // passive
+    expect(h.city).toBe('STO');
+    expect(h.checkIn).toBe('10NOV');
+    expect(h.checkOut).toBe('18NOV');
+    expect(h.nights).toBe(8);
+    expect(h.name).toBe('STRAND HOTEL'); // space preserved
+    expect(h.property).toBe('10327');
+    expect(h.rateCode).toBe('AIK');
+  });
+
+  it('0CCR builds a car (any market, no availability)', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    const resp = await host.process('0CCRZEHK1LAX10NOV-12NOVICAR/RC-BEST', wa);
+    expect(resp).toContain('CAR SOLD');
+    const c = wa.pnr.carSegments[0];
+    expect(c.company).toBe('ZE');
+    expect(c.status).toBe('HK');
+    expect(c.city).toBe('LAX');
+    expect(c.vehicleType).toBe('ICAR');
+    expect(c.rateCode).toBe('BEST');
+    expect(c.days).toBe(2);
+  });
+
+  it('builds a full multi-content BF: air + passive hotel + passive car → E', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa); // air HK from availability
+    await host.process('0HTLHNMK1LAX15JUN-OUT18JUN/H-HILTON LAX', wa); // passive hotel
+    await host.process('0CCRZEMK1LAX18JUN-20JUNICAR', wa); // passive car
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('P.LON*02012345678', wa);
+    await host.process('T.TAU/10JUN', wa);
+    await host.process('R.AGT', wa);
+    const locator = (await host.process('E', wa)).trim();
+    expect(locator).toMatch(/^[A-Z0-9]{6}$/);
+  });
+
+  it('Apollo inherits direct sell via the shared Galileo dispatch', async () => {
+    const host = new GdsHost({ port: 0, logLevel: 'error', dialect: new ApolloDialect(), pcc: 'AB' });
+    const wa = host.newWorkArea();
+    await host.process('SON/ZGS', wa);
+    expect(await host.process('0HTLICMK1STO10NOV-OUT18NOV/H-STRAND HOTEL', wa)).toContain('HOTEL SOLD');
+    expect(wa.pnr.hotelSegments[0].status).toBe('MK');
+  });
+});
