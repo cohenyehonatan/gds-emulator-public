@@ -650,6 +650,13 @@ export class LiveTravelportBackend implements Backend {
     checkOut: string;
     adults?: number;
     radiusMiles?: number;
+    /**
+     * `returnOnlyAvailablePropertiesInd`. HOA (availability) wants only
+     * bookable properties + rates (true, default); HOI (index) wants the
+     * full property directory (false). v11 has no dateless city index, so
+     * both go through this search — this flag is what separates them.
+     */
+    availableOnly?: boolean;
   }): Promise<unknown> {
     const url = `${this.opts.apiBase}/hotel/search/properties/search`;
     const body = {
@@ -670,7 +677,7 @@ export class LiveTravelportBackend implements Backend {
             },
           },
         ],
-        returnOnlyAvailablePropertiesInd: true,
+        returnOnlyAvailablePropertiesInd: req.availableOnly ?? true,
       },
     };
     // postJsonRaw, NOT postJson: a hotel search legitimately returns

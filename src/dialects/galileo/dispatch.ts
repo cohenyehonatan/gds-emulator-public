@@ -3384,15 +3384,17 @@ async function handleGalileoHotel(
 ): Promise<string> {
   if (entry.action === 'direct_sell') return handleGalileoHotelDirectSell(entry, wa);
   if (entry.action === 'availability' || entry.action === 'index') {
+    const isIndex = entry.action === 'index';
     const checkIn = entry.checkIn ?? '15JUL';
     const checkOut = entry.checkOut ?? checkIn;
-    // Live: BOTH HOA (availability) and HOI (index) hit the Stays search
-    // so they reflect the same live tenant — otherwise HOA shows live
-    // hotels while HOI silently reads the (DEN-less) local seed. Read-only
-    // (no workbench), so a committed BF on screen doesn't block it. The
-    // Stays search REQUIRES check-in/out dates; HOI carries none, so
-    // default a near-future 2-night window just to query the catalogue.
-    // HOC stays cache-backed (reads lastHotelAvail).
+    // HOI (index) and HOA (availability) are DIFFERENT operations: HOI is
+    // a property DIRECTORY ("which hotels are here", no rates), HOA is a
+    // priced, dated availability search. v11 Stays has no dateless city
+    // index — both query /hotel/search/properties/search — so the Stays
+    // `returnOnlyAvailablePropertiesInd` flag is what separates them: HOI
+    // lists ALL properties (availableOnly=false, default dates since the
+    // API requires them), HOA only bookable ones with rates. Read-only
+    // (no workbench), so a committed BF on screen doesn't block either.
     let props: import('../../models/hotel.js').HotelProperty[];
     if (ctx.backend instanceof LiveTravelportBackend) {
       try {
@@ -3401,6 +3403,7 @@ async function handleGalileoHotel(
           checkIn: entry.checkIn ? ddmonToIso(checkIn) : isoPlusDays(30),
           checkOut: entry.checkOut ? ddmonToIso(checkOut) : isoPlusDays(32),
           adults: entry.adults,
+          availableOnly: !isIndex,
         });
         props = mapHotelSearch(resp, entry.city!);
         if (entry.chain) props = props.filter((p) => p.chain === entry.chain);
@@ -3414,8 +3417,18 @@ async function handleGalileoHotel(
     const nights = entry.checkIn && entry.checkOut ? galileoNights(entry.checkIn, entry.checkOut) : 1;
     wa.lastHotelAvail = { city: entry.city!, checkIn, checkOut, nights, properties: props };
     wa.lastCarAvail = undefined; // hotel display replaces a car display
-    const title = entry.action === 'index' ? 'HOTEL INDEX' : 'HOTEL AVAILABILITY';
-    const lines = [`${title} ${entry.city}${entry.action === 'availability' ? ` ${checkIn}-${checkOut}` : ''}`];
+
+    if (isIndex) {
+      // HOTEL INDEX — a directory: chain/property/name, NO rate column.
+      // (Pricing comes from HOA → HOC, not the index.)
+      const lines = [`HOTEL INDEX ${entry.city}`];
+      props.forEach((p, i) => {
+        lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property} ${p.name}`);
+      });
+      return lines.join('\n');
+    }
+    // HOTEL AVAILABILITY — priced + dated: low rate per property.
+    const lines = [`HOTEL AVAILABILITY ${entry.city} ${checkIn}-${checkOut}`];
     props.forEach((p, i) => {
       const lo = p.rates.reduce((min, r) => Math.min(min, r.amount), Infinity);
       const cur = p.rates[0]?.currency ?? '';

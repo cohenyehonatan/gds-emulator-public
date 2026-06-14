@@ -75,6 +75,19 @@ describe('HOA / HOI / HOC — hotel displays', () => {
     expect(filtered).not.toContain('MARRIOTT');
   });
 
+  it('HOI is a directory (no rates); HOA is priced — the two are distinct', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    // HOI index: property names, but NO rate column.
+    const index = await host.process('HOILON', wa);
+    expect(index).toContain('HOLIDAY INN LONDON KENSINGTON');
+    expect(index).not.toMatch(/\d+GBP/); // no rate in the index
+    // HOA availability: the same property WITH its low rate.
+    const avail = await host.process('HOA6FEB-09FEBLON2', wa);
+    expect(avail).toContain('HOTEL AVAILABILITY LON 6FEB-09FEB');
+    expect(avail).toMatch(/169GBP/); // HI LON low rate (COR 169)
+  });
+
   it('HOC<line> shows all rates for the property on that line', async () => {
     const host = makeHost();
     const wa = await signedIn(host);

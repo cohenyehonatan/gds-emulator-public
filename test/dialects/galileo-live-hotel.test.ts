@@ -114,17 +114,26 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(wa.lastHotelAvail?.properties).toHaveLength(2);
   });
 
-  it('HOI also goes live (so it reflects the tenant, not the local seed) with default dates', async () => {
+  it('HOI is a DIRECTORY: full property list (availableOnly=false), no rate column', async () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
     const resp = await host.process('HOIDEN', wa); // index, no dates
     expect(resp).toContain('HOTEL INDEX DEN');
     expect(resp).toContain('HILTON PARIS OPERA');
-    // Dateless HOI defaults a near-future window so the Stays search (which
-    // requires dates) can run; check-out is after check-in.
+    expect(resp).not.toContain('189'); // index shows NO rate, even though the data carries one
+    // Index requests the full directory (not just bookable) + defaults a
+    // near-future window (the search requires dates).
     const body = JSON.parse((fetchSpy.mock.calls[1][1]?.body as string) ?? '{}');
     expect(body.PropertiesQuerySearch.SearchBy.SearchAirport).toBe('DEN');
-    expect(body.PropertiesQuerySearch.CheckInDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.PropertiesQuerySearch.returnOnlyAvailablePropertiesInd).toBe(false);
     expect(body.PropertiesQuerySearch.CheckOutDate > body.PropertiesQuerySearch.CheckInDate).toBe(true);
+  });
+
+  it('HOA requests only bookable properties (availableOnly=true) + shows rates', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
+    const resp = await host.process('HOA6FEB-09FEBPAR2', wa);
+    expect(resp).toContain('189EUR'); // availability shows the rate
+    const body = JSON.parse((fetchSpy.mock.calls[1][1]?.body as string) ?? '{}');
+    expect(body.PropertiesQuerySearch.returnOnlyAvailablePropertiesInd).toBe(true);
   });
 
   it('HOI<city>/<chain> filters the live results by chain', async () => {
