@@ -143,6 +143,7 @@ const TOPICS: HelpTopic[] = [
       '0HTL<chain><status><rooms><city><in>-OUT<out>[/H-<name>/P-<id>/R-<rate>/CF-<conf>]',
       '                             direct sell (no avail; status MK passive/HK active).',
       '                             Live MK needs /CF-<conf> + a name (records external booking)',
+      'X<n>                         cancel hotel segment n (live: Stays canceloffer on the BF)',
     ],
   },
   {

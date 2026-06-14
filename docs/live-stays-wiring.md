@@ -200,9 +200,17 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    (`0HTL…HK`) has no catalog offer, so it stays local even on live. Tests mocked
    from the real capture; the probe gained a self-cancelling passive mode
    (`TVP_STAYS_PASSIVE=1`).
-4. **Cancel** — `X`-family hotel segment → `…/canceloffer` (the endpoint is proven
-   — used to clean up the probe's PNR; not yet wired to the cryptic `X` family).
-   Retrieve is already done.
+4. **Cancel** — **DONE + verified live.** `X<n>` where the target is a hotel
+   segment → `LiveTravelportBackend.cancelHotelOffer()` → `PUT /hotel/book/
+   reservations/{locator}/canceloffer?offerID=…&supplierLocator=…` (the endpoint
+   proven by every probe-PNR cleanup). The retrieve mapper now preserves the
+   hotel `Offer.id` onto `HotelSegment.offerId` so a retrieved committed BF can
+   be cancelled; `handleGalileoCancel` routes an all-hotel `X<n>` selection to
+   `handleGalileoHotelCancel` (live cancel + local remove; emulated just
+   removes). Needs a committed BF (locator) + the captured offerId — rejections
+   `FINISH OR IGNORE` (uncommitted) / `LIVE OFFER ID MISSING`. Mixed air+hotel
+   `X` falls through to the air path. Tests: emulated + mocked-live in
+   `galileo-hotel-car` / `galileo-live-hotel`. Retrieve was already done.
 
 ## Out of scope
 

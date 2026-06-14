@@ -78,6 +78,12 @@ export interface HotelSegment {
   rooms: number;
   status: string; // HK / NN / KK etc. (mirrors AirSegment.status)
   confirmationNumber?: string;
+  /**
+   * Live Travelport offer identifier (Offer.Identifier.value / id) for this
+   * hotel — captured by the retrieve mapper so a later `X<n>` can cancel the
+   * offer via the Stays canceloffer endpoint. Undefined on emulated segments.
+   */
+  offerId?: string;
 }
 
 /** Default check-in / check-out hours for our emulator. */

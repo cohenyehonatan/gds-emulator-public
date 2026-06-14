@@ -895,6 +895,24 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Cancel a hotel offer on a committed reservation — the cryptic X<n> for a
+   * hotel segment. PUT /hotel/book/reservations/{locator}/canceloffer?offerID=
+   * …&supplierLocator=… (no body). PROVEN live 2026-06-14 (cleaned up every
+   * probe PNR: returns OfferStatus "Cancelled"). Works for both active and
+   * passive hotel offers.
+   */
+  async cancelHotelOffer(req: { locator: string; offerId?: string; supplierLocator?: string }): Promise<unknown> {
+    const q = new URLSearchParams();
+    if (req.offerId) q.set('offerID', req.offerId);
+    if (req.supplierLocator) q.set('supplierLocator', req.supplierLocator);
+    const qs = q.toString();
+    const url =
+      `${this.opts.apiBase}/hotel/book/reservations/${encodeURIComponent(req.locator)}/canceloffer` +
+      (qs ? `?${qs}` : '');
+    return this.putJson(url, undefined, 'cancelHotelOffer');
+  }
+
+  /**
    * Search seat availability for a previously-searched offer +
    * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
    * (SA* / SM*) and Sabre 4G display verbs.

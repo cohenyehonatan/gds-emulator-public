@@ -4,6 +4,7 @@ import { GdsHost } from '../../src/session/gds-host.js';
 import { LiveTravelportBackend } from '../../src/backends/live-travelport-backend.js';
 import { mapHotelSearch, mapHotelAvailability, mapHotelReservation } from '../../src/backends/travelport-mapper.js';
 import type { WorkArea } from '../../src/session/work-area.js';
+import { SessionEvent } from '../../src/session/session-state.js';
 
 /**
  * Live HOA via the Travelport Stays API v11 (chunk 2 of
@@ -455,6 +456,63 @@ describe('Galileo live hotel PASSIVE sell — Stays /passive (0HTL…MK)', () =>
   it('0HTL…MK with no name on the BF → NEED NAME', async () => {
     // No N. → no workbench call; the passive sell rejects before going live.
     expect(await host.process('0HTLHHMK1DEN14JUL-OUT16JUL/CF-XYZ789', wa)).toBe('NEED NAME - USE N.');
+  });
+});
+
+describe('Galileo live hotel CANCEL — Stays canceloffer (X<n>)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let host: GdsHost;
+  let wa: WorkArea;
+  const tokenResp = () =>
+    new Response(JSON.stringify({ access_token: 'T', token_type: 'Bearer', expires_in: 3600 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  // canceloffer returns the reservation with the offer flipped to Cancelled.
+  const cancelResp = () =>
+    new Response(JSON.stringify({ ReservationResponse: { Reservation: { Receipt: [{ Confirmation: { OfferStatus: { Status: 'Cancelled' } } }] } } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  beforeEach(async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const backend = new LiveTravelportBackend({ clientId: 'x', clientSecret: 'y', username: 'z', password: 'w' });
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S', backend });
+    wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+    // Simulate a retrieved committed BF: a locator + a hotel segment carrying
+    // its offer id (what mapReservation captures) + supplier confirmation, and
+    // the FSM in DISPLAYED (the RETRIEVE event a real *<locator> would fire).
+    wa.machine.transition(SessionEvent.RETRIEVE);
+    wa.pnr.locator = 'GZWS4M';
+    wa.pnr.hotelSegments = [{
+      segmentNumber: 1, chain: 'WI', property: 'B2095', name: 'WESTIN DEN', city: 'DEN',
+      checkIn: '14JUL', checkOut: '16JUL', nights: 2, rateCode: '', ratePerNight: 0,
+      currency: 'USD', rooms: 1, status: 'HK', confirmationNumber: '92113628',
+      offerId: 'OFFER-UUID-1',
+    }];
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('X<n> fires the Stays canceloffer (locator + offerID + supplierLocator) + drops the segment', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(cancelResp());
+    const resp = await host.process('X1', wa);
+    expect(resp).toBe('HOTEL CANCELLED');
+    expect(wa.pnr.hotelSegments).toHaveLength(0);
+
+    const [url, init] = fetchSpy.mock.calls[1];
+    expect(init?.method).toBe('PUT');
+    expect(String(url)).toContain('/hotel/book/reservations/GZWS4M/canceloffer');
+    expect(String(url)).toContain('offerID=OFFER-UUID-1');
+    expect(String(url)).toContain('supplierLocator=92113628');
+  });
+
+  it('X<n> with no captured offer id → LIVE OFFER ID MISSING (no fetch)', async () => {
+    wa.pnr.hotelSegments[0].offerId = undefined;
+    expect(await host.process('X1', wa)).toBe('LIVE OFFER ID MISSING');
+  });
+
+  it('X<n> on an uncommitted hotel (no locator) → FINISH OR IGNORE', async () => {
+    wa.pnr.locator = undefined;
+    expect(await host.process('X1', wa)).toBe('FINISH OR IGNORE');
   });
 });
 

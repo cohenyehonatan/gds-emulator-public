@@ -398,7 +398,9 @@ export function mapReservation(response: unknown, locator: string): Pnr {
   const receipts = buildReceiptByOffer(root);
   const hotels = mapReservationHotels(root, receipts);
   const cars = mapReservationCars(root, receipts);
-  pnr.hotelSegments = hotels.map((h) => h.seg);
+  // Set offerId on the SAME seg object (not a copy) — applyDisplaySequence
+  // below mutates these by reference to assign global segment numbers.
+  pnr.hotelSegments = hotels.map((h) => { h.seg.offerId = h.offerId; return h.seg; });
   pnr.carSegments = cars.map((c) => c.seg);
   applyDisplaySequence(pnr, root, hotels, cars);
   return pnr;

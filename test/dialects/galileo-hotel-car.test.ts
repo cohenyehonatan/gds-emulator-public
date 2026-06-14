@@ -221,6 +221,17 @@ describe('0HTL / 0CCR — direct sell (passive/active, no availability)', () => 
     expect(h.rateCode).toBe('AIK');
   });
 
+  it('X<n> on a hotel segment cancels it (emulated)', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    await host.process('0HTLICMK1STO10NOV-OUT18NOV/H-STRAND HOTEL', wa);
+    expect(wa.pnr.hotelSegments).toHaveLength(1);
+    const n = wa.pnr.hotelSegments[0].segmentNumber;
+    const resp = await host.process(`X${n}`, wa);
+    expect(resp).toBe('HOTEL CANCELLED');
+    expect(wa.pnr.hotelSegments).toHaveLength(0);
+  });
+
   it('0CCR builds a car (any market, no availability)', async () => {
     const host = makeHost();
     const wa = await signedIn(host);

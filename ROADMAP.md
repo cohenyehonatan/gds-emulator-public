@@ -1192,10 +1192,12 @@ The original survey (all items now resolved or annotated):
       **Passive sell DONE + verified live:** `0HTL…MK/CF-<conf>` →
       `…/book/reservations/passive` (status MK; free-form `PropertyAddress` not a
       GDS `PropertyKey`; confirmation via concrete `ReceiptConfirmation/
-      ConfirmationHold`; new `/CF-` qualifier). Full scope + chunk plan in
-      `docs/live-stays-wiring.md`. **Still open:** wiring `…/canceloffer` to the
-      cryptic `X` family (endpoint proven). Cars stay emulated — no published v11
-      Cars API.
+      ConfirmationHold`; new `/CF-` qualifier). **Cancel DONE + verified:**
+      `X<n>` on a hotel segment → `…/canceloffer` (`cancelHotelOffer`); the
+      retrieve mapper preserves `Offer.id` onto `HotelSegment.offerId` so a
+      committed BF's hotel cancels by offer. **The Stays read + sell + cancel
+      lifecycle is now fully wired and live-verified.** Full scope in
+      `docs/live-stays-wiring.md`. Cars stay emulated — no published v11 Cars API.
 - [ ] **Vendor remarks (*VI/*VO/*VR/*VL) + *CI data models** — verbs answer
       honestly empty; need models + a source for screen shapes.
 - [ ] **Surface/tour/air-taxi segment types (*IS/*IT/*IX)** — honest-empty.
