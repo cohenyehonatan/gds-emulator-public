@@ -337,17 +337,62 @@ function firstOffer(availResponse: unknown): { value: string; authority: string;
   return { value: off.Identifier.value, authority: off.Identifier.authority ?? 'TVPT', id: off.id ?? '' };
 }
 
+/** Summarize the three identities a committed hotel booking carries. */
+function summarizeReceipts(parsed: unknown): { pnr?: string; supplier?: string; iata?: string } {
+  const res = (parsed as any)?.ReservationResponse?.Reservation ?? {};
+  const out: { pnr?: string; supplier?: string; iata?: string } = {};
+  for (const rc of res.Receipt ?? []) {
+    const loc = rc?.Confirmation?.Locator;
+    if (loc?.locatorType === 'PNR Locator') out.pnr = loc.value;
+    if (loc?.locatorType === 'Confirmation Number') out.supplier = loc.value;
+    if (loc?.locatorType === 'IATA Number') out.iata = loc.value;
+  }
+  return out;
+}
+
 /**
- * FEASIBILITY PROBE (opt-in via TVP_STAYS_BUILD=1) — the ONE live WRITE.
+ * Cancel a hotel PNR the build created — PUT /…/{locator}/canceloffer.
+ * Keeps the probe self-cleaning so a confirmed test booking never dangles.
+ */
+async function cancelHotel(token: string, r: { pnr?: string; supplier?: string }, offerId?: string): Promise<void> {
+  if (!r.pnr) { console.log('  ⚠️  no PNR locator to cancel.'); return; }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Accept-Version': ACCEPT_VERSION,
+    'Content-Version': ACCEPT_VERSION,
+  };
+  if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
+  else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
+  const q = new URLSearchParams();
+  if (offerId) q.set('offerID', offerId);
+  if (r.supplier) q.set('supplierLocator', r.supplier);
+  const url = `${API_BASE}/hotel/book/reservations/${encodeURIComponent(r.pnr)}/canceloffer?${q}`;
+  console.log(`\n[CANCEL] cleaning up the test PNR  →  PUT /hotel/book/reservations/${r.pnr}/canceloffer`);
+  const res = await fetch(url, { method: 'PUT', headers });
+  const text = await res.text();
+  let parsed: unknown; try { parsed = JSON.parse(text); } catch { parsed = text; }
+  const statuses: string[] = [];
+  JSON.stringify(parsed, (k, v) => { if (k === 'Status' && typeof v === 'string') statuses.push(v); return v; });
+  console.log(`      ↳ HTTP ${res.status} ${res.statusText}  ${statuses.length ? '(' + statuses.join(', ') + ')' : ''}`);
+  console.log(res.ok && statuses.includes('Cancelled') ? '  ✓ test PNR cancelled.' : '  ⚠️  verify cancellation manually.');
+}
+
+/**
+ * FEASIBILITY PROBE (opt-in via TVP_STAYS_BUILD=1) — a live WRITE.
  * POST /hotel/book/reservations/build with a synthetic traveler + a real
- * offer. This BUILDS a reservation in WORKBENCH state (30-min auto-expiring
- * cache) — it is NOT a committed booking; the commit is the separate POST
- * /hotel/book/reservations, which this probe DELIBERATELY DOES NOT CALL.
- * Answers the gating question for chunk 3 (docs/live-stays-wiring.md):
+ * offer. ⚠️ The build is a ONE-SHOT CONFIRMED booking (NOT a workbench, as
+ * an earlier assumption had it — verified 2026-06-14: it returns a real PNR
+ * locator + supplier confirmation + HK status). So this probe AUTO-CANCELS
+ * the PNR it creates (unless TVP_STAYS_NO_CANCEL=1).
  *   200/201 → hotel booking is ENTITLED + reachable (build the chunk live).
  *   401/403 → NOT entitled — chunk 3 ships emulated-only, like air ticketing.
- * Body shape from the Stays v11.34 spec (ReservationQueryBuild →
- * ReservationBuildFromCatalogOffering + BuildFromCatalogOfferingHospitality).
+ *
+ * Optional TVP_STAYS_AGENCY=<name> adds a TravelAgency block; TVP_STAYS_
+ * AGENCY_IATA=<number> stamps a DIFFERENT IATA on it to test whether the
+ * request body can override the PCC-derived agency-of-record (the IATA
+ * Receipt) or whether it's locked to the credentialed PCC.
  */
 async function hotelBuildProbe(
   token: string,
@@ -370,12 +415,33 @@ async function hotelBuildProbe(
   if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
   else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
 
+  // Optional TravelAgency block (TVP_STAYS_AGENCY=<name>). When TVP_STAYS_
+  // AGENCY_IATA is also set, stamp a DIFFERENT IATA on it (code/codeContext
+  // + Identifier) to see whether the host honours it or ignores it in
+  // favour of the PCC-derived agency-of-record.
+  const agencyName = process.env.TVP_STAYS_AGENCY;
+  const agencyIata = process.env.TVP_STAYS_AGENCY_IATA;
+  const travelAgency = agencyName
+    ? {
+        TravelAgency: {
+          '@type': 'TravelAgency',
+          OrganizationName: {
+            value: agencyName,
+            ...(agencyIata ? { code: agencyIata, codeContext: 'IATA' } : {}),
+          },
+          ...(agencyIata ? { Identifier: { value: agencyIata, authority: 'IATA' } } : {}),
+        },
+      }
+    : {};
+  if (agencyName) console.log(`      ↳ TravelAgency "${agencyName}"${agencyIata ? ` IATA ${agencyIata}` : ''}`);
+
   const payload = {
     ReservationQueryBuild: {
       '@type': 'ReservationQueryBuild',
       ReservationBuild: {
         '@type': 'ReservationBuildFromCatalogOffering',
         receivedFrom: 'PROBE',
+        ...travelAgency,
         Traveler: [
           { '@type': 'Traveler', PersonName: { '@type': 'PersonName', Prefix: 'MR', Given: 'TEST', Surname: 'PROBE' } },
         ],
@@ -413,13 +479,26 @@ async function hotelBuildProbe(
 
   console.log('\n════════════════════ BUILD VERDICT (chunk 3 gate) ════════════════════');
   if (res.status === 200 || res.status === 201) {
-    console.log('✓ HOTEL BOOKING IS AVAILABLE — build succeeded (workbench, NOT committed).');
-    console.log('  Chunk 3 can be wired live. (We did NOT commit — the workbench auto-expires.)');
+    const r = summarizeReceipts(parsed);
+    console.log('✓ HOTEL BOOKING IS AVAILABLE — build returned a CONFIRMED booking.');
+    console.log(`  PNR locator:  ${r.pnr ?? '(none)'}`);
+    console.log(`  Supplier conf: ${r.supplier ?? '(none)'}`);
+    console.log(`  IATA number:  ${r.iata ?? '(none)'}` + (agencyIata
+      ? (r.iata === agencyIata
+          ? '   ← MATCHES the agency IATA we sent (body OVERRODE the PCC!)'
+          : `   ← IGNORED the agency IATA we sent (${agencyIata}); IATA is PCC-locked`)
+      : ''));
     const out = process.env.TVP_STAYS_BUILD_OUT;
     if (out) {
       const fs = await import('node:fs/promises');
       await fs.writeFile(out, JSON.stringify(parsed, null, 2), 'utf8');
-      console.log(`  → build response written to ${out} — map the reservation/commit shape from it.`);
+      console.log(`  → build response written to ${out}.`);
+    }
+    // SELF-CLEANING: the build CONFIRMED a real PNR — cancel it unless told not to.
+    if (process.env.TVP_STAYS_NO_CANCEL) {
+      console.log('  ⚠️  TVP_STAYS_NO_CANCEL set — leaving the confirmed PNR in place. Cancel it manually.');
+    } else {
+      await cancelHotel(token, r, offer.value);
     }
   } else if (res.status === 401 || res.status === 403) {
     console.log('✗ NOT ENTITLED for hotel booking — chunk 3 ships emulated-only (like air ticketing).');
