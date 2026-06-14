@@ -673,7 +673,14 @@ export class LiveTravelportBackend implements Backend {
         returnOnlyAvailablePropertiesInd: true,
       },
     };
-    return this.postJson(url, body, 'hotelSearch');
+    // postJsonRaw, NOT postJson: a hotel search legitimately returns
+    // partial results with INFORMATIONAL Result messages (verified
+    // pre-prod 2026-06-15: DEN returned ~56 properties alongside
+    // "[?/99] Rates unavailable for 56 properties"). postJson's
+    // assertNoSemanticErrors throws on ANY body Message, which would
+    // abort a perfectly good search. HTTP 4xx/5xx still throw (bad
+    // request / auth); a genuinely empty result maps to NO HOTELS.
+    return this.postJsonRaw(url, body, 'hotelSearch');
   }
 
   /**

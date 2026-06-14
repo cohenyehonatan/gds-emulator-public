@@ -227,9 +227,16 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
   /**
    * Send an entry, transparently reconnecting if the server bounced
    * (tsx watch restarts on every source change — dev:server:*). On
-   * reconnect the server hands out a FRESH work area, so the
-   * operator gets an advisory to sign on again; in CRT mode the
-   * .CRT hello is re-sent so state trailers keep flowing.
+   * reconnect the server hands out a FRESH (signed-off) work area.
+   *
+   * The reconnect does NOT replay `entry`. Re-sending it would re-hit a
+   * LIVE vendor — and a replayed mutating op (sell/commit) could
+   * double-apply server-side. (Seen 2026-06-15: editing files while a
+   * live client was connected restarted the server repeatedly, and the
+   * old replay turned each restart into another live hotel search.) So
+   * we reconnect, re-send the `.CRT` hello to keep trailers flowing, and
+   * hand back an empty body + reconnected=true; the operator re-signs-on
+   * and re-enters (checking state first for anything mutating).
    */
   const enterWithReconnect = async (entry: string): Promise<{ resp: string; reconnected: boolean }> => {
     try {
@@ -240,12 +247,10 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
         try {
           await terminal.reconnect();
           if (crt) {
-            // Re-send the hello; refresh the sign-on screen so the
-            // reconnect handler can re-present it (fresh work area).
             const re = await terminal.enter('.CRT');
             remoteSignOnScreen = re.split('\x1F')[5] ?? remoteSignOnScreen;
           }
-          return { resp: await terminal.enter(entry), reconnected: true };
+          return { resp: '', reconnected: true }; // do not replay `entry`
         } catch { /* server still down — keep trying */ }
       }
       throw new Error('GDS host unreachable after 20 reconnect attempts');
@@ -305,15 +310,19 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
         try {
           const { resp, reconnected } = await enterWithReconnect(entry);
           if (reconnected) {
-            screen.print('── RECONNECTED (server restarted — fresh work area, sign on again) ──');
+            screen.print('── RECONNECTED (server restarted — fresh work area). Your last entry was');
+            screen.print('   NOT sent; sign on and re-enter it. ──');
             if (remoteSignOnScreen) {
               for (const l of remoteSignOnScreen.split('\n')) screen.print(l);
             }
+            lastState = 'SIGNED_OFF';
+            lastAgent = '----';
+          } else {
+            const { body, state, agent } = splitTrailer(resp);
+            lastState = state;
+            lastAgent = agent;
+            screen.print(body);
           }
-          const { body, state, agent } = splitTrailer(resp);
-          lastState = state;
-          lastAgent = agent;
-          screen.print(body);
         } catch (err) {
           screen.print(`Error: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -353,10 +362,13 @@ export async function startReplTcp(opts: { host: string; port: number }): Promis
     if (entry.length > 0) {
       try {
         const { resp, reconnected } = await enterWithReconnect(entry);
-        if (reconnected) console.log('── RECONNECTED (server restarted — fresh work area, sign on again) ──');
-        // Tolerate a state trailer if the hello succeeded but TTY
-        // detection forced line-mode — strip it for clean output.
-        console.log(crt || !resp.includes('\x1F') ? resp : resp.split('\x1F')[0]);
+        if (reconnected) {
+          console.log('── RECONNECTED (server restarted — fresh work area). Last entry NOT sent; sign on and re-enter. ──');
+        } else {
+          // Tolerate a state trailer if the hello succeeded but TTY
+          // detection forced line-mode — strip it for clean output.
+          console.log(crt || !resp.includes('\x1F') ? resp : resp.split('\x1F')[0]);
+        }
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }

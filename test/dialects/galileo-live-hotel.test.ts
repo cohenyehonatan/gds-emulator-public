@@ -121,6 +121,24 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(await host.process('HOA6FEB-09FEBPAR2', wa)).toBe('NO HOTELS');
   });
 
+  it('tolerates the "Rates unavailable for N properties" warning + still lists hotels', async () => {
+    // Verified pre-prod 2026-06-15: DEN returned ~56 properties alongside an
+    // informational "[?/99] Rates unavailable for 56 properties" Result
+    // message. postJson would have thrown on that Message and aborted a
+    // good search; postJsonRaw must let it through so the mapper runs.
+    const withWarning = {
+      PropertiesResponse: {
+        Result: { Error: [{ Message: 'Rates unavailable for 56 properties', StatusCode: 99 }] },
+        Properties: PROPS_RESPONSE.PropertiesResponse.Properties,
+      },
+    };
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp(withWarning));
+    const resp = await host.process('HOA6FEB-09FEBPAR2', wa);
+    expect(resp).not.toContain('LIVE BACKEND ERROR');
+    expect(resp).toContain('HILTON PARIS OPERA');
+    expect(wa.lastHotelAvail?.properties).toHaveLength(2);
+  });
+
   it('a property lacking a rate renders RQ (rate on request), not Infinity', async () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(
       searchResp({ PropertiesResponse: { Properties: { PropertyInfo: [
