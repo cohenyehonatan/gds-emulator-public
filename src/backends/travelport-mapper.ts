@@ -811,6 +811,77 @@ export function mapHotelAvailability(response: unknown): HotelRateDetail[] {
   return out;
 }
 
+const MONTHS_3 = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+/** ISO `YYYY-MM-DD` → cryptic `DDMON` (e.g. 2026-07-14 → 14JUL). */
+function isoToDdmon(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? '');
+  if (!m) return iso ?? '';
+  return `${m[3]}${MONTHS_3[parseInt(m[2], 10) - 1] ?? '???'}`;
+}
+
+/**
+ * Map a Stays book response (the hotel sell, POST /hotel/book/reservations/build
+ * → ReservationResponse) → a HotelSegment + the host locator. The Stays build
+ * is a ONE-SHOT confirmed booking, so the response already carries the supplier
+ * confirmation + PNR locator + HK status.
+ *
+ * Shape VERIFIED 2026-06-14 against a real live DEN booking (Westin DEN,
+ * locator GZWS3Q — created then cancelled):
+ *   ReservationResponse.Reservation
+ *     .Offer[0].Product[0] {PropertyKey, propertyName, associatedCityCode,
+ *        bookingCode, DateRange{start,end}, Quantity}
+ *     .Offer[0].Price {CurrencyCode.value, Base, PriceBreakdown[].AverageNightlyRate}
+ *     .Receipt[] → Confirmation.{Locator(locatorType "PNR Locator"/"Confirmation Number"),
+ *        OfferStatus.code}
+ */
+export function mapHotelReservation(response: unknown): { segment: HotelSegment; locator?: string } {
+  const r = response as any;
+  const res = r?.ReservationResponse?.Reservation ?? r?.Reservation ?? r;
+  const offer = arrayish(res?.Offer)[0] as any;
+  const product = arrayish(offer?.Product)[0] as any;
+  const price = offer?.Price;
+  const checkInIso = str(product?.DateRange?.start);
+  const checkOutIso = str(product?.DateRange?.end);
+  const nights = checkInIso && checkOutIso
+    ? Math.max(1, Math.round((Date.parse(checkOutIso) - Date.parse(checkInIso)) / 86_400_000))
+    : 1;
+  // Average nightly rate lives on the "Per night" breakdown; else base/nights.
+  let avg: number | undefined;
+  for (const pb of arrayish(price?.PriceBreakdown)) {
+    const a = arrayish((pb as any)?.AverageNightlyRate)[0];
+    if (a?.value != null) { avg = num(a.value); break; }
+  }
+  const base = num(price?.Base);
+  // Locators + status from the Receipt confirmations.
+  let locator: string | undefined;
+  let confirmation: string | undefined;
+  let status = 'HK';
+  for (const rc of arrayish(res?.Receipt)) {
+    const conf = (rc as any)?.Confirmation;
+    const loc = conf?.Locator;
+    if (loc?.locatorType === 'PNR Locator') locator = str(loc.value) || locator;
+    if (loc?.locatorType === 'Confirmation Number') confirmation = str(loc.value) || confirmation;
+    if (conf?.OfferStatus?.code) status = str(conf.OfferStatus.code) || status;
+  }
+  const segment: HotelSegment = {
+    segmentNumber: 0, // caller assigns the global segment number
+    chain: str(product?.PropertyKey?.chainCode),
+    property: str(product?.PropertyKey?.propertyCode),
+    name: str(product?.propertyName),
+    city: str(product?.associatedCityCode),
+    checkIn: isoToDdmon(checkInIso),
+    checkOut: isoToDdmon(checkOutIso),
+    nights,
+    rateCode: str(product?.bookingCode),
+    ratePerNight: avg ?? (base ? base / nights : 0),
+    currency: str(price?.CurrencyCode?.value),
+    rooms: num(product?.Quantity) || 1,
+    status,
+    confirmationNumber: confirmation,
+  };
+  return { segment, locator };
+}
+
 function flightToSegment(flight: any, segmentNumber: number): AirSegment | null {
   const carrier = flight?.carrier ?? flight?.Carrier;
   const flightNumber = String(flight?.number ?? flight?.Number ?? '');

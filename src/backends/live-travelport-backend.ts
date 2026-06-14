@@ -753,6 +753,68 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Book a hotel offer — the HOC-rate sell. POST /hotel/book/reservations/build
+   * with ReservationBuildFromCatalogOffering. NOTE: the Stays build is a
+   * ONE-SHOT CONFIRMED booking (verified 2026-06-14: it returns a real PNR
+   * locator + supplier confirmation + HK status, NOT a held workbench), so
+   * there is no separate commit step. Requires a traveler + a card guarantee
+   * (the API rejects without one: "FORM OF PAYMENT DATA IS INVALID"). Request
+   * shape verified live (HTTP 200, real DEN booking GZWS3Q). postJsonRaw —
+   * a confirmed booking can carry informational warnings.
+   */
+  async bookHotel(req: {
+    offerId: string;
+    authority?: string;
+    rooms?: number;
+    receivedFrom?: string;
+    traveler: { prefix?: string; given?: string; surname: string };
+    /** Card guarantee — expiry in MMYY (the spec's PaymentCard.expireDate format). */
+    card: { brand: string; pan: string; expiry: string; holderName?: string };
+  }): Promise<unknown> {
+    const url = `${this.opts.apiBase}/hotel/book/reservations/build`;
+    const t = req.traveler;
+    const body = {
+      ReservationQueryBuild: {
+        '@type': 'ReservationQueryBuild',
+        ReservationBuild: {
+          '@type': 'ReservationBuildFromCatalogOffering',
+          receivedFrom: req.receivedFrom ?? 'AGENT',
+          Traveler: [
+            {
+              '@type': 'Traveler',
+              PersonName: {
+                '@type': 'PersonName',
+                ...(t.prefix ? { Prefix: t.prefix } : {}),
+                ...(t.given ? { Given: t.given } : {}),
+                Surname: t.surname,
+              },
+            },
+          ],
+          FormOfPayment: [
+            {
+              '@type': 'FormOfPaymentPaymentCard',
+              PaymentCard: {
+                '@type': 'PaymentCard',
+                CardType: 'Credit',
+                CardCode: req.card.brand,
+                ...(req.card.holderName ? { CardHolderName: req.card.holderName } : {}),
+                CardNumber: { '@type': 'CardNumber', PlainText: req.card.pan },
+                expireDate: req.card.expiry,
+              },
+            },
+          ],
+          BuildFromCatalogOfferingHospitality: {
+            '@type': 'BuildFromCatalogOfferingHospitality',
+            CatalogOfferingIdentifier: { value: req.offerId, authority: req.authority ?? 'TVPT' },
+            NumberOfRooms: req.rooms ?? 1,
+          },
+        },
+      },
+    };
+    return this.postJsonRaw(url, body, 'bookHotel');
+  }
+
+  /**
    * Search seat availability for a previously-searched offer +
    * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
    * (SA* / SM*) and Sabre 4G display verbs.

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GalileoDialect } from '../../src/dialects/galileo/index.js';
 import { GdsHost } from '../../src/session/gds-host.js';
 import { LiveTravelportBackend } from '../../src/backends/live-travelport-backend.js';
-import { mapHotelSearch, mapHotelAvailability } from '../../src/backends/travelport-mapper.js';
+import { mapHotelSearch, mapHotelAvailability, mapHotelReservation } from '../../src/backends/travelport-mapper.js';
 import type { WorkArea } from '../../src/session/work-area.js';
 
 /**
@@ -203,6 +203,161 @@ describe('mapHotelAvailability — Stays CatalogOfferings → HotelRateDetail[]'
 
   it('an empty offering list maps to no rates', () => {
     expect(mapHotelAvailability({ CatalogOfferingsHospitalityResponse: { CatalogOfferings: { CatalogOffering: [] } } })).toHaveLength(0);
+  });
+});
+
+// Real-shaped book 200 body, trimmed VERBATIM from the live DEN booking the
+// build probe created then cancelled (stays-den-build.json, locator GZWS3Q):
+// ReservationResponse.Reservation.{Offer[].Product[], Receipt[].Confirmation}.
+const BOOK_RESPONSE = {
+  ReservationResponse: {
+    Reservation: {
+      '@type': 'Reservation',
+      Offer: [
+        {
+          '@type': 'OfferHospitality',
+          Identifier: { value: '3b336969-41e3-4e76-aa2d-1882cd1b947c:e2ab997d', authority: 'TVPT' },
+          Product: [
+            {
+              '@type': 'ProductHospitality',
+              Quantity: 1,
+              bookingCode: '100A261',
+              propertyName: 'The Westin Denver International Airport',
+              associatedCityCode: 'DEN',
+              associatedAirportCode: 'DEN',
+              PropertyKey: { '@type': 'PropertyKey', chainCode: 'WI', propertyCode: 'B2095' },
+              DateRange: { start: '2026-07-14', end: '2026-07-16' },
+              RoomType: { value: 'Bedroom Suite, Bedroom 1: 1 King, Bedroom 2: 1 King' },
+            },
+          ],
+          Price: {
+            '@type': 'PriceDetail',
+            CurrencyCode: { value: 'USD', decimalPlace: 2 },
+            Base: 1938,
+            TotalTaxes: 305.24,
+            TotalPrice: 2243.24,
+            PriceBreakdown: [
+              { '@type': 'PriceBreakdownHospitality' },
+              { '@type': 'PriceBreakdownHospitality', AverageNightlyRate: [{ value: 969, code: 'USD' }] },
+            ],
+          },
+        },
+      ],
+      Traveler: [{ '@type': 'Traveler', id: 'T1', PersonName: { '@type': 'PersonName', Prefix: 'MR', Given: 'JOHN', Surname: 'SMITH' } }],
+      Receipt: [
+        { '@type': 'Receipt', OfferRef: ['O1'], Confirmation: { '@type': 'Confirmation', Locator: { value: '92113579', locatorType: 'Confirmation Number', source: 'WI', sourceContext: 'Supplier' }, OfferStatus: { '@type': 'OfferStatusHospitality', code: 'HK', Status: 'Confirmed' } } },
+        { '@type': 'Receipt', OfferRef: ['O1'], Confirmation: { '@type': 'Confirmation', Locator: { value: '14537482', locatorType: 'IATA Number' }, OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' } } },
+        { '@type': 'Receipt', Confirmation: { '@type': 'Confirmation', Locator: { value: 'GZWS3Q', locatorType: 'PNR Locator', sourceContext: 'Travelport' }, OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' } } },
+      ],
+    },
+  },
+};
+
+describe('mapHotelReservation — Stays ReservationResponse → HotelSegment + locator', () => {
+  it('maps the real DEN booking shape (verified 2026-06-14 against GZWS3Q)', () => {
+    const { segment, locator } = mapHotelReservation(BOOK_RESPONSE);
+    expect(segment).toMatchObject({
+      chain: 'WI', property: 'B2095', city: 'DEN',
+      checkIn: '14JUL', checkOut: '16JUL', nights: 2,
+      rateCode: '100A261', ratePerNight: 969, currency: 'USD',
+      rooms: 1, status: 'HK', confirmationNumber: '92113579',
+    });
+    expect(segment.name).toContain('Westin');
+    expect(locator).toBe('GZWS3Q'); // the PNR Locator, not the supplier/IATA numbers
+  });
+});
+
+describe('Galileo live hotel SELL — Stays build (one-shot confirmed booking)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let host: GdsHost;
+  let wa: WorkArea;
+  const tokenResp = () =>
+    new Response(JSON.stringify({ access_token: 'T', token_type: 'Bearer', expires_in: 3600 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  // Live N. spins up an air workbench (createWorkbench reads
+  // ReservationResponse.Reservation.Identifier.value) — even for a
+  // hotel-only flow, where the workbench then goes unused by the
+  // standalone Stays build.
+  const WORKBENCH = { ReservationResponse: { Reservation: { Identifier: { value: 'WB1' } } } };
+
+  beforeEach(async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const backend = new LiveTravelportBackend({ clientId: 'x', clientSecret: 'y', username: 'z', password: 'w' });
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S', backend });
+    wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  // HOA (token+search) → HOC1 (avail, caches the offerIds). 3 live calls.
+  async function driveToRateDisplay() {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResp())
+      .mockResolvedValueOnce(json(PROPS_RESPONSE))   // HOA search
+      .mockResolvedValueOnce(json(AVAIL_RESPONSE));  // HOC availability
+    await host.process('HOA6FEB-09FEBPAR2', wa);
+    await host.process('HOC1', wa);
+  }
+
+  it('N1A1 after HOC books the rate + surfaces the real confirmation + locator', async () => {
+    await driveToRateDisplay();
+    fetchSpy.mockResolvedValueOnce(json(WORKBENCH)).mockResolvedValueOnce(json(BOOK_RESPONSE));
+    await host.process('N.SMITH/JOHN MR', wa);            // createWorkbench
+    await host.process('F.CCVI4111111111111111/D1230', wa); // no live call
+    const resp = await host.process('N1A1', wa);          // build (book)
+
+    expect(resp).toContain('HOTEL SOLD');
+    expect(resp).toContain('WI');
+    expect(resp).toContain('92113579');                  // supplier confirmation
+    expect(resp).toContain('HOTEL CONFIRMED - LOCATOR GZWS3Q');
+    expect(wa.pnr.hotelSegments).toHaveLength(1);
+    expect(wa.pnr.hotelSegments[0]).toMatchObject({ chain: 'WI', status: 'HK', confirmationNumber: '92113579' });
+
+    // The build request: verified endpoint + offer + traveler + card guarantee.
+    const [url, init] = fetchSpy.mock.calls[4];
+    expect(String(url)).toContain('/hotel/book/reservations/build');
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    const rb = body.ReservationQueryBuild.ReservationBuild;
+    expect(rb['@type']).toBe('ReservationBuildFromCatalogOffering');
+    expect(rb.Traveler[0].PersonName.Surname).toBe('SMITH');
+    expect(rb.Traveler[0].PersonName.Given).toBe('JOHN');
+    expect(rb.BuildFromCatalogOfferingHospitality.CatalogOfferingIdentifier.value)
+      .toBe('3f215c9f-e05b-45ba-984c-bfb3b784681a:75e9666108f2'); // AVAIL_RESPONSE offer[0]
+    const card = rb.FormOfPayment[0].PaymentCard;
+    expect(card.CardCode).toBe('VI');
+    expect(card.CardNumber.PlainText).toBe('4111111111111111');
+    expect(card.expireDate).toBe('1230'); // MMYY
+  });
+
+  it('N1A1 without a prior HOC (no offerId) → NEED RATE DISPLAY', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(json(PROPS_RESPONSE)).mockResolvedValueOnce(json(WORKBENCH));
+    await host.process('HOA6FEB-09FEBPAR2', wa); // HOA only — no HOC
+    await host.process('N.SMITH/JOHN MR', wa);   // createWorkbench
+    await host.process('F.CCVI4111111111111111/D1230', wa);
+    expect(await host.process('N1A1', wa)).toBe('NEED RATE DISPLAY - USE HOC');
+  });
+
+  it('N1A1 with no name on the BF → NEED NAME', async () => {
+    await driveToRateDisplay();
+    await host.process('F.CCVI4111111111111111/D1230', wa); // no name entered
+    expect(await host.process('N1A1', wa)).toBe('NEED NAME - USE N.');
+  });
+
+  it('N1A1 with no form of payment → NEED FORM OF PAYMENT (mirrors the live 400)', async () => {
+    await driveToRateDisplay();
+    fetchSpy.mockResolvedValueOnce(json(WORKBENCH));
+    await host.process('N.SMITH/JOHN MR', wa);
+    expect(await host.process('N1A1', wa)).toBe('NEED FORM OF PAYMENT - USE F.');
+  });
+
+  it('N1A9 (rate line out of range) → INVALID LINE', async () => {
+    await driveToRateDisplay();
+    fetchSpy.mockResolvedValueOnce(json(WORKBENCH));
+    await host.process('N.SMITH/JOHN MR', wa);
+    await host.process('F.CCVI4111111111111111/D1230', wa);
+    expect(await host.process('N1A9', wa)).toBe('INVALID LINE');
   });
 });
 

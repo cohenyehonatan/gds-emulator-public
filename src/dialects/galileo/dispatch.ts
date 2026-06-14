@@ -61,6 +61,7 @@ import {
   mapFareDisplay,
   mapHotelSearch,
   mapHotelAvailability,
+  mapHotelReservation,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -3468,7 +3469,15 @@ async function handleGalileoHotel(
         adults: cached.adults,
       });
       const rates = mapHotelAvailability(resp);
-      if (rates.length === 0) return [...header, 'NO RATES AVAILABLE'].join('\n');
+      if (rates.length === 0) {
+        wa.lastHotelRateDetail = undefined;
+        return [...header, 'NO RATES AVAILABLE'].join('\n');
+      }
+      // Cache the rates (with offerIds) so a live N<rooms>A<rate> can sell one.
+      wa.lastHotelRateDetail = {
+        chain: prop.chain, property: prop.property, name: prop.name, city: prop.city,
+        checkIn: cached.checkIn, checkOut: cached.checkOut, nights: cached.nights, rates,
+      };
       const lines = header;
       rates.forEach((r, i) => {
         const avg = r.averageNightly != null ? `  AVG ${r.averageNightly.toFixed(2)}` : '';
@@ -3530,16 +3539,22 @@ function handleGalileoCar(
  * the guide's examples (the guide shows entries, not field meanings)
  * — flagged as such.
  */
-function handleGalileoAuxSell(
+async function handleGalileoAuxSell(
   entry: import('../../protocol/entry.js').SellEntry,
   wa: WorkArea,
   ctx: HandlerContext,
-): string {
+): Promise<string> {
   const m = /^N(\d{1,2})A(\d{1,2})(?:D(\d{1,2}))?$/.exec(entry.raw.toUpperCase());
   if (!m) return GalileoResponse.FORMAT;
   const count = parseInt(m[1], 10);
   const line = parseInt(m[2], 10);
   const days = m[3] ? parseInt(m[3], 10) : undefined;
+
+  // LIVE hotel sell: book a specific HOC rate via the Stays build endpoint
+  // (a one-shot confirmed booking). Cars stay emulated (no Stays car API).
+  if (ctx.backend instanceof LiveTravelportBackend && wa.lastHotelAvail) {
+    return sellGalileoHotelLive(wa, ctx, count, line);
+  }
 
   if (wa.lastHotelAvail) {
     const cached = wa.lastHotelAvail;
@@ -3577,6 +3592,68 @@ function handleGalileoAuxSell(
   };
   wa.pnr.carSegments.push(seg);
   return `CAR SOLD ${seg.segmentNumber}. CCR ${rental.company} HK ${rental.city} ${cached.pickup}-${cached.dropoff} ${rental.vehicleType} ${rental.amount.toFixed(2)}${rental.currency}/DY ${seg.confirmationNumber}`;
+}
+
+/**
+ * Parse a Galileo F. card form (`pnr.fopField`, e.g. `CCVI4111…/D1230` or
+ * `VI4111…/D1230`) into the card fields the Stays build needs. Returns
+ * undefined when the field is absent or not a bookable card (cash/cheque/
+ * invoice/no vendor) — the caller then rejects with NEED FORM OF PAYMENT.
+ */
+function parseFopCard(fopField: string | undefined): { brand: string; pan: string; expiry: string } | undefined {
+  if (!fopField) return undefined;
+  const m = /^(?:CC)?([A-Z]{2})(\d{10,19})\/D(\d{4})(?:\/E\d{0,2})?$/i.exec(fopField.trim());
+  if (!m) return undefined;
+  return { brand: m[1].toUpperCase(), pan: m[2], expiry: m[3] };
+}
+
+/**
+ * Live hotel sell — book the HOC rate on line `line` via the Stays build
+ * endpoint. The build is a ONE-SHOT confirmed booking, so it needs a guest
+ * (the PNR's first name) + a card guarantee (the F. field); the response
+ * carries the real supplier confirmation + host locator. Faithful rejections
+ * mirror what the API demands: a prior HOC (for the offerId), a name, a card.
+ */
+async function sellGalileoHotelLive(
+  wa: WorkArea,
+  ctx: HandlerContext,
+  count: number,
+  line: number,
+): Promise<string> {
+  const rd = wa.lastHotelRateDetail;
+  if (!rd) return 'NEED RATE DISPLAY - USE HOC'; // reconstructed (no live offerId without HOC)
+  const rate = rd.rates[line - 1];
+  if (!rate) return 'INVALID LINE';
+  if (!rate.offerId) return 'RATE NOT BOOKABLE'; // reconstructed
+  const name = wa.pnr.names[0];
+  if (!name) return 'NEED NAME - USE N.'; // reconstructed
+  const card = parseFopCard(wa.pnr.fopField);
+  if (!card) return 'NEED FORM OF PAYMENT - USE F.'; // reconstructed (mirrors the live 400)
+
+  try {
+    const resp = await (ctx.backend as LiveTravelportBackend).bookHotel({
+      offerId: rate.offerId,
+      rooms: count,
+      receivedFrom: wa.pnr.receivedFrom,
+      traveler: {
+        surname: name.surname,
+        given: name.passengers[0]?.firstName,
+        prefix: name.passengers[0]?.title,
+      },
+      card,
+    });
+    const { segment, locator } = mapHotelReservation(resp);
+    segment.segmentNumber = nextSegmentNumber(wa);
+    wa.pnr.hotelSegments.push(segment);
+    const conf = segment.confirmationNumber ? ` ${segment.confirmationNumber}` : '';
+    const sold =
+      `HOTEL SOLD ${segment.segmentNumber}. HHL ${segment.chain} ${segment.status}${segment.rooms} ` +
+      `${segment.city} ${segment.checkIn}-${segment.checkOut} ${segment.rateCode} ` +
+      `${segment.ratePerNight.toFixed(2)}${segment.currency}${conf}`;
+    return locator ? `${sold}\nHOTEL CONFIRMED - LOCATOR ${locator}` : sold;
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
 }
 
 /** Next global segment number across all booked content types. */

@@ -23,9 +23,9 @@ doc scopes that integration. (Cars are different — see *Out of scope*.)
 |---|---|
 | `HOA` availability | `POST /hotel/search/properties/search` then `POST /hotel/availability/catalogofferingshospitality` |
 | `HOI` index | `POST /hotel/search/properties` / `GET /hotel/search/properties/{identifier}` |
-| `HOC` rates/rules | `POST /hotel/rules/offershospitality/buildfromcatalogoffering` |
-| `N<rooms>A<line>` active sell | `POST /hotel/book/reservations` (+ `/hotel/book/reservations/build` workbench) |
-| `0HTL…MK` passive sell | `POST /hotel/book/reservations/passive` (+ `/passiveupdate`) |
+| `HOC` rate detail | `POST /hotel/availability/catalogofferingshospitality` ✅ wired (`/rules/…buildfromcatalogoffering` is the deeper cancel-policy call, not used yet) |
+| `N<rooms>A<rate>` active sell | `POST /hotel/book/reservations/build` ✅ wired — **one-shot CONFIRMED booking, not a workbench** |
+| `0HTL…MK` passive sell | `POST /hotel/book/reservations/passive` (+ `/passiveupdate`) — open, body unverified |
 | `*<locator>` retrieve | `GET /hotel/book/reservations/{Identifier}` — already mapped via `mapReservation` (`ProductHospitality`) |
 | cancel | `PUT /hotel/book/reservations/{id}/canceloffer` |
 
@@ -156,9 +156,36 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    (HTTP 200, 48 offerings) via the probe's opt-in third call
    (`TVP_STAYS_AVAIL=1 TVP_STAYS_AVAIL_OUT=…`). `HOI` stays emulated; emulated
    `HOC` keeps the seed's rate list.
-3. **Sell path** — active book (`N<rooms>A<line>` → `/hotel/book/reservations`) and
-   passive book (`0HTL…MK` → `/hotel/book/reservations/passive`).
-4. **Cancel** — `X`-family hotel segment → `…/canceloffer`. Retrieve is already done.
+3. **Sell path** — **active book DONE + VERIFIED 2026-06-14.** ⚠️ Key correction:
+   `POST /hotel/book/reservations/build` is NOT a workbench — it is a **one-shot
+   CONFIRMED booking** (the feasibility probe created real DEN PNR `GZWS3Q` with a
+   supplier confirmation + HK status; there is no separate commit step). So the
+   live flow is **HOA → HOC → `N<rooms>A<rate>`**, where the sell books the chosen
+   HOC rate by its `offerId` immediately. The build requires a **traveler** (the
+   BF's first `N.` name) + a **card guarantee** (the `F.` field — the API rejects
+   without one: `FORM OF PAYMENT DATA IS INVALID`); deposit-rate offers are
+   skipped client-side in favour of `GuaranteeRequired` rates where possible.
+   Pieces landed:
+   - `LiveTravelportBackend.bookHotel()` → build endpoint, request shape verified
+     live (HTTP 200). `mapHotelReservation()` → `{ HotelSegment, locator }`,
+     verified against the real `GZWS3Q` response (supplier conf, PNR locator, HK).
+   - HOC live caches the rate detail (offerIds) on `wa.lastHotelRateDetail`;
+     `sellGalileoHotelLive` sources name + parses the `F.` card (`parseFopCard`)
+     and books. Faithful rejections: `NEED RATE DISPLAY` / `NEED NAME` /
+     `NEED FORM OF PAYMENT`. Tests mocked from the real capture
+     (`test/dialects/galileo-live-hotel.test.ts`) — **no live writes in CI.**
+   - Probe gained an opt-in build feasibility call (`TVP_STAYS_BUILD=1`), used
+     once to prove entitlement; the stray PNR it created was cancelled via
+     `…/canceloffer`.
+   - Real-behaviour note: live `N.` still spins up an (unused) air workbench even
+     in a hotel-only flow. Harmless; not worth special-casing.
+
+   **Still open: passive book** (`0HTL…MK` → `/hotel/book/reservations/passive`).
+   Its request body shape is unverified (would need another live probe), so it
+   stays emulated for now.
+4. **Cancel** — `X`-family hotel segment → `…/canceloffer` (the endpoint is proven
+   — used to clean up the probe's PNR; not yet wired to the cryptic `X` family).
+   Retrieve is already done.
 
 ## Out of scope
 

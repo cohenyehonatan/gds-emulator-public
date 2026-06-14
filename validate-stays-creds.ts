@@ -247,7 +247,7 @@ function firstOpenProperty(searchResponse: unknown): { chainCode: string; proper
 async function hotelAvailability(
   token: string,
   prop: { chainCode: string; propertyCode: string; name: string },
-): Promise<void> {
+): Promise<unknown | undefined> {
   const path = process.env.TVP_STAYS_AVAIL_PATH ?? '/hotel/availability/catalogofferingshospitality';
   const url = API_BASE + path;
   console.log(`\n[3/3] Stays availability  →  POST ${url}`);
@@ -310,12 +310,125 @@ async function hotelAvailability(
     } else {
       console.log('  → re-run with TVP_STAYS_AVAIL_OUT=./stays-den-avail.json to capture the shape.');
     }
+    console.log('══════════════════════════════════════════════════════');
+    return parsed;
   } else if (res.status === 400) {
     console.log('△ 400 — entitled, but the availability BODY shape is off (likely StayDates/criterion field).');
   } else {
     console.log(`△ ${res.status} — see message above. Body:\n${text.slice(0, 600)}`);
   }
   console.log('══════════════════════════════════════════════════════');
+  return undefined;
+}
+
+/**
+ * Pull a bookable offer (Identifier value/authority/id) from an availability
+ * response. Prefers a GuaranteeRequired rate (card guarantee, no deposit) over
+ * a DepositRequired one — a deposit rate makes the build ask for a prepayment,
+ * which is a rate rule, not a capability gap.
+ */
+function firstOffer(availResponse: unknown): { value: string; authority: string; id: string } | undefined {
+  const root = (availResponse as any)?.CatalogOfferingsHospitalityResponse ?? availResponse;
+  const offers: any[] = root?.CatalogOfferings?.CatalogOffering ?? [];
+  const gtype = (o: any) => (o?.TermsAndConditions?.Guarantee ?? []).map((g: any) => g.guaranteeType).join('/');
+  const off = offers.find((o) => o?.Identifier?.value && gtype(o).includes('GuaranteeRequired'))
+    ?? offers.find((o) => o?.Identifier?.value);
+  if (!off?.Identifier?.value) return undefined;
+  return { value: off.Identifier.value, authority: off.Identifier.authority ?? 'TVPT', id: off.id ?? '' };
+}
+
+/**
+ * FEASIBILITY PROBE (opt-in via TVP_STAYS_BUILD=1) — the ONE live WRITE.
+ * POST /hotel/book/reservations/build with a synthetic traveler + a real
+ * offer. This BUILDS a reservation in WORKBENCH state (30-min auto-expiring
+ * cache) — it is NOT a committed booking; the commit is the separate POST
+ * /hotel/book/reservations, which this probe DELIBERATELY DOES NOT CALL.
+ * Answers the gating question for chunk 3 (docs/live-stays-wiring.md):
+ *   200/201 → hotel booking is ENTITLED + reachable (build the chunk live).
+ *   401/403 → NOT entitled — chunk 3 ships emulated-only, like air ticketing.
+ * Body shape from the Stays v11.34 spec (ReservationQueryBuild →
+ * ReservationBuildFromCatalogOffering + BuildFromCatalogOfferingHospitality).
+ */
+async function hotelBuildProbe(
+  token: string,
+  offer: { value: string; authority: string; id: string },
+): Promise<void> {
+  const path = process.env.TVP_STAYS_BUILD_PATH ?? '/hotel/book/reservations/build';
+  const url = API_BASE + path;
+  console.log(`\n[BUILD] Stays reservation build (WORKBENCH ONLY, no commit)  →  POST ${url}`);
+  console.log(`      ↳ offer ${offer.value.slice(0, 16)}…  traveler TEST/PROBE MR  (1 room)`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Cache-Control': 'no-cache',
+    'Accept-Version': ACCEPT_VERSION,
+    'Content-Version': ACCEPT_VERSION,
+  };
+  if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
+  else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
+
+  const payload = {
+    ReservationQueryBuild: {
+      '@type': 'ReservationQueryBuild',
+      ReservationBuild: {
+        '@type': 'ReservationBuildFromCatalogOffering',
+        receivedFrom: 'PROBE',
+        Traveler: [
+          { '@type': 'Traveler', PersonName: { '@type': 'PersonName', Prefix: 'MR', Given: 'TEST', Surname: 'PROBE' } },
+        ],
+        // A hotel guarantee needs a form of payment. PUBLIC test card
+        // (4111… is the universally-published Visa test PAN — NOT a real
+        // card, NOT a secret). Pre-prod only; the build is never committed.
+        FormOfPayment: [
+          {
+            '@type': 'FormOfPaymentPaymentCard',
+            PaymentCard: {
+              '@type': 'PaymentCard',
+              CardType: 'Credit',
+              CardCode: 'VI',
+              CardHolderName: 'TEST PROBE',
+              CardNumber: { '@type': 'CardNumber', PlainText: '4111111111111111' },
+              expireDate: '1230', // MMYY (spec pattern (0[1-9]|1[0-2])[0-9][0-9])
+            },
+          },
+        ],
+        BuildFromCatalogOfferingHospitality: {
+          '@type': 'BuildFromCatalogOfferingHospitality',
+          CatalogOfferingIdentifier: { value: offer.value, authority: offer.authority },
+          NumberOfRooms: 1,
+        },
+      },
+    },
+  };
+
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const text = await res.text();
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { parsed = text; }
+  console.log(`      ↳ HTTP ${res.status} ${res.statusText}`);
+  for (const m of extractMessages(parsed)) console.log(`        • ${m}`);
+
+  console.log('\n════════════════════ BUILD VERDICT (chunk 3 gate) ════════════════════');
+  if (res.status === 200 || res.status === 201) {
+    console.log('✓ HOTEL BOOKING IS AVAILABLE — build succeeded (workbench, NOT committed).');
+    console.log('  Chunk 3 can be wired live. (We did NOT commit — the workbench auto-expires.)');
+    const out = process.env.TVP_STAYS_BUILD_OUT;
+    if (out) {
+      const fs = await import('node:fs/promises');
+      await fs.writeFile(out, JSON.stringify(parsed, null, 2), 'utf8');
+      console.log(`  → build response written to ${out} — map the reservation/commit shape from it.`);
+    }
+  } else if (res.status === 401 || res.status === 403) {
+    console.log('✗ NOT ENTITLED for hotel booking — chunk 3 ships emulated-only (like air ticketing).');
+  } else if (res.status === 400) {
+    console.log('△ 400 — entitled + reachable, but the build BODY shape needs adjustment (see message).');
+  } else {
+    console.log(`△ ${res.status} — inconclusive. Body:\n${text.slice(0, 700)}`);
+  }
+  console.log('═══════════════════════════════════════════════════════════════════════');
 }
 
 async function main(): Promise<void> {
@@ -325,10 +438,19 @@ async function main(): Promise<void> {
   const token = await getToken();
   const searchResponse = await hotelSearch(token);
   // Opt-in third call: rate detail (HOC) for the first bookable property.
-  if (process.env.TVP_STAYS_AVAIL && searchResponse) {
+  if ((process.env.TVP_STAYS_AVAIL || process.env.TVP_STAYS_BUILD) && searchResponse) {
     const prop = firstOpenProperty(searchResponse);
-    if (prop) await hotelAvailability(token, prop);
-    else console.log('\n△ TVP_STAYS_AVAIL set but no open property with a key found in the search — skipping availability.');
+    if (prop) {
+      const availResponse = await hotelAvailability(token, prop);
+      // Opt-in feasibility WRITE: build a workbench reservation (no commit).
+      if (process.env.TVP_STAYS_BUILD && availResponse) {
+        const offer = firstOffer(availResponse);
+        if (offer) await hotelBuildProbe(token, offer);
+        else console.log('\n△ TVP_STAYS_BUILD set but no bookable offer found in availability — skipping build.');
+      }
+    } else {
+      console.log('\n△ TVP_STAYS_AVAIL/BUILD set but no open property with a key found in the search — skipping.');
+    }
   }
   console.log('\nDone. (Live calls only — re-running hits the API again.)');
 }

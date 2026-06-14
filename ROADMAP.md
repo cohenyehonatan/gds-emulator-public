@@ -1179,13 +1179,19 @@ The original survey (all items now resolved or annotated):
       (no phantom workbenches); the real modify flow opens a workbench FROM the
       locator. Spec + offer-UUID extraction already proven in
       issueTicketsPostCommit.
-- [ ] **Live hotel via the Stays API v11.** Corrected 2026-06-14: hotel is NOT
+- [~] **Live hotel via the Stays API v11.** Corrected 2026-06-14: hotel is NOT
       "no v11 REST equivalent" — the Stays API (GA, same host/auth as Flights:
-      `/11/hotel/search|availability|rules|book`, incl. `…/book/reservations/passive`
-      for `0HTL…MK`) means `HOA`/`HOC`/hotel-sell could go live the way air did.
-      Currently unwired → they read the local seed on both backends. Gated on
-      whether the 7K9S trial tenant has Stays entitlement (probe first). Full
-      scope + endpoint map + chunk plan in `docs/live-stays-wiring.md`. Cars stay
+      `/11/hotel/search|availability|rules|book`). **7K9S is entitled** (verified).
+      **Read path DONE + verified live:** `HOA` (search), `HOI` (directory),
+      `HOC` (rate detail via `/hotel/availability/catalogofferingshospitality`),
+      retrieve. **Active sell DONE + verified live:** `N<rooms>A<rate>` after `HOC`
+      books the offer via `/hotel/book/reservations/build` — which is a ONE-SHOT
+      CONFIRMED booking (not a workbench; the probe created real PNR `GZWS3Q`,
+      since cancelled), needing a `N.` name + an `F.` card guarantee. Mappers
+      verified against real DEN captures; tests mocked (no live writes in CI).
+      Full scope + chunk plan in `docs/live-stays-wiring.md`. **Still open:**
+      passive book (`0HTL…MK` → `…/book/reservations/passive`, body shape
+      unverified) and wiring `…/canceloffer` to the cryptic `X` family. Cars stay
       emulated — no published v11 Cars API.
 - [ ] **Vendor remarks (*VI/*VO/*VR/*VL) + *CI data models** — verbs answer
       honestly empty; need models + a source for screen shapes.

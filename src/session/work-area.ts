@@ -118,6 +118,23 @@ export class WorkAreaSlot {
   };
 
   /**
+   * Cached HOC rate detail (with bookable offerIds) for ONE property — set
+   * when a live `HOC<line>` runs. A subsequent live `N<rooms>A<rate>` sells
+   * the chosen rate by its offerId. Cleared by reset() and replaced on the
+   * next HOC.
+   */
+  lastHotelRateDetail?: {
+    chain: string;
+    property: string;
+    name: string;
+    city: string;
+    checkIn: string;  // DDMON
+    checkOut: string; // DDMON
+    nights: number;
+    rates: import('../models/hotel.js').HotelRateDetail[];
+  };
+
+  /**
    * Cached car-availability display from the last CA query (chunk
    * 23). Drives CS<n> line-number reference.
    */
@@ -228,6 +245,7 @@ export class WorkAreaSlot {
     this.lastFareDisplay = undefined;
     this.lastSeatMap = undefined;
     this.lastHotelAvail = undefined;
+    this.lastHotelRateDetail = undefined;
     this.lastCarAvail = undefined;
     this.lastRailAvail = undefined;
     this.lastFailedEntry = undefined;
@@ -426,6 +444,12 @@ export class WorkArea {
   }
   set lastHotelAvail(v: WorkAreaSlot['lastHotelAvail']) {
     this.s.lastHotelAvail = v;
+  }
+  get lastHotelRateDetail(): WorkAreaSlot['lastHotelRateDetail'] {
+    return this.s.lastHotelRateDetail;
+  }
+  set lastHotelRateDetail(v: WorkAreaSlot['lastHotelRateDetail']) {
+    this.s.lastHotelRateDetail = v;
   }
   get lastCarAvail(): WorkAreaSlot['lastCarAvail'] {
     return this.s.lastCarAvail;
