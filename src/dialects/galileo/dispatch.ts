@@ -3386,18 +3386,24 @@ async function handleGalileoHotel(
   if (entry.action === 'availability' || entry.action === 'index') {
     const checkIn = entry.checkIn ?? '15JUL';
     const checkOut = entry.checkOut ?? checkIn;
-    // Live HOA: the Stays API hotel search (read-only — no workbench, so
-    // a committed BF on screen doesn't block it). HOI/HOC stay emulated.
+    // Live: BOTH HOA (availability) and HOI (index) hit the Stays search
+    // so they reflect the same live tenant — otherwise HOA shows live
+    // hotels while HOI silently reads the (DEN-less) local seed. Read-only
+    // (no workbench), so a committed BF on screen doesn't block it. The
+    // Stays search REQUIRES check-in/out dates; HOI carries none, so
+    // default a near-future 2-night window just to query the catalogue.
+    // HOC stays cache-backed (reads lastHotelAvail).
     let props: import('../../models/hotel.js').HotelProperty[];
-    if (ctx.backend instanceof LiveTravelportBackend && entry.action === 'availability') {
+    if (ctx.backend instanceof LiveTravelportBackend) {
       try {
         const resp = await ctx.backend.hotelSearch({
           airport: entry.city!,
-          checkIn: ddmonToIso(checkIn),
-          checkOut: ddmonToIso(checkOut),
+          checkIn: entry.checkIn ? ddmonToIso(checkIn) : isoPlusDays(30),
+          checkOut: entry.checkOut ? ddmonToIso(checkOut) : isoPlusDays(32),
           adults: entry.adults,
         });
         props = mapHotelSearch(resp, entry.city!);
+        if (entry.chain) props = props.filter((p) => p.chain === entry.chain);
       } catch (err) {
         return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
       }
@@ -3534,6 +3540,11 @@ function nextSegmentNumber(wa: WorkArea): number {
  * to the NEXT occurrence (today or later) — matching how an agent reads
  * a bare DDMON as "the coming 6 Feb".
  */
+/** ISO `YYYY-MM-DD` for `days` from now — default dates for a dateless HOI. */
+function isoPlusDays(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 function ddmonToIso(ddmon: string): string {
   const m = /^(\d{1,2})([A-Z]{3})$/.exec(ddmon.toUpperCase());
   if (!m) return ddmon; // already ISO or unparseable — pass through
