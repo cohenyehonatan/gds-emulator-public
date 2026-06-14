@@ -31,6 +31,7 @@
     "scenario": "tsx src/index.ts scenario",
     "validate:live-galileo": "tsx validate-galileo-handler-live.ts",
     "validate:creds": "tsx validate-travelport-creds.ts",
+    "validate:stays-creds": "tsx validate-stays-creds.ts",
     "validate:diff-oracle": "tsx validate-galileo-diff-oracle.ts",
     "validate:diff-oracle:apollo": "tsx validate-galileo-diff-oracle.ts --dialect=apollo",
     "validate:diff-oracle:worldspan": "tsx validate-galileo-diff-oracle.ts --dialect=worldspan",

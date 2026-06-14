@@ -3,10 +3,14 @@ node_modules/
 dist/
 references/*.txt
 
-# validate-travelport-creds.ts runtime artifacts (live API responses)
+# validate-*-creds.ts runtime artifacts (live API responses)
 travelport-response.json
+stays-search-response.json
 tvp-diag-*.json
 tvp-*.json
+
+# Playwright MCP browser artifacts
+.playwright-mcp/
 
 # machine-readable test reports (agent ingestion / CI)
 .vitest-report.json

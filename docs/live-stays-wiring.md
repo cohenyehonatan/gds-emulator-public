@@ -52,26 +52,30 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
 4. **Mocked unit tests** for the wiring + a `validate-stays-handler-live` REPL
    verifier that proves the cryptic→REST chain end-to-end against pre-prod.
 
-## Open questions (resolve before/while chunking)
+## Open questions
 
-1. **Does the 7K9S trial tenant have Stays entitlement?** The trial validated *air*
-   search; Stays may need a different access group (e.g. a `_HOTEL`/`_HCD` PCC suffix
-   on `TVP-PCC-CORE`) or a separate grant. **Resolve first** with a one-shot probe —
-   if it 403s, live hotel is blocked on the same trial-tenant gate as production
-   ticketing, and stays emulated until a production/entitled tenant exists.
-2. **Exact request body shapes** — the use-cases give the search body skeleton
-   (`SearchByAirport`); availability/rules/book bodies need a `TVP_CAPTURE` pass or
-   the per-endpoint API reference to pin field paths (same bar every mapper meets).
+1. ~~**Does the 7K9S trial tenant have Stays entitlement?**~~ **RESOLVED 2026-06-14
+   — YES.** `validate-stays-creds.ts` against pre-prod: OAuth 200, then
+   `POST /hotel/search/properties/search` (with `TVP-PCC-CORE: 7K9S_1G`) returned
+   **400 VALIDATION**, not 401/403 — the tenant reaches and validates Stays
+   requests. The probe also surfaced the top-level request type: the search body
+   wraps in a **`PropertiesQuerySearch`** object (run 1 → "REQUIRED TYPE:
+   PropertiesQuerySearch OBJECT"; run 2 with the wrapper → "CHECK IN DATE DATA IS
+   INVALID", i.e. now validating fields). So live hotel is a **GO**.
+2. **Exact request body field shapes** — the public docs publish only the
+   `SearchBy` fragment; the wrapper is `PropertiesQuerySearch`, but the date/guest
+   field names/format still need the per-endpoint **API reference** or one
+   `TVP_CAPTURE` of a known-good request. Do NOT fuzz pre-prod field-by-field
+   (vendor-pacing rule). Same for availability/rules/book bodies.
 3. **Workbench vs direct book** — `/hotel/book/reservations/build` implies a
    workbench like air; confirm whether the active-sell flow needs the build step or
    the direct `POST /reservations` suffices.
 
 ## Chunk plan
 
-1. **Probe + entitlement check** — a `validate-stays-creds.ts` (sibling of
-   `validate-travelport-creds.ts`): one `POST /hotel/search/properties/search`
-   against pre-prod with `TVP_CAPTURE`. Confirms 7K9S can see Stays and records the
-   real response shape. **Gates everything below.**
+1. ~~**Probe + entitlement check**~~ **DONE** — `validate-stays-creds.ts`
+   (`npm run validate:stays-creds`) confirmed 7K9S is entitled (400 VALIDATION, not
+   403) and that the search wrapper is `PropertiesQuerySearch`. Gate passed.
 2. **Read path (`HOA`/`HOC`)** — lowest risk, read-only: live hotel search +
    availability → `lastHotelAvail`. Operators get real hotels; the existing
    reference-sell then books locally (or live in chunk 3).
