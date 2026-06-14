@@ -134,7 +134,8 @@ const TOPICS: HelpTopic[] = [
     keys: ['HOTELS', 'HOA', 'HOI', '0HTL'],
     title: 'HOTELS',
     lines: [
-      'HOA<d1>-<d2><city><adults>   availability',
+      'HOA<d1>-<d2><city><adults>   availability (3-letter city/airport code)',
+      'HOA<d1>-<d2>/CY-<city name>  availability by city NAME (live; no-IATA towns)',
       'HOI<city>[/<chain>]          index',
       'HOC<line>                    complete availability',
       'N<rooms>A<line>D<days>       sell from display',

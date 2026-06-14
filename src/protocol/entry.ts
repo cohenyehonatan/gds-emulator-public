@@ -295,6 +295,12 @@ export interface HotelEntry extends BaseEntry {
   checkIn?: string;
   checkOut?: string;
   city?: string;
+  /**
+   * Free-text city NAME for `HOA…/CY-<name>` — a no-IATA-code search
+   * (e.g. ESTES PARK). Routes to the Stays SearchByCity union member
+   * live; `city` (3-letter code) stays undefined for this form.
+   */
+  cityName?: string;
   adults?: number;
   chain?: string;
   line?: number;

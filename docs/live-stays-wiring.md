@@ -132,7 +132,10 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    Galileo: index vs priced availability): v11 has no dateless city index, so
    both use the search, but HOI sends `returnOnlyAvailablePropertiesInd:false`
    (full directory, rendered with NO rate column) and HOA sends `true`
-   (bookable only, rendered with rates). Mocked tests:
+   (bookable only, rendered with rates). **City-NAME search** for no-IATA-code
+   towns: `HOA<dates>/CY-<name>` (extension qualifier) routes to the Stays
+   `SearchByCity` union member live; emulated resolves the name to a seeded code
+   via the encode table (unknown towns → NO HOTELS). Mocked tests:
    `test/dialects/galileo-live-hotel.test.ts`. Open: `HOC` rate detail via
    `/hotel/availability/catalogofferingshospitality` (the availability call), and
    re-verifying `mapHotelSearch` against a real response (capture on an entitled

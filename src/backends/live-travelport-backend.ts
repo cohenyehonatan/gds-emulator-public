@@ -645,7 +645,11 @@ export class LiveTravelportBackend implements Backend {
    * tenant. Dates are ISO `YYYY-MM-DD`.
    */
   async hotelSearch(req: {
-    airport: string;
+    /** Airport IATA code — SearchByAirport. */
+    airport?: string;
+    /** Free-text city NAME — SearchByCity (for no-airport towns). One of
+     *  airport / cityName is required. */
+    cityName?: string;
     checkIn: string;
     checkOut: string;
     adults?: number;
@@ -659,16 +663,18 @@ export class LiveTravelportBackend implements Backend {
     availableOnly?: boolean;
   }): Promise<unknown> {
     const url = `${this.opts.apiBase}/hotel/search/properties/search`;
+    const radius = { value: req.radiusMiles ?? 25, unitOfDistance: 'Miles' };
+    // SearchBy is a discriminated union — by airport code, or by city
+    // NAME (no IATA code needed, for towns like Estes Park).
+    const searchBy = req.cityName
+      ? { '@type': 'SearchByCity', SearchCity: req.cityName, SearchRadius: radius }
+      : { '@type': 'SearchByAirport', SearchAirport: req.airport, SearchRadius: radius };
     const body = {
       PropertiesQuerySearch: {
         '@type': 'PropertiesQuerySearch',
         CheckInDate: req.checkIn,
         CheckOutDate: req.checkOut,
-        SearchBy: {
-          '@type': 'SearchByAirport',
-          SearchAirport: req.airport,
-          SearchRadius: { value: req.radiusMiles ?? 25, unitOfDistance: 'Miles' },
-        },
+        SearchBy: searchBy,
         RoomStayCandidate: [
           {
             GuestCounts: {

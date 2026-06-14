@@ -143,6 +143,17 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(resp).not.toContain('HOLIDAY INN'); // chain HI filtered out
   });
 
+  it('HOA…/CY-<name> searches by city NAME via SearchByCity (no airport code)', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
+    const resp = await host.process('HOA17JUN-22JUN/CY-ESTES PARK', wa);
+    expect(resp).toContain('HOTEL AVAILABILITY ESTES PARK 17JUN-22JUN');
+    expect(resp).toContain('HILTON PARIS OPERA');
+    const body = JSON.parse((fetchSpy.mock.calls[1][1]?.body as string) ?? '{}');
+    expect(body.PropertiesQuerySearch.SearchBy['@type']).toBe('SearchByCity');
+    expect(body.PropertiesQuerySearch.SearchBy.SearchCity).toBe('ESTES PARK'); // name, space preserved
+    expect(body.PropertiesQuerySearch.SearchBy.SearchAirport).toBeUndefined();
+  });
+
   it('a live search with no properties → NO HOTELS', async () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(
       searchResp({ PropertiesResponse: { Properties: { PropertyInfo: [] } } })

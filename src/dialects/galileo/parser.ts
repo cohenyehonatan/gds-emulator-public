@@ -111,6 +111,20 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
     if (e) return e;
   }
 
+  // Hotel availability by CITY NAME (extension): `HOA<d1>-<d2>/CY-<name>`
+  // for towns with no IATA code (e.g. ESTES PARK). Parsed here (pre-strip)
+  // because the city name carries spaces. Classic HOA is code-keyed; this
+  // is a flagged extension that maps to the Stays SearchByCity union.
+  if (upper.startsWith('HOA') && upper.includes('/CY-')) {
+    const m = /^HOA(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})\/CY-(.+)$/.exec(upper);
+    if (m) {
+      return {
+        kind: 'hotel', raw: trimmed, timestamp: new Date(), action: 'availability',
+        checkIn: m[1], checkOut: m[2], cityName: m[3].trim(),
+      };
+    }
+  }
+
   // No-whitespace verbs: strip internal whitespace (`SON / ZHA` →
   // `SON/ZHA`) before sigil dispatch.
   const u = trimmed.replace(/\s+/g, '').toUpperCase();

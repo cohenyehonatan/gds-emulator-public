@@ -91,6 +91,7 @@ import type { GalileoSignature } from './serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
+import { encodeCity } from '../../models/reference-data.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
 import { renderGalileoHelp } from './help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
@@ -3395,40 +3396,50 @@ async function handleGalileoHotel(
     // lists ALL properties (availableOnly=false, default dates since the
     // API requires them), HOA only bookable ones with rates. Read-only
     // (no workbench), so a committed BF on screen doesn't block either.
+    // City-NAME search (`HOA…/CY-<name>`) for no-IATA-code towns; else the
+    // 3-letter code. The display uses whichever the agent gave.
+    const displayCity = entry.cityName ?? entry.city!;
     let props: import('../../models/hotel.js').HotelProperty[];
     if (ctx.backend instanceof LiveTravelportBackend) {
       try {
         const resp = await ctx.backend.hotelSearch({
-          airport: entry.city!,
+          airport: entry.city,           // undefined for a city-name search
+          cityName: entry.cityName,      // set → Stays SearchByCity
           checkIn: entry.checkIn ? ddmonToIso(checkIn) : isoPlusDays(30),
           checkOut: entry.checkOut ? ddmonToIso(checkOut) : isoPlusDays(32),
           adults: entry.adults,
           availableOnly: !isIndex,
         });
-        props = mapHotelSearch(resp, entry.city!);
+        props = mapHotelSearch(resp, displayCity);
         if (entry.chain) props = props.filter((p) => p.chain === entry.chain);
       } catch (err) {
         return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
       }
+    } else if (entry.cityName) {
+      // Emulated: no city-name index, so resolve the name to a seeded
+      // code via the encode table; unknown towns (no airport) → NO HOTELS,
+      // honestly (the live SearchByCity is the path that finds those).
+      const hit = encodeCity(entry.cityName)[0];
+      props = hit ? ctx.backend.inventory.hotelsIn(hit[0], entry.chain) : [];
     } else {
       props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
     }
     if (props.length === 0) return 'NO HOTELS';
     const nights = entry.checkIn && entry.checkOut ? galileoNights(entry.checkIn, entry.checkOut) : 1;
-    wa.lastHotelAvail = { city: entry.city!, checkIn, checkOut, nights, properties: props };
+    wa.lastHotelAvail = { city: displayCity, checkIn, checkOut, nights, properties: props };
     wa.lastCarAvail = undefined; // hotel display replaces a car display
 
     if (isIndex) {
       // HOTEL INDEX — a directory: chain/property/name, NO rate column.
       // (Pricing comes from HOA → HOC, not the index.)
-      const lines = [`HOTEL INDEX ${entry.city}`];
+      const lines = [`HOTEL INDEX ${displayCity}`];
       props.forEach((p, i) => {
         lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property} ${p.name}`);
       });
       return lines.join('\n');
     }
     // HOTEL AVAILABILITY — priced + dated: low rate per property.
-    const lines = [`HOTEL AVAILABILITY ${entry.city} ${checkIn}-${checkOut}`];
+    const lines = [`HOTEL AVAILABILITY ${displayCity} ${checkIn}-${checkOut}`];
     props.forEach((p, i) => {
       const lo = p.rates.reduce((min, r) => Math.min(min, r.amount), Infinity);
       const cur = p.rates[0]?.currency ?? '';
