@@ -1179,6 +1179,14 @@ The original survey (all items now resolved or annotated):
       (no phantom workbenches); the real modify flow opens a workbench FROM the
       locator. Spec + offer-UUID extraction already proven in
       issueTicketsPostCommit.
+- [ ] **Live hotel via the Stays API v11.** Corrected 2026-06-14: hotel is NOT
+      "no v11 REST equivalent" — the Stays API (GA, same host/auth as Flights:
+      `/11/hotel/search|availability|rules|book`, incl. `…/book/reservations/passive`
+      for `0HTL…MK`) means `HOA`/`HOC`/hotel-sell could go live the way air did.
+      Currently unwired → they read the local seed on both backends. Gated on
+      whether the 7K9S trial tenant has Stays entitlement (probe first). Full
+      scope + endpoint map + chunk plan in `docs/live-stays-wiring.md`. Cars stay
+      emulated — no published v11 Cars API.
 - [ ] **Vendor remarks (*VI/*VO/*VR/*VL) + *CI data models** — verbs answer
       honestly empty; need models + a source for screen shapes.
 - [ ] **Surface/tour/air-taxi segment types (*IS/*IT/*IX)** — honest-empty.
