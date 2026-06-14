@@ -131,22 +131,26 @@ const TOPICS: HelpTopic[] = [
     ],
   },
   {
-    keys: ['HOTELS', 'HOA', 'HOI'],
+    keys: ['HOTELS', 'HOA', 'HOI', '0HTL'],
     title: 'HOTELS',
     lines: [
       'HOA<d1>-<d2><city><adults>   availability',
       'HOI<city>[/<chain>]          index',
       'HOC<line>                    complete availability',
       'N<rooms>A<line>D<days>       sell from display',
+      '0HTL<chain><status><rooms><city><in>-OUT<out>[/H-<name>/P-<id>/R-<rate>]',
+      '                             direct sell (no avail; status MK passive/HK active)',
     ],
   },
   {
-    keys: ['CARS', 'CAL', 'CAI', 'CA'],
+    keys: ['CARS', 'CAL', 'CAI', 'CA', '0CCR'],
     title: 'CARS',
     lines: [
       'CAL<d1>-<d2><city>         availability',
       'CAI<city>                  vendor index',
       'N1A<line>                  sell from display',
+      '0CCR<vendor><status><count><city><pu>-<do><type>[/RC-<rate>]',
+      '                           direct sell (no avail; status MK passive/HK active)',
     ],
   },
   {
