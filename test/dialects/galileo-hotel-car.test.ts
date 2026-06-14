@@ -75,17 +75,12 @@ describe('HOA / HOI / HOC — hotel displays', () => {
     expect(filtered).not.toContain('MARRIOTT');
   });
 
-  it('HOA…/CY-<name>: emulated resolves a seeded city by name; no-airport towns → NO HOTELS', async () => {
+  it('HOA…/GEO-<lat>,<lng>: geolocation search is live-only — emulated → NO HOTELS', async () => {
     const host = makeHost();
     const wa = await signedIn(host);
-    // Emulated has no city-name index, so it resolves the name against the
-    // encode table → seeded code. LAX is seeded + named "LOS ANGELES INTL".
-    const la = await host.process('HOA17JUN-22JUN/CY-LOS ANGELES', wa);
-    expect(la).toContain('HOTEL AVAILABILITY LOS ANGELES 17JUN-22JUN');
-    expect(la).toContain('HILTON LOS ANGELES AIRPORT');
-    // A no-airport town isn't in the seed → honest NO HOTELS (the live
-    // SearchByCity is the path that finds those).
-    expect(await host.process('HOA17JUN-22JUN/CY-ESTES PARK', wa)).toBe('NO HOTELS');
+    // The emulated seed has no geo index, so geo search honestly returns
+    // nothing (it's a live Stays capability — SearchByGeoLocation).
+    expect(await host.process('HOA17JUN-22JUN/GEO-40.3772,-105.5217', wa)).toBe('NO HOTELS');
   });
 
   it('HOI is a directory (no rates); HOA is priced — the two are distinct', async () => {

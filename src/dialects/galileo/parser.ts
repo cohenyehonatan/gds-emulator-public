@@ -111,16 +111,17 @@ export function parseGalileoEntry(raw: string): ParsedEntry {
     if (e) return e;
   }
 
-  // Hotel availability by CITY NAME (extension): `HOA<d1>-<d2>/CY-<name>`
-  // for towns with no IATA code (e.g. ESTES PARK). Parsed here (pre-strip)
-  // because the city name carries spaces. Classic HOA is code-keyed; this
-  // is a flagged extension that maps to the Stays SearchByCity union.
-  if (upper.startsWith('HOA') && upper.includes('/CY-')) {
-    const m = /^HOA(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})\/CY-(.+)$/.exec(upper);
+  // Hotel availability by GEOLOCATION (extension): `HOA<d1>-<d2>/GEO-<lat>,<lng>`
+  // for towns with no IATA code (e.g. ESTES PARK ~40.3772,-105.5217). Classic
+  // HOA is code-keyed and the Stays SearchByCity needs a 3-letter IATA code —
+  // geolocation is the only code-free path, so this flagged extension maps to
+  // the Stays SearchByGeoLocation union.
+  if (upper.startsWith('HOA') && upper.includes('/GEO-')) {
+    const m = /^HOA(\d{1,2}[A-Z]{3})-(\d{1,2}[A-Z]{3})\/GEO-(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(upper);
     if (m) {
       return {
         kind: 'hotel', raw: trimmed, timestamp: new Date(), action: 'availability',
-        checkIn: m[1], checkOut: m[2], cityName: m[3].trim(),
+        checkIn: m[1], checkOut: m[2], geo: { lat: parseFloat(m[3]), lng: parseFloat(m[4]) },
       };
     }
   }

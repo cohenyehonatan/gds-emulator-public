@@ -296,11 +296,13 @@ export interface HotelEntry extends BaseEntry {
   checkOut?: string;
   city?: string;
   /**
-   * Free-text city NAME for `HOA…/CY-<name>` — a no-IATA-code search
-   * (e.g. ESTES PARK). Routes to the Stays SearchByCity union member
-   * live; `city` (3-letter code) stays undefined for this form.
+   * Geolocation for `HOA…/GEO-<lat>,<lng>` — the only code-free hotel
+   * search (Stays SearchByGeoLocation), for towns with no IATA code
+   * (e.g. ESTES PARK). `city` (3-letter code) stays undefined for this
+   * form. (SearchByCity is NOT this — it requires a 3-letter IATA city
+   * code, per the v11.34 spec + a pre-prod 400.)
    */
-  cityName?: string;
+  geo?: { lat: number; lng: number };
   adults?: number;
   chain?: string;
   line?: number;

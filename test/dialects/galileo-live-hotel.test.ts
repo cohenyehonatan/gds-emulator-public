@@ -143,14 +143,16 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(resp).not.toContain('HOLIDAY INN'); // chain HI filtered out
   });
 
-  it('HOA…/CY-<name> searches by city NAME via SearchByCity (no airport code)', async () => {
+  it('HOA…/GEO-<lat>,<lng> searches by geolocation (the code-free path)', async () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
-    const resp = await host.process('HOA17JUN-22JUN/CY-ESTES PARK', wa);
-    expect(resp).toContain('HOTEL AVAILABILITY ESTES PARK 17JUN-22JUN');
+    // Estes Park, CO — no IATA code; only lat/long reaches it.
+    const resp = await host.process('HOA17JUN-22JUN/GEO-40.3772,-105.5217', wa);
+    expect(resp).toContain('HOTEL AVAILABILITY 40.3772,-105.5217 17JUN-22JUN');
     expect(resp).toContain('HILTON PARIS OPERA');
     const body = JSON.parse((fetchSpy.mock.calls[1][1]?.body as string) ?? '{}');
-    expect(body.PropertiesQuerySearch.SearchBy['@type']).toBe('SearchByCity');
-    expect(body.PropertiesQuerySearch.SearchBy.SearchCity).toBe('ESTES PARK'); // name, space preserved
+    expect(body.PropertiesQuerySearch.SearchBy['@type']).toBe('SearchByGeoLocation');
+    expect(body.PropertiesQuerySearch.SearchBy.Latitude).toBe(40.3772);
+    expect(body.PropertiesQuerySearch.SearchBy.Longitude).toBe(-105.5217);
     expect(body.PropertiesQuerySearch.SearchBy.SearchAirport).toBeUndefined();
   });
 

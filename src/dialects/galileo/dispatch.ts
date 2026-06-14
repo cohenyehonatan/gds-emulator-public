@@ -91,7 +91,6 @@ import type { GalileoSignature } from './serializer.js';
 import type { Pnr } from '../../models/pnr.js';
 import { GalileoResponse } from './responses.js';
 import { synthesizeAvailability, SCC_LABELS } from '../../models/seat-map.js';
-import { encodeCity } from '../../models/reference-data.js';
 import { handleSeatRequest } from '../../session/handlers/seat-request-handler.js';
 import { renderGalileoHelp } from './help.js';
 import { renderStoreStatus } from '../../session/store-status.js';
@@ -3396,15 +3395,15 @@ async function handleGalileoHotel(
     // lists ALL properties (availableOnly=false, default dates since the
     // API requires them), HOA only bookable ones with rates. Read-only
     // (no workbench), so a committed BF on screen doesn't block either.
-    // City-NAME search (`HOA…/CY-<name>`) for no-IATA-code towns; else the
-    // 3-letter code. The display uses whichever the agent gave.
-    const displayCity = entry.cityName ?? entry.city!;
+    // Geolocation search (`HOA…/GEO-<lat>,<lng>`) for no-IATA-code towns;
+    // else the 3-letter code. The display uses whichever the agent gave.
+    const displayCity = entry.geo ? `${entry.geo.lat},${entry.geo.lng}` : entry.city!;
     let props: import('../../models/hotel.js').HotelProperty[];
     if (ctx.backend instanceof LiveTravelportBackend) {
       try {
         const resp = await ctx.backend.hotelSearch({
-          airport: entry.city,           // undefined for a city-name search
-          cityName: entry.cityName,      // set → Stays SearchByCity
+          airport: entry.city,           // undefined for a geo search
+          geo: entry.geo,                // set → Stays SearchByGeoLocation
           checkIn: entry.checkIn ? ddmonToIso(checkIn) : isoPlusDays(30),
           checkOut: entry.checkOut ? ddmonToIso(checkOut) : isoPlusDays(32),
           adults: entry.adults,
@@ -3415,12 +3414,10 @@ async function handleGalileoHotel(
       } catch (err) {
         return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
       }
-    } else if (entry.cityName) {
-      // Emulated: no city-name index, so resolve the name to a seeded
-      // code via the encode table; unknown towns (no airport) → NO HOTELS,
-      // honestly (the live SearchByCity is the path that finds those).
-      const hit = encodeCity(entry.cityName)[0];
-      props = hit ? ctx.backend.inventory.hotelsIn(hit[0], entry.chain) : [];
+    } else if (entry.geo) {
+      // Emulated has no geolocation index — geo search is a live-only
+      // capability — so an emulated /GEO- honestly returns NO HOTELS.
+      props = [];
     } else {
       props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
     }

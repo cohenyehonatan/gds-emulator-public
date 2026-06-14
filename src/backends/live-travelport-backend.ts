@@ -647,9 +647,9 @@ export class LiveTravelportBackend implements Backend {
   async hotelSearch(req: {
     /** Airport IATA code — SearchByAirport. */
     airport?: string;
-    /** Free-text city NAME — SearchByCity (for no-airport towns). One of
-     *  airport / cityName is required. */
-    cityName?: string;
+    /** Lat/long — SearchByGeoLocation (the code-free path, for towns with
+     *  no IATA code). One of airport / geo is required. */
+    geo?: { lat: number; lng: number };
     checkIn: string;
     checkOut: string;
     adults?: number;
@@ -664,10 +664,13 @@ export class LiveTravelportBackend implements Backend {
   }): Promise<unknown> {
     const url = `${this.opts.apiBase}/hotel/search/properties/search`;
     const radius = { value: req.radiusMiles ?? 25, unitOfDistance: 'Miles' };
-    // SearchBy is a discriminated union — by airport code, or by city
-    // NAME (no IATA code needed, for towns like Estes Park).
-    const searchBy = req.cityName
-      ? { '@type': 'SearchByCity', SearchCity: req.cityName, SearchRadius: radius }
+    // SearchBy is a discriminated union — by airport IATA code, or by
+    // lat/long (no code needed, for towns like Estes Park). NOTE:
+    // SearchByCity is NOT a free-text name — it requires a 3-letter IATA
+    // city code (spec + pre-prod 400 "IATA CITY CODE IS MISSING OR
+    // INVALID"), so geolocation is the real codeless path.
+    const searchBy = req.geo
+      ? { '@type': 'SearchByGeoLocation', Latitude: req.geo.lat, Longitude: req.geo.lng, SearchRadius: radius }
       : { '@type': 'SearchByAirport', SearchAirport: req.airport, SearchRadius: radius };
     const body = {
       PropertiesQuerySearch: {
