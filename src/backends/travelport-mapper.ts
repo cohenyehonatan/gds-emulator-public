@@ -600,6 +600,12 @@ function mapReservationHotels(root: any, receipts: ReturnType<typeof buildReceip
         }
         if (nights) break;
       }
+      // Active hotels return a nightly `Base`; passive (consolidator)
+      // bookings don't (guide: "Active Hotel Segments: Price details:
+      // Base"). The OfferStatus word never carries the HK/BK/MK code, so
+      // we infer it: active → HK; passive → BK (BK vs MK isn't
+      // distinguishable from the response, so default BK).
+      const passive = price?.Base == null;
       const seg: HotelSegment = {
         segmentNumber: 0,
         chain: str(p?.PropertyKey?.chainCode),
@@ -609,11 +615,11 @@ function mapReservationHotels(root: any, receipts: ReturnType<typeof buildReceip
         checkIn: extractDateToken(p?.DateRange?.start),
         checkOut: extractDateToken(p?.DateRange?.end),
         nights,
-        rateCode: '',
+        rateCode: '', // not returned by the retrieve API (hotel carries bookingCode, not a rate code)
         ratePerNight: num(price?.Base),
         currency: str(price?.CurrencyCode?.codeAuthority ?? price?.CurrencyCode?.value),
         rooms: num(p?.Quantity) || 1,
-        status: rec.status ? statusCode(rec.status) : 'HK',
+        status: passive ? 'BK' : rec.status ? statusCode(rec.status) : 'HK',
         confirmationNumber: rec.confirmationNumber,
       };
       out.push({ seg, offerId, productId: str(p?.id) || undefined });
@@ -642,16 +648,21 @@ function mapReservationCars(root: any, receipts: ReturnType<typeof buildReceiptB
       const pick = v?.VehicleDateLocation?.RentalPickup;
       const ret = v?.VehicleDateLocation?.RentalReturn;
       const rec = (offerId && receipts.get(offerId)) || {};
-      // First ApproximateRate.BaseRate.value across the price breakdowns.
+      // First ApproximateRate.BaseRate.value across the price breakdowns;
+      // EstimatedTotalAmount is returned only for ACTIVE car segments
+      // (guide), so its absence marks a passive (consolidator) booking.
       let amount = 0;
+      let hasEstTotal = false;
       for (const pb of arrayish(price?.PriceBreakdown)) {
-        const base = (pb as any)?.VehiclePrice?.ApproximateRate?.BaseRate?.value;
-        if (base != null) { amount = num(base); break; }
+        const ar = (pb as any)?.VehiclePrice?.ApproximateRate;
+        if (ar?.BaseRate?.value != null && !amount) amount = num(ar.BaseRate.value);
+        if (ar?.EstimatedTotalAmount?.value != null) hasEstTotal = true;
       }
+      const passive = !hasEstTotal;
       const seg: CarSegment = {
         segmentNumber: 0,
         company: str(v?.VehicleMakeModel?.vendorCode),
-        companyName: '',
+        companyName: '', // not returned by the retrieve API (only the 2-char vendorCode)
         vehicleType: str(v?.VehicleMakeModel?.code),
         category: str(v?.VehicleCategoryCode?.value),
         rateCode,
@@ -663,7 +674,7 @@ function mapReservationCars(root: any, receipts: ReturnType<typeof buildReceiptB
         currency: str(price?.CurrencyCode?.value ?? price?.CurrencyCode?.codeAuthority),
         pickupTime: clockFromTime(pick?.time),
         dropoffTime: clockFromTime(ret?.time),
-        status: rec.status ? statusCode(rec.status) : 'HK',
+        status: passive ? 'BK' : rec.status ? statusCode(rec.status) : 'HK',
         confirmationNumber: rec.confirmationNumber,
       };
       out.push({ seg, offerId, productId: str((product as any)?.id) || undefined });

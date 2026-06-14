@@ -177,16 +177,18 @@ describe('mapReservation — multi-content (air + hotel + car)', () => {
     expect(pnr.segments[1].segmentNumber).toBe(4); // QF404
   });
 
-  it('Example 2: hotel with no Base rate maps ratePerNight 0; car amount from BaseRate', () => {
+  it('Example 2 (passive): no Base/EstimatedTotal → status BK; amounts still map', () => {
     const pnr = mapReservation(NDC_PASSIVE, '4411L5');
     expect(pnr.hotelSegments[0].chain).toBe('RT');
     expect(pnr.hotelSegments[0].nights).toBe(4);
     expect(pnr.hotelSegments[0].ratePerNight).toBe(0);
     expect(pnr.hotelSegments[0].confirmationNumber).toBe('HOTEL1234');
+    expect(pnr.hotelSegments[0].status).toBe('BK'); // passive: no Base
     expect(pnr.carSegments[0].vehicleType).toBe('ECAR');
     expect(pnr.carSegments[0].amount).toBe(1245.5);
     expect(pnr.carSegments[0].rateCode).toBe(''); // no TermsAndConditions
     expect(pnr.carSegments[0].confirmationNumber).toBe('CAR12345');
+    expect(pnr.carSegments[0].status).toBe('BK'); // passive: no EstimatedTotalAmount
     // DisplaySequence: air 1, hotel 2, air 3, car 4.
     expect(pnr.segments[0].segmentNumber).toBe(1);
     expect(pnr.hotelSegments[0].segmentNumber).toBe(2);
