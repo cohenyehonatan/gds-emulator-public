@@ -35,8 +35,13 @@ keeps them separate. Search-by-location body uses `SearchBy` with
 
 ## Verified request/response schemas (Stays v11.34 OpenAPI)
 
-Pulled from the spec (`page-data/shared/oas-apis/stays/@11.34/index.yaml.json`),
-not guessed. These are the two read-path calls chunk 2 needs.
+The full OpenAPI spec is in-tree: **`references/galileo/Travelport-Stays-v11.34-OpenAPI.json`**
+(16 paths, 421 schemas; `TripServices Stays 11.34.0`). Fetched 2026-06-14 from
+`developer.travelport.com/page-data/shared/oas-apis/stays/@11.34/index.yaml.json`
+and unwrapped from the Gatsby page-data envelope — kept in-tree so chunk 2 doesn't
+depend on the live SPA docs. Resolve any `$ref` against `components.schemas` there.
+
+The two read-path calls chunk 2 needs, distilled (verified, not guessed):
 
 **Search** — `POST /11/hotel/search/properties/search`. Body =
 `PropertiesQuerySearchWrapper`; `PropertiesQuerySearch` requires
