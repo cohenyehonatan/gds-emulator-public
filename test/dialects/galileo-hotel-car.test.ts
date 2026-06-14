@@ -232,6 +232,30 @@ describe('0HTL / 0CCR — direct sell (passive/active, no availability)', () => 
     expect(wa.pnr.hotelSegments).toHaveLength(0);
   });
 
+  it('XI sweeps the hotel segment too (gap: itinerary cancel + hotel)', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa); // air → seg 1
+    await host.process('0HTLHNMK1LAX15JUN-OUT18JUN/H-HILTON LAX', wa); // hotel → seg 2
+    expect(wa.pnr.segments.length).toBe(1);
+    expect(wa.pnr.hotelSegments.length).toBe(1);
+    expect(await host.process('XI', wa)).toBe('ITINERARY CANCELLED');
+    expect(wa.pnr.segments).toHaveLength(0);
+    expect(wa.pnr.hotelSegments).toHaveLength(0); // gap 2: hotel swept
+  });
+
+  it('X<air>.<hotel> cancels both in one mixed entry (gap: mixed selection)', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    await host.process('A15JUNJFKLAX', wa);
+    await host.process('N1Y1', wa); // air → seg 1
+    await host.process('0HTLHNMK1LAX15JUN-OUT18JUN/H-HILTON LAX', wa); // hotel → seg 2
+    expect(await host.process('X1.2', wa)).toBe('ITINERARY CANCELLED');
+    expect(wa.pnr.segments).toHaveLength(0);
+    expect(wa.pnr.hotelSegments).toHaveLength(0); // gap 1: both gone
+  });
+
   it('0CCR builds a car (any market, no availability)', async () => {
     const host = makeHost();
     const wa = await signedIn(host);

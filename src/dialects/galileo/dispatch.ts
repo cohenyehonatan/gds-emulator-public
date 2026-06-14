@@ -1945,32 +1945,129 @@ function handleGalileoCancel(
   wa: WorkArea,
   ctx: HandlerContext
 ): string | Promise<string> {
-  // Hotel-segment cancel: `X<n>` where the selected number(s) are all hotel
-  // segments — route to the hotel path (Stays canceloffer live; local remove
-  // emulated) before the air-centric logic. Mixed air+hotel selections fall
-  // through to the air path (which rejects the hotel number).
-  const segmentMode = entry.mode === 'segment' || entry.mode === 'multiple' || entry.mode === 'range';
-  if (segmentMode && entry.segments.length > 0 && wa.pnr.hotelSegments.length > 0) {
-    const hotelNums = new Set(wa.pnr.hotelSegments.map((s) => s.segmentNumber));
-    if (entry.segments.every((n) => hotelNums.has(n))) {
-      return handleGalileoHotelCancel(entry, wa, ctx);
-    }
+  const isItinerary = entry.mode === 'itinerary' || entry.mode === 'all_air';
+  const hotelNums = new Set(wa.pnr.hotelSegments.map((s) => s.segmentNumber));
+  const airNums = new Set(wa.pnr.segments.map((s) => s.segmentNumber));
+  const hotelTargets = isItinerary
+    ? [...hotelNums]
+    : entry.segments.filter((n) => hotelNums.has(n));
+  const airTargets = isItinerary ? [...airNums] : entry.segments.filter((n) => airNums.has(n));
+
+  // Pure-hotel segment cancel (no air touched) → the dedicated handler that
+  // answers `HOTEL CANCELLED`.
+  if (hotelTargets.length > 0 && airTargets.length === 0 && !isItinerary) {
+    return handleGalileoHotelCancel(entry, wa, ctx);
+  }
+  // Hotel + air together, or an itinerary cancel on a BF that also holds a
+  // hotel → the combined handler (cancels both, gaps closed).
+  if (hotelTargets.length > 0) {
+    return cancelGalileoCombined(entry, wa, ctx, hotelTargets, airTargets, isItinerary);
   }
 
+  // Pure-air cancel (unchanged).
   if (wa.pnr.segments.length === 0) return GalileoResponse.NEED_ITINERARY;
+  return dispatchGalileoAirCancel(entry, wa, ctx);
+}
 
+/** Route an AIR cancel to the right backend path (workbench / committed / emulated). */
+function dispatchGalileoAirCancel(
+  entry: CancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext
+): string | Promise<string> {
   if (ctx.backend instanceof LiveTravelportBackend) {
-    if (wa.liveWorkbenchId) {
-      return cancelGalileoLiveWorkbench(entry, wa, ctx, ctx.backend);
-    }
-    if (wa.pnr.locator) {
-      return cancelGalileoLiveCommitted(entry, wa, ctx, ctx.backend);
-    }
+    if (wa.liveWorkbenchId) return cancelGalileoLiveWorkbench(entry, wa, ctx, ctx.backend);
+    if (wa.pnr.locator) return cancelGalileoLiveCommitted(entry, wa, ctx, ctx.backend);
     // Fall through to emulated for the (unusual) live-backend case with
     // neither workbench nor locator — segments would be entirely local.
   }
-
   return handleGalileoCancelEmulated(entry, wa);
+}
+
+/**
+ * Cancel the hotel offer(s) on a committed BF (live) or just drop them
+ * (emulated). Shared by the pure-hotel and combined cancel paths. Returns an
+ * error string to bail on, or `null` on success. Does NOT touch the FSM — the
+ * caller transitions once.
+ */
+async function cancelHotelOffersLive(
+  targets: number[],
+  wa: WorkArea,
+  ctx: HandlerContext
+): Promise<string | null> {
+  const segs = wa.pnr.hotelSegments.filter((s) => targets.includes(s.segmentNumber));
+  if (ctx.backend instanceof LiveTravelportBackend) {
+    if (!wa.pnr.locator) return 'FINISH OR IGNORE'; // reconstructed (need a committed BF)
+    for (const seg of segs) {
+      if (!seg.offerId) return 'LIVE OFFER ID MISSING'; // reconstructed (same as live air cancel)
+      try {
+        await ctx.backend.cancelHotelOffer({
+          locator: wa.pnr.locator,
+          offerId: seg.offerId,
+          supplierLocator: seg.confirmationNumber,
+        });
+      } catch (err) {
+        return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+      }
+    }
+  }
+  const remove = new Set(targets);
+  wa.pnr.hotelSegments = wa.pnr.hotelSegments.filter((s) => !remove.has(s.segmentNumber));
+  const local = wa.pnr.locator ? ctx.backend.pnrs.get(wa.pnr.locator) : undefined;
+  if (local && local !== wa.pnr) {
+    local.hotelSegments = local.hotelSegments.filter((s) => !remove.has(s.segmentNumber));
+  }
+  return null;
+}
+
+/**
+ * Combined cancel — `X<air>.<hotel>` (mixed) or `XI` on a BF that also holds a
+ * hotel. Cancels the hotel offer(s) via the Stays canceloffer endpoint, then
+ * the air segment(s) via the existing air path. Validates the whole selection
+ * up front so a bad number doesn't leave a half-cancelled BF. On a live
+ * committed `XI`, the hotel is cancelled explicitly (canceloffer) AND the air
+ * via cancelReservation; if the host already cascades the hotel cancel, the
+ * explicit call is harmless.
+ */
+async function cancelGalileoCombined(
+  entry: CancelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+  hotelTargets: number[],
+  airTargets: number[],
+  isItinerary: boolean
+): Promise<string> {
+  if (!isItinerary) {
+    const known = new Set([...hotelTargets, ...airTargets]);
+    for (const n of entry.segments) {
+      if (!known.has(n)) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+    }
+  }
+
+  // 1) Hotels first (no FSM transition yet).
+  const hotelErr = await cancelHotelOffersLive(hotelTargets, wa, ctx);
+  if (hotelErr) return hotelErr;
+
+  // 2) Air. Live with air targets → delegate to the existing air path (it
+  //    transitions + renders). Otherwise remove locally by segment number
+  //    (robust to interleaved air/hotel numbering, unlike the count-based
+  //    emulated validator).
+  if (ctx.backend instanceof LiveTravelportBackend && airTargets.length > 0) {
+    const airEntry: CancelEntry = isItinerary
+      ? entry
+      : { ...entry, segments: airTargets, mode: airTargets.length > 1 ? 'multiple' : 'segment' };
+    return dispatchGalileoAirCancel(airEntry, wa, ctx);
+  }
+  modifyTransition(wa);
+  if (isItinerary) {
+    wa.pnr.segments = [];
+  } else {
+    const remove = new Set(airTargets);
+    wa.pnr.segments = wa.pnr.segments.filter((s) => !remove.has(s.segmentNumber));
+  }
+  wa.pnr.renumberSegments();
+  const remaining = wa.pnr.segments.length + wa.pnr.hotelSegments.length;
+  return isItinerary || remaining === 0 ? 'ITINERARY CANCELLED' : renderGalileoItinerary(wa.pnr);
 }
 
 function handleGalileoCancelEmulated(entry: CancelEntry, wa: WorkArea): string {
@@ -2008,36 +2105,14 @@ async function handleGalileoHotelCancel(
   wa: WorkArea,
   ctx: HandlerContext
 ): Promise<string> {
-  const targets = wa.pnr.hotelSegments.filter((s) => entry.segments.includes(s.segmentNumber));
+  const targets = wa.pnr.hotelSegments
+    .filter((s) => entry.segments.includes(s.segmentNumber))
+    .map((s) => s.segmentNumber);
   if (targets.length === 0) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
 
-  if (ctx.backend instanceof LiveTravelportBackend) {
-    // Live cancel acts on a committed BF — needs the locator + the offer id
-    // captured at retrieve. A just-sold (uncommitted-in-work-area) hotel has
-    // no locator on the work area, so it can't be cancelled by offer here.
-    if (!wa.pnr.locator) return 'FINISH OR IGNORE'; // reconstructed
-    for (const seg of targets) {
-      if (!seg.offerId) return 'LIVE OFFER ID MISSING'; // reconstructed (same as live air cancel)
-      try {
-        await ctx.backend.cancelHotelOffer({
-          locator: wa.pnr.locator,
-          offerId: seg.offerId,
-          supplierLocator: seg.confirmationNumber,
-        });
-      } catch (err) {
-        return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
-      }
-    }
-  }
-
+  const err = await cancelHotelOffersLive(targets, wa, ctx);
+  if (err) return err;
   modifyTransition(wa);
-  const remove = new Set(entry.segments);
-  wa.pnr.hotelSegments = wa.pnr.hotelSegments.filter((s) => !remove.has(s.segmentNumber));
-  // Mirror the durable store when it's a distinct object (post-retrieve alias).
-  const local = wa.pnr.locator ? ctx.backend.pnrs.get(wa.pnr.locator) : undefined;
-  if (local && local !== wa.pnr) {
-    local.hotelSegments = local.hotelSegments.filter((s) => !remove.has(s.segmentNumber));
-  }
   return 'HOTEL CANCELLED'; // reconstructed
 }
 
@@ -2165,9 +2240,11 @@ async function cancelGalileoLiveCommitted(
   // availability is typically empty after a retrieve), cancel those
   // offers in the workbench, then re-commit. Same locator persists
   // across the cancel-and-recommit per the v11 spec.
-  const max = wa.pnr.segments.length;
+  // Validate by actual segment NUMBER, not count — air numbers can be
+  // non-contiguous when a hotel is interleaved (combined X<air>.<hotel>).
+  const airSegNums = new Set(wa.pnr.segments.map((s) => s.segmentNumber));
   for (const n of entry.segments) {
-    if (n < 1 || n > max) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
+    if (!airSegNums.has(n)) return 'SEGMENT NUMBER NOT IN ITINERARY'; // reconstructed
   }
   // Same routing trick as the pre-commit partial cancel: when the
   // user names every segment, route through cancelReservation

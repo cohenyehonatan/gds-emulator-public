@@ -514,6 +514,48 @@ describe('Galileo live hotel CANCEL — Stays canceloffer (X<n>)', () => {
     wa.pnr.locator = undefined;
     expect(await host.process('X1', wa)).toBe('FINISH OR IGNORE');
   });
+
+  // A committed BF with BOTH an air segment (seg 1) and the hotel (seg 2).
+  const withAirSegment = () => {
+    wa.pnr.hotelSegments[0].segmentNumber = 2;
+    wa.pnr.segments = [{
+      segmentNumber: 1, carrier: 'AA', flightNumber: '100', bookingClass: 'Y', date: '14JUL',
+      dayOfWeek: 'M', dayOfWeekNum: 1, origin: 'JFK', destination: 'DEN', status: 'HK',
+      seats: 1, departTime: '900A', arriveTime: '1100A',
+    }];
+  };
+
+  it('XI cancels BOTH air (cancelReservation) and hotel (canceloffer) — gap closed', async () => {
+    withAirSegment();
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(cancelResp()).mockResolvedValueOnce(cancelResp());
+    const resp = await host.process('XI', wa);
+    expect(resp).toBe('ITINERARY CANCELLED');
+    expect(wa.pnr.hotelSegments).toHaveLength(0);
+    expect(wa.pnr.segments).toHaveLength(0);
+    const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('/hotel/book/reservations/GZWS4M/canceloffer'))).toBe(true);
+    expect(urls.some((u) => u.includes('/air/receipt/reservations/GZWS4M/receipts'))).toBe(true);
+  });
+
+  it('mixed X<air>.<hotel> cancels both in one entry — gap closed', async () => {
+    withAirSegment();
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(cancelResp()).mockResolvedValueOnce(cancelResp());
+    const resp = await host.process('X1.2', wa); // air 1 + hotel 2
+    expect(resp).toBe('ITINERARY CANCELLED');
+    expect(wa.pnr.hotelSegments).toHaveLength(0);
+    expect(wa.pnr.segments).toHaveLength(0);
+    const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('/canceloffer'))).toBe(true); // hotel
+  });
+
+  it('a bad number in a mixed selection rejects BEFORE cancelling anything', async () => {
+    withAirSegment();
+    // X1.9 — 1 is air, 9 is neither: must reject with no live call + no removal.
+    expect(await host.process('X1.9', wa)).toBe('SEGMENT NUMBER NOT IN ITINERARY');
+    expect(wa.pnr.hotelSegments).toHaveLength(1);
+    expect(wa.pnr.segments).toHaveLength(1);
+    expect(fetchSpy.mock.calls.length).toBe(0); // no token, no cancel
+  });
 });
 
 describe('Galileo live HOA — Stays hotel search', () => {

@@ -208,9 +208,14 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    be cancelled; `handleGalileoCancel` routes an all-hotel `X<n>` selection to
    `handleGalileoHotelCancel` (live cancel + local remove; emulated just
    removes). Needs a committed BF (locator) + the captured offerId — rejections
-   `FINISH OR IGNORE` (uncommitted) / `LIVE OFFER ID MISSING`. Mixed air+hotel
-   `X` falls through to the air path. Tests: emulated + mocked-live in
-   `galileo-hotel-car` / `galileo-live-hotel`. Retrieve was already done.
+   `FINISH OR IGNORE` (uncommitted) / `LIVE OFFER ID MISSING`. **Mixed +
+   itinerary closed:** `X<air>.<hotel>` cancels both in one entry and `XI`
+   sweeps the hotel too (`cancelGalileoCombined` — hotels via canceloffer, air
+   via the existing path; whole selection validated up front so a bad number
+   can't half-cancel). The committed air validator is now segment-NUMBER based
+   (not count) so interleaved air/hotel numbering works. Tests: emulated +
+   mocked-live in `galileo-hotel-car` / `galileo-live-hotel`. Retrieve was
+   already done.
 
 ## Out of scope
 
