@@ -415,25 +415,37 @@ async function hotelBuildProbe(
   if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
   else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
 
-  // Optional TravelAgency block (TVP_STAYS_AGENCY=<name>). When TVP_STAYS_
-  // AGENCY_IATA is also set, stamp a DIFFERENT IATA on it (code/codeContext
-  // + Identifier) to see whether the host honours it or ignores it in
-  // favour of the PCC-derived agency-of-record.
+  // Optional TravelAgency block (TVP_STAYS_AGENCY=<name>) — corporate/contact
+  // details for the booking, NOT the accreditation IATA (which is PCC-derived).
+  // Documented-correct shape (Air v11 webhelp APIRef_TravelAgencyDetails +
+  // Stays OpenAPI): @type TravelAgencyDetail, OrganizationName (Stays-required),
+  // and at least one of Address / CorporateCode (the host's TJR rule — sending
+  // neither earns "TRAVEL AGENCY DATA IS MISSING OR INVALID"). We send both.
+  // NOTE: an earlier run proved a fake IATA Identifier here is REJECTED; this
+  // block deliberately carries no IATA override.
   const agencyName = process.env.TVP_STAYS_AGENCY;
-  const agencyIata = process.env.TVP_STAYS_AGENCY_IATA;
+  const agencyIata = process.env.TVP_STAYS_AGENCY_IATA; // diagnostic only; not sent
   const travelAgency = agencyName
     ? {
         TravelAgency: {
-          '@type': 'TravelAgency',
-          OrganizationName: {
-            value: agencyName,
-            ...(agencyIata ? { code: agencyIata, codeContext: 'IATA' } : {}),
-          },
-          ...(agencyIata ? { Identifier: { value: agencyIata, authority: 'IATA' } } : {}),
+          '@type': 'TravelAgencyDetail',
+          OrganizationName: { value: agencyName },
+          CorporateCode: process.env.TVP_STAYS_AGENCY_CORP ?? 'TEST01USCWT',
+          Address: [
+            {
+              '@type': 'AddressDetail',
+              AddressLine: ['28 BROAD STREET'],
+              City: 'ENGLEWOOD',
+              StateProv: { name: 'COLORADO' },
+              Country: { value: 'US', name: 'UNITED STATES' },
+              PostalCode: '80111',
+              Addressee: agencyName,
+            },
+          ],
         },
       }
     : {};
-  if (agencyName) console.log(`      ↳ TravelAgency "${agencyName}"${agencyIata ? ` IATA ${agencyIata}` : ''}`);
+  if (agencyName) console.log(`      ↳ TravelAgency "${agencyName}" (TravelAgencyDetail + Address + CorporateCode)`);
 
   const payload = {
     ReservationQueryBuild: {
