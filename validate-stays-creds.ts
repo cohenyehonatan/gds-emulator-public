@@ -142,24 +142,34 @@ async function hotelSearch(token: string): Promise<void> {
   // means ENTITLED-but-body-shape, which is still a GO. The entitlement
   // gate (401/403) is evaluated before body validation, so this probe
   // answers the gating question regardless of body correctness.
-  // RESULT 2026-06-14: 7K9S IS ENTITLED. Run 1 (SearchBy at root) → 400
-  // "REQUIRED TYPE: PropertiesQuerySearch OBJECT" — gave us the wrapper.
-  // Run 2 (this body) → 400 "CHECK IN DATE DATA IS INVALID" — i.e. the
-  // wrapper is right and the server is now validating individual fields.
-  // The exact date/guest field shapes come from the API reference (or one
-  // TVP_CAPTURE of a known-good request) — NOT from fuzzing pre-prod
-  // field-by-field. The entitlement gate this probe exists for is PASSED;
-  // body refinement is chunk 2 of docs/live-stays-wiring.md.
+  // Body VERIFIED against the Stays v11.34 OpenAPI spec (components.schemas
+  // PropertiesQuerySearchWrapper → PropertiesQuerySearch). The earlier probe
+  // runs found the answer: 7K9S IS entitled (400 VALIDATION, not 403), the
+  // wrapper is PropertiesQuerySearch, and CheckInDate/CheckOutDate live at
+  // the PropertiesQuerySearch ROOT (capital I/O) — not under a HotelStay
+  // object (my first guess, which earned "CHECK IN DATE DATA IS INVALID").
+  // Required: @type, CheckInDate, CheckOutDate, SearchBy.
+  //
+  // Run 3 (this verified body) → HTTP 500 INTERNAL SERVER ERROR. The body
+  // PASSED field validation (400→500), so the schema is right; the 500 is
+  // server-side. Most likely the 7K9S trial tenant has Stays API ACCESS
+  // but no hotel CONTENT provisioning (mirrors the air ticketing gate) —
+  // though one 500 could be transient. Did NOT re-run (pacing rule). Net:
+  // chunk 2 can be built + unit-tested against the spec response schema;
+  // a live end-to-end with real hotel data is gated on content provisioning.
   const payload = {
     PropertiesQuerySearch: {
       '@type': 'PropertiesQuerySearch',
+      CheckInDate: CHECKIN,
+      CheckOutDate: CHECKOUT,
       SearchBy: {
         '@type': 'SearchByAirport',
         SearchAirport: AIRPORT,
         SearchRadius: { value: 25, unitOfDistance: 'Miles' },
       },
-      HotelStay: { CheckinDate: CHECKIN, CheckoutDate: CHECKOUT },
-      RoomStayCandidate: [{ numberOfRooms: 1, GuestCount: [{ ageQualifyingCode: 'ADT', count: 2 }] }],
+      RoomStayCandidate: [
+        { GuestCounts: { '@type': 'GuestCounts', GuestCount: [{ '@type': 'GuestCount', count: 2 }] } },
+      ],
     },
   };
 

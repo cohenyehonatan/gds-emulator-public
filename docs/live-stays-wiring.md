@@ -33,6 +33,48 @@ v12 adds a `SearchComplete` that fuses search+details+availability; v11 (our tar
 keeps them separate. Search-by-location body uses `SearchBy` with
 `@type: SearchByAirport` + `SearchAirport` + `SearchRadius` + check-in/out + guests.
 
+## Verified request/response schemas (Stays v11.34 OpenAPI)
+
+Pulled from the spec (`page-data/shared/oas-apis/stays/@11.34/index.yaml.json`),
+not guessed. These are the two read-path calls chunk 2 needs.
+
+**Search** — `POST /11/hotel/search/properties/search`. Body =
+`PropertiesQuerySearchWrapper`; `PropertiesQuerySearch` requires
+`@type` + `CheckInDate` + `CheckOutDate` + `SearchBy` (dates at the ROOT,
+not under a stay object — that was the probe's bug):
+```json
+{ "PropertiesQuerySearch": {
+  "@type": "PropertiesQuerySearch",
+  "CheckInDate": "2026-07-14", "CheckOutDate": "2026-07-16",
+  "SearchBy": { "@type": "SearchByAirport", "SearchAirport": "CDG",
+                "SearchRadius": { "value": 25, "unitOfDistance": "Miles" } },
+  "RoomStayCandidate": [ { "GuestCounts": { "@type": "GuestCounts",
+                "GuestCount": [ { "@type": "GuestCount", "count": 2 } ] } } ]
+} }
+```
+`SearchBy` is a discriminated union: `SearchByAirport` / `SearchByCity` /
+`SearchByAddress` / `SearchByGeoLocation`. Response = `PropertiesResponseWrapper`
+→ `PropertiesResponse.Property[]` (`PropertyKey` chain/property codes, `name`,
+`GeoLocation`, `Rating`, `Image[]`) → maps onto `HotelProperty[]`.
+
+**Availability** — `POST /11/hotel/availability/catalogofferingshospitality`.
+Body = `CatalogOfferingsQueryRequestHospitalityWrapper` →
+`CatalogOfferingsQueryRequest.CatalogOfferingsRequest` with
+`@type: CatalogOfferingsRequestHospitality`, required `StayDates`
+(`DateOrDateWindows`) + `HotelSearchCriterion` (carries the property ref from
+search). Response = `CatalogOfferingsHospitalityResponseWrapper` →
+`CatalogOfferingsHospitalityResponse`, which carries the SAME
+`ProductHospitality` / `PriceBreakdownHospitality` structures the multi-content
+**retrieve** mapper already handles — so the rate-mapping half is largely done.
+
+**Live status (probe, 2026-06-14):** the verified search body PASSED validation
+(400→500) but the search returned **500 INTERNAL SERVER ERROR**. Read: 7K9S has
+Stays API access + the body is correct, but likely no hotel *content*
+provisioning on the trial tenant (mirrors the air ticketing gate); a lone 500
+could also be transient. **Implication:** build + unit-test chunk 2 against this
+spec response schema; a live end-to-end with real hotel data is gated on content
+provisioning (production/entitled tenant), exactly like live ticketing.
+
 ## Integration shape — mirror the Flights wire
 
 The seam already exists; this reuses every piece of the live-Travelport machinery:
