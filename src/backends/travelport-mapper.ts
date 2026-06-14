@@ -47,6 +47,8 @@
 import type { AvailabilityLine, VendorRef } from '../models/availability-result.js';
 import { Pnr } from '../models/pnr.js';
 import type { AirSegment } from '../models/segment.js';
+import type { HotelSegment } from '../models/hotel.js';
+import type { CarSegment } from '../models/car.js';
 import type { NameItem } from '../models/name-element.js';
 import type { PhoneElement } from '../models/phone-element.js';
 import type { FareQuote, PassengerFare, TaxItem } from '../models/fare.js';
@@ -361,20 +363,18 @@ function arrayish<T>(x: T | T[] | null | undefined): T[] {
  *
  * **Multi-content** (Travelport Multi-Content Booking Guide): a BF can
  * also carry hotel/car segments, returned as separate Offer instances
- * with Product type `ProductHospitality` / `ProductVehicle` (vs
- * `ProductAir`), plus Receipt `OfferStatusHospitality`/`OfferStatusVehicle`
- * and a `ReservationDisplaySequence` giving true itinerary order (the
- * response is always air→hotel→car otherwise). We map air only and
- * IGNORE the hotel/car offers — they have no `FlightSegment`, so
- * `mapReservationSegments` skips them and travelers (read from the
- * reservation-root `Traveler[]`, not per-offer) don't duplicate. This is
- * robust, not complete: the emulated `*I`/`*R` interleaves all segment
- * types, so a live multi-content retrieve is lossy vs emulated. A
- * verified hotel/car mapper (→ `pnr.hotelSegments`/`carSegments`,
- * ordered by DisplaySequence, active HK / passive BK·MK) is CAPTURE-FIRST
- * — it needs a real pre-prod multi-content payload to pin exact field
- * paths, the same bar every mapper here meets. See
- * `test/backends/multi-content-retrieve.test.ts` for the locked behavior.
+ * with Product `@type` `ProductHospitality` / `ProductVehicle` (vs
+ * `ProductAir`). We map all three: air → `segments`, hotel →
+ * `hotelSegments`, car → `carSegments`. Per-segment status + supplier
+ * confirmation number come from the matching `Receipt[]` entry (by
+ * `OfferRef`, `OfferStatus.@type` `OfferStatus{Hospitality,Vehicle}`),
+ * and `ReservationDisplaySequence` assigns the GLOBAL segment numbers so
+ * `*I`/`*R` interleave air/hotel/car in true itinerary order (the raw
+ * response is always air→hotel→car otherwise). Field paths VERIFIED
+ * against the guide's two worked examples (GDS active hotel+car; NDC
+ * passive hotel+car). Travelers read from the reservation-root
+ * `Traveler[]` (not per-offer), so multi-content doesn't duplicate them.
+ * See `test/backends/multi-content-retrieve.test.ts`.
  */
 export function mapReservation(response: unknown, locator: string): Pnr {
   const pnr = new Pnr();
@@ -391,8 +391,16 @@ export function mapReservation(response: unknown, locator: string): Pnr {
   if (root == null) return pnr;
 
   pnr.names = mapReservationTravelers(root);
-  pnr.segments = mapReservationSegments(root);
   pnr.phones = mapReservationPhones(root);
+  pnr.segments = mapReservationSegments(root);
+
+  // Multi-content: hotel/car offers + global numbering via DisplaySequence.
+  const receipts = buildReceiptByOffer(root);
+  const hotels = mapReservationHotels(root, receipts);
+  const cars = mapReservationCars(root, receipts);
+  pnr.hotelSegments = hotels.map((h) => h.seg);
+  pnr.carSegments = cars.map((c) => c.seg);
+  applyDisplaySequence(pnr, root, hotels, cars);
   return pnr;
 }
 
@@ -510,6 +518,197 @@ function mapReservationSegments(root: any): AirSegment[] {
     if (seg) out.push(seg);
   });
   return out;
+}
+
+// --- Multi-content (hotel/car) retrieve mapping -----------------------
+// Field paths VERIFIED against the Multi-Content Booking Guide's two
+// worked example responses (GDS active hotel+car; NDC passive hotel+car).
+
+type HotelRef = { seg: HotelSegment; offerId?: string; productId?: string };
+type CarRef = { seg: CarSegment; offerId?: string; productId?: string };
+
+const str = (x: unknown): string => (x == null ? '' : String(x));
+const num = (x: unknown): number => (Number.isFinite(Number(x)) ? Number(x) : 0);
+
+/** "20:00:00" → "2000". (extractClock needs the ISO `T`; these are bare times.) */
+function clockFromTime(t: unknown): string {
+  const m = typeof t === 'string' ? /^(\d{2}):(\d{2})/.exec(t) : null;
+  return m ? `${m[1]}${m[2]}` : '';
+}
+
+/** Whole days between two YYYY-MM-DD dates, min 1 (a same-day rental is 1). */
+function daysBetween(start: unknown, end: unknown): number {
+  const p = (s: unknown) => (typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(s) : null);
+  const a = p(start);
+  const b = p(end);
+  if (!a || !b) return 1;
+  const da = Date.UTC(+a[1], +a[2] - 1, +a[3]);
+  const db = Date.UTC(+b[1], +b[2] - 1, +b[3]);
+  const diff = Math.round((db - da) / 86_400_000);
+  return diff > 0 ? diff : 1;
+}
+
+/** Hotel/Car OfferStatus.Status word → our HK/NN/HX status code. */
+function statusCode(word: unknown): string {
+  switch (str(word).toLowerCase()) {
+    case 'confirmed': return 'HK';
+    case 'pending': return 'NN';
+    case 'rejected': return 'HX';
+    default: return 'HK';
+  }
+}
+
+/**
+ * offerId → { confirmationNumber, status } from the `Receipt[]`
+ * ReceiptConfirmation entries. Hotel/car carry their supplier
+ * confirmation in `Confirmation.Locator.value` (sourceContext SUPPLIER)
+ * and a word status in `Confirmation.OfferStatus.Status`, keyed by
+ * `OfferRef[]`. First non-empty wins per offer.
+ */
+function buildReceiptByOffer(root: any): Map<string, { confirmationNumber?: string; status?: string }> {
+  const map = new Map<string, { confirmationNumber?: string; status?: string }>();
+  for (const r of arrayish(root?.Receipt)) {
+    if ((r as any)?.['@type'] !== 'ReceiptConfirmation') continue;
+    const conf = (r as any)?.Confirmation;
+    const locVal = conf?.Locator?.value;
+    const statusWord = conf?.OfferStatus?.Status; // word for hotel/car (air uses StatusAir[].code)
+    for (const ref of arrayish((r as any)?.OfferRef)) {
+      const key = str(ref);
+      if (!key) continue;
+      const cur = map.get(key) ?? {};
+      if (locVal && !cur.confirmationNumber) cur.confirmationNumber = str(locVal);
+      if (statusWord && !cur.status) cur.status = str(statusWord);
+      map.set(key, cur);
+    }
+  }
+  return map;
+}
+
+function mapReservationHotels(root: any, receipts: ReturnType<typeof buildReceiptByOffer>): HotelRef[] {
+  const out: HotelRef[] = [];
+  for (const offer of arrayish(root?.Offer)) {
+    const offerId = str((offer as any)?.id) || undefined;
+    const price = (offer as any)?.Price;
+    for (const product of arrayish((offer as any)?.Product)) {
+      if ((product as any)?.['@type'] !== 'ProductHospitality') continue;
+      const p = product as any;
+      const rec = (offerId && receipts.get(offerId)) || {};
+      let nights = 0;
+      for (const pb of arrayish(price?.PriceBreakdown)) {
+        for (const nr of arrayish((pb as any)?.NightlyRate)) {
+          if ((nr as any)?.nights != null) { nights = num((nr as any).nights); break; }
+        }
+        if (nights) break;
+      }
+      const seg: HotelSegment = {
+        segmentNumber: 0,
+        chain: str(p?.PropertyKey?.chainCode),
+        property: str(p?.PropertyKey?.propertyCode),
+        name: str(p?.propertyName),
+        city: str(p?.PropertyAddress?.City),
+        checkIn: extractDateToken(p?.DateRange?.start),
+        checkOut: extractDateToken(p?.DateRange?.end),
+        nights,
+        rateCode: '',
+        ratePerNight: num(price?.Base),
+        currency: str(price?.CurrencyCode?.codeAuthority ?? price?.CurrencyCode?.value),
+        rooms: num(p?.Quantity) || 1,
+        status: rec.status ? statusCode(rec.status) : 'HK',
+        confirmationNumber: rec.confirmationNumber,
+      };
+      out.push({ seg, offerId, productId: str(p?.id) || undefined });
+    }
+  }
+  return out;
+}
+
+function mapReservationCars(root: any, receipts: ReturnType<typeof buildReceiptByOffer>): CarRef[] {
+  const out: CarRef[] = [];
+  for (const offer of arrayish(root?.Offer)) {
+    const offerId = str((offer as any)?.id) || undefined;
+    const price = (offer as any)?.Price;
+    // Rate code rides on the offer's TermsAndConditionsFull (vehicle).
+    let rateCode = '';
+    for (const tc of arrayish((offer as any)?.TermsAndConditionsFull)) {
+      for (const rc of arrayish((tc as any)?.ProductRateCodeInfo)) {
+        const v = (rc as any)?.RateCodeInfo?.value;
+        if (v) { rateCode = str(v); break; }
+      }
+      if (rateCode) break;
+    }
+    for (const product of arrayish((offer as any)?.Product)) {
+      if ((product as any)?.['@type'] !== 'ProductVehicle') continue;
+      const v = (product as any)?.Vehicle;
+      const pick = v?.VehicleDateLocation?.RentalPickup;
+      const ret = v?.VehicleDateLocation?.RentalReturn;
+      const rec = (offerId && receipts.get(offerId)) || {};
+      // First ApproximateRate.BaseRate.value across the price breakdowns.
+      let amount = 0;
+      for (const pb of arrayish(price?.PriceBreakdown)) {
+        const base = (pb as any)?.VehiclePrice?.ApproximateRate?.BaseRate?.value;
+        if (base != null) { amount = num(base); break; }
+      }
+      const seg: CarSegment = {
+        segmentNumber: 0,
+        company: str(v?.VehicleMakeModel?.vendorCode),
+        companyName: '',
+        vehicleType: str(v?.VehicleMakeModel?.code),
+        category: str(v?.VehicleCategoryCode?.value),
+        rateCode,
+        city: str(pick?.VendorLocation?.code),
+        pickup: extractDateToken(pick?.date),
+        dropoff: extractDateToken(ret?.date),
+        days: daysBetween(pick?.date, ret?.date),
+        amount,
+        currency: str(price?.CurrencyCode?.value ?? price?.CurrencyCode?.codeAuthority),
+        pickupTime: clockFromTime(pick?.time),
+        dropoffTime: clockFromTime(ret?.time),
+        status: rec.status ? statusCode(rec.status) : 'HK',
+        confirmationNumber: rec.confirmationNumber,
+      };
+      out.push({ seg, offerId, productId: str((product as any)?.id) || undefined });
+    }
+  }
+  return out;
+}
+
+/**
+ * Assign GLOBAL segment numbers across air/hotel/car so
+ * `renderGalileoItinerary` (which sorts all types by segmentNumber)
+ * interleaves them in true itinerary order. With a
+ * `ReservationDisplaySequence`, each `DisplaySequence` entry maps an
+ * (OfferRef, ProductRef) to a `displaySequence` number; air entries also
+ * carry `Sequence`. Air segments don't track their offer/product, so we
+ * zip them (in mapped order, which is flight-sequence order) to the air
+ * DisplaySequence entries (sorted by displaySequence) — only when the
+ * counts match. Hotel/car match by (offerId, productId). Without a
+ * DisplaySequence we just number air, then hotel, then car.
+ */
+function applyDisplaySequence(pnr: Pnr, root: any, hotels: HotelRef[], cars: CarRef[]): void {
+  const ds = arrayish(root?.ReservationDisplaySequence?.DisplaySequence);
+  if (ds.length === 0) {
+    let n = 0;
+    pnr.segments.forEach((s) => (s.segmentNumber = ++n));
+    pnr.hotelSegments.forEach((s) => (s.segmentNumber = ++n));
+    pnr.carSegments.forEach((s) => (s.segmentNumber = ++n));
+    return;
+  }
+  const airEntries = ds
+    .filter((e: any) => e?.Sequence != null)
+    .sort((a: any, b: any) => Number(a.displaySequence) - Number(b.displaySequence));
+  if (airEntries.length === pnr.segments.length) {
+    pnr.segments.forEach((seg, i) => (seg.segmentNumber = num((airEntries[i] as any).displaySequence)));
+  }
+  const byKey = new Map<string, number>();
+  for (const e of ds) byKey.set(`${str((e as any).OfferRef)}|${str((e as any).ProductRef)}`, num((e as any).displaySequence));
+  for (const h of hotels) {
+    const n = byKey.get(`${str(h.offerId)}|${str(h.productId)}`);
+    if (n != null) h.seg.segmentNumber = n;
+  }
+  for (const c of cars) {
+    const n = byKey.get(`${str(c.offerId)}|${str(c.productId)}`);
+    if (n != null) c.seg.segmentNumber = n;
+  }
 }
 
 function flightToSegment(flight: any, segmentNumber: number): AirSegment | null {
