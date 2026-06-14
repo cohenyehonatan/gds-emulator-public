@@ -156,6 +156,16 @@ describe('Galileo live HOA — Stays hotel search', () => {
     expect(body.PropertiesQuerySearch.SearchBy.SearchAirport).toBeUndefined();
   });
 
+  it('negative latitude (Southern Hemisphere) parses through the /GEO-- double dash', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(searchResp());
+    // Sydney: lat is negative, so the entry reads "/GEO--33.8688,..." — the
+    // /GEO- delimiter's own dash plus the value's minus sign.
+    await host.process('HOA17JUN-22JUN/GEO--33.8688,151.2093', wa);
+    const body = JSON.parse((fetchSpy.mock.calls[1][1]?.body as string) ?? '{}');
+    expect(body.PropertiesQuerySearch.SearchBy.Latitude).toBe(-33.8688);
+    expect(body.PropertiesQuerySearch.SearchBy.Longitude).toBe(151.2093);
+  });
+
   it('a live search with no properties → NO HOTELS', async () => {
     fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(
       searchResp({ PropertiesResponse: { Properties: { PropertyInfo: [] } } })
