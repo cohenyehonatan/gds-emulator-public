@@ -97,4 +97,47 @@ export const HOTEL_SEED: HotelProperty[] = [
       { code: 'COR', amount: 219, currency: 'USD', available: 8 },
     ],
   },
+  // --- LAX (Los Angeles) — JFK-LAX is the most-flown market in SCHEDULE,
+  // so loading it lets HOA/CAL + reference sell complete an LAX trip. ---
+  {
+    chain: 'HN', property: 'LAX', name: 'HILTON LOS ANGELES AIRPORT',
+    city: 'LAX', address: '5711 W CENTURY BLVD',
+    rates: [
+      { code: 'RAC', amount: 279, currency: 'USD', available: 22 },
+      { code: 'COR', amount: 239, currency: 'USD', available: 10 },
+    ],
+  },
+  {
+    chain: 'MC', property: 'LAX', name: 'LOS ANGELES AIRPORT MARRIOTT',
+    city: 'LAX', address: '5855 W CENTURY BLVD',
+    rates: [
+      { code: 'RAC', amount: 299, currency: 'USD', available: 18 },
+      { code: 'COR', amount: 259, currency: 'USD', available: 7 },
+    ],
+  },
+  {
+    chain: 'HI', property: 'LAX', name: 'HOLIDAY INN LOS ANGELES INTERNATIONAL AIRPORT',
+    city: 'LAX', address: '9901 S LA CIENEGA BLVD',
+    rates: [
+      { code: 'RAC', amount: 209, currency: 'USD', available: 26 },
+      { code: 'COR', amount: 179, currency: 'USD', available: 12 },
+    ],
+  },
+  // --- SFO (San Francisco) — JFK-SFO builds via ORD/DEN connections. ---
+  {
+    chain: 'UI', property: 'SFO', name: 'HYATT REGENCY SAN FRANCISCO AIRPORT',
+    city: 'SFO', address: '1333 OLD BAYSHORE HWY, BURLINGAME',
+    rates: [
+      { code: 'RAC', amount: 319, currency: 'USD', available: 16 },
+      { code: 'COR', amount: 269, currency: 'USD', available: 6 },
+    ],
+  },
+  {
+    chain: 'HN', property: 'SFO', name: 'HILTON SAN FRANCISCO AIRPORT BAYFRONT',
+    city: 'SFO', address: '600 AIRPORT BLVD, BURLINGAME',
+    rates: [
+      { code: 'RAC', amount: 289, currency: 'USD', available: 24 },
+      { code: 'COR', amount: 249, currency: 'USD', available: 9 },
+    ],
+  },
 ];

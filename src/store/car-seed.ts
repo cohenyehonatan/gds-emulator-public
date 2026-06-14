@@ -53,4 +53,13 @@ export const CAR_SEED: CarRental[] = [
   { company: 'ZE', vehicleType: 'ECMN', category: 'ECONOMY MANUAL',     rateCode: 'BST', amount: 40, currency: 'EUR', available: 14, city: 'MAD' },
   { company: 'ZA', vehicleType: 'CCAR', category: 'COMPACT AUTO',       rateCode: 'BST', amount: 55, currency: 'EUR', available: 11, city: 'MAD' },
   { company: 'ZD', vehicleType: 'ICAR', category: 'INTERMEDIATE AUTO',  rateCode: 'BST', amount: 70, currency: 'EUR', available: 9,  city: 'MAD' },
+  // --- LAX (the JFK-LAX market; loaded so an LAX trip can add a car) ---
+  { company: 'ZE', vehicleType: 'ICAR', category: 'INTERMEDIATE AUTO',  rateCode: 'BST', amount: 58, currency: 'USD', available: 16, city: 'LAX' },
+  { company: 'ZE', vehicleType: 'FDAR', category: 'FULL-SIZE AUTO',     rateCode: 'BST', amount: 89, currency: 'USD', available: 8,  city: 'LAX' },
+  { company: 'ZA', vehicleType: 'ECAR', category: 'ECONOMY AUTO',       rateCode: 'BST', amount: 49, currency: 'USD', available: 20, city: 'LAX' },
+  { company: 'ET', vehicleType: 'SDAR', category: 'STANDARD AUTO',      rateCode: 'BST', amount: 72, currency: 'USD', available: 12, city: 'LAX' },
+  // --- SFO ---
+  { company: 'ZE', vehicleType: 'CCAR', category: 'COMPACT AUTO',       rateCode: 'BST', amount: 62, currency: 'USD', available: 14, city: 'SFO' },
+  { company: 'ZI', vehicleType: 'IDAR', category: 'INTERMEDIATE 4DR',   rateCode: 'BST', amount: 78, currency: 'USD', available: 9,  city: 'SFO' },
+  { company: 'ZA', vehicleType: 'ECAR', category: 'ECONOMY AUTO',       rateCode: 'BST', amount: 52, currency: 'USD', available: 17, city: 'SFO' },
 ];

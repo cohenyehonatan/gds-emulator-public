@@ -45,6 +45,27 @@ describe('HOA / HOI / HOC — hotel displays', () => {
     expect(wa.lastHotelAvail?.nights).toBe(3);
   });
 
+  it('LAX (the JFK-LAX market) is now seeded — HOA + reference sell complete', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    const avail = await host.process('HOA01JUL-02JULLAX1', wa);
+    expect(avail).toContain('HOTEL AVAILABILITY LAX');
+    expect(avail).toContain('HILTON LOS ANGELES AIRPORT');
+    expect(avail).not.toContain('NO HOTELS');
+    const sold = await host.process('N1A1', wa); // 1 room, line 1
+    expect(sold).toContain('HOTEL SOLD');
+    expect(wa.pnr.hotelSegments).toHaveLength(1);
+    expect(wa.pnr.hotelSegments[0].city).toBe('LAX');
+  });
+
+  it('CAL for LAX returns cars (seeded)', async () => {
+    const host = makeHost();
+    const wa = await signedIn(host);
+    const avail = await host.process('CAL01JUL-03JULLAX', wa);
+    expect(avail).toContain('CAR AVAILABILITY LAX');
+    expect(avail).not.toContain('NO CARS');
+  });
+
   it('HOI<city> renders the index; HOI<city>/<chain> filters', async () => {
     const host = makeHost();
     const wa = await signedIn(host);
