@@ -1189,10 +1189,13 @@ The original survey (all items now resolved or annotated):
       CONFIRMED booking (not a workbench; the probe created real PNR `GZWS3Q`,
       since cancelled), needing a `N.` name + an `F.` card guarantee. Mappers
       verified against real DEN captures; tests mocked (no live writes in CI).
-      Full scope + chunk plan in `docs/live-stays-wiring.md`. **Still open:**
-      passive book (`0HTL…MK` → `…/book/reservations/passive`, body shape
-      unverified) and wiring `…/canceloffer` to the cryptic `X` family. Cars stay
-      emulated — no published v11 Cars API.
+      **Passive sell DONE + verified live:** `0HTL…MK/CF-<conf>` →
+      `…/book/reservations/passive` (status MK; free-form `PropertyAddress` not a
+      GDS `PropertyKey`; confirmation via concrete `ReceiptConfirmation/
+      ConfirmationHold`; new `/CF-` qualifier). Full scope + chunk plan in
+      `docs/live-stays-wiring.md`. **Still open:** wiring `…/canceloffer` to the
+      cryptic `X` family (endpoint proven). Cars stay emulated — no published v11
+      Cars API.
 - [ ] **Vendor remarks (*VI/*VO/*VR/*VL) + *CI data models** — verbs answer
       honestly empty; need models + a source for screen shapes.
 - [ ] **Surface/tour/air-taxi segment types (*IS/*IT/*IX)** — honest-empty.

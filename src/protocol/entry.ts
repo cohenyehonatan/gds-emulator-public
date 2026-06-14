@@ -314,6 +314,8 @@ export interface HotelEntry extends BaseEntry {
   hotelName?: string;
   propertyId?: string;
   rateCode?: string;
+  /** External supplier confirmation (`/CF-<conf>`) — for a live passive sell. */
+  confirmation?: string;
 }
 
 /**

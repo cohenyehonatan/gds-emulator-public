@@ -361,6 +361,103 @@ describe('Galileo live hotel SELL — Stays build (one-shot confirmed booking)',
   });
 });
 
+// Real-shaped passive 200 body, trimmed from the live DEN passive sell the
+// probe created then cancelled (stays-den-passive.json, locator GZWS4M):
+// status MK, the supplier confirmation we supplied echoed back.
+const PASSIVE_RESPONSE = {
+  ReservationResponse: {
+    Reservation: {
+      '@type': 'Reservation',
+      Offer: [
+        {
+          '@type': 'Offer',
+          passiveOfferInd: true,
+          Product: [
+            {
+              '@type': 'ProductHospitality',
+              bookingCode: 'PASSIVE',
+              passiveBookingReasonCode: 'G',
+              propertyName: 'GRAND PLAZA DEN',
+              associatedCityCode: 'HDQ',
+              PropertyKey: { '@type': 'PropertyKey' },
+              DateRange: { start: '2026-07-14', end: '2026-07-16' },
+            },
+          ],
+          Price: { '@type': 'PriceDetail', CurrencyCode: { value: 'USD' }, Base: 0, TotalPrice: 0 },
+        },
+      ],
+      Traveler: [{ '@type': 'Traveler', PersonName: { '@type': 'PersonName', Surname: 'SMITH', Given: 'JOHN' } }],
+      Receipt: [
+        { '@type': 'ReceiptConfirmation', Confirmation: { '@type': 'ConfirmationHold', Locator: { value: 'XYZ789', locatorType: 'Confirmation Number', sourceContext: 'Supplier' }, OfferStatus: { '@type': 'OfferStatusHospitality', code: 'MK', Status: 'Confirmed' } } },
+        { '@type': 'ReceiptConfirmation', Confirmation: { '@type': 'ConfirmationHold', Locator: { value: 'GZWS4M', locatorType: 'PNR Locator', sourceContext: 'Travelport' }, OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' } } },
+      ],
+    },
+  },
+};
+
+describe('Galileo live hotel PASSIVE sell — Stays /passive (0HTL…MK)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let host: GdsHost;
+  let wa: WorkArea;
+  const tokenResp = () =>
+    new Response(JSON.stringify({ access_token: 'T', token_type: 'Bearer', expires_in: 3600 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const WORKBENCH = { ReservationResponse: { Reservation: { Identifier: { value: 'WB1' } } } };
+
+  beforeEach(async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const backend = new LiveTravelportBackend({ clientId: 'x', clientSecret: 'y', username: 'z', password: 'w' });
+    host = new GdsHost({ port: 0, logLevel: 'error', dialect: new GalileoDialect(), pcc: '7K9S', backend });
+    wa = host.newWorkArea();
+    await host.process('SON/ZHA', wa);
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('0HTL…MK/CF- records the external booking + surfaces status MK + locator', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(tokenResp())          // token (lazy, on N.)
+      .mockResolvedValueOnce(json(WORKBENCH))      // N. → createWorkbench
+      .mockResolvedValueOnce(json(PASSIVE_RESPONSE)); // 0HTL…MK → bookHotelPassive
+    await host.process('N.SMITH/JOHN MR', wa);
+    const resp = await host.process('0HTLHHMK1DEN14JUL-OUT16JUL/H-GRAND PLAZA/CF-XYZ789', wa);
+
+    expect(resp).toContain('HOTEL SOLD');
+    expect(resp).toContain('MK');
+    expect(resp).toContain('XYZ789');                       // supplier confirmation echoed
+    expect(resp).toContain('HOTEL CONFIRMED - LOCATOR GZWS4M');
+    expect(wa.pnr.hotelSegments).toHaveLength(1);
+    expect(wa.pnr.hotelSegments[0]).toMatchObject({ chain: 'HH', city: 'DEN', status: 'MK', confirmationNumber: 'XYZ789' });
+
+    // Verified passive request: PropertyAddress (not PropertyKey), concrete
+    // Receipt @types, the supplier confirmation in the Locator.
+    const [url, init] = fetchSpy.mock.calls[2];
+    expect(String(url)).toContain('/hotel/book/reservations/passive');
+    const body = JSON.parse((init?.body as string) ?? '{}');
+    const offer = body.ReservationDetail.Offer[0];
+    expect(offer['@type']).toBe('Offer');
+    expect(offer.Product[0].PropertyAddress).toBeDefined();
+    expect(offer.Product[0].PropertyKey).toBeUndefined();   // external → no GDS key
+    const receipt = body.ReservationDetail.Receipt[0];
+    expect(receipt['@type']).toBe('ReceiptConfirmation');
+    expect(receipt.Confirmation['@type']).toBe('ConfirmationHold');
+    expect(receipt.Confirmation.Locator.value).toBe('XYZ789');
+    expect(receipt.Confirmation.Locator.locatorType).toBe('Confirmation Number');
+  });
+
+  it('0HTL…MK without /CF- (no confirmation) → NEED CONFIRMATION', async () => {
+    fetchSpy.mockResolvedValueOnce(tokenResp()).mockResolvedValueOnce(json(WORKBENCH));
+    await host.process('N.SMITH/JOHN MR', wa);
+    expect(await host.process('0HTLHHMK1DEN14JUL-OUT16JUL/H-GRAND PLAZA', wa)).toBe('NEED CONFIRMATION - USE /CF-');
+  });
+
+  it('0HTL…MK with no name on the BF → NEED NAME', async () => {
+    // No N. → no workbench call; the passive sell rejects before going live.
+    expect(await host.process('0HTLHHMK1DEN14JUL-OUT16JUL/CF-XYZ789', wa)).toBe('NEED NAME - USE N.');
+  });
+});
+
 describe('Galileo live HOA — Stays hotel search', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let host: GdsHost;

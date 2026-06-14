@@ -3384,7 +3384,7 @@ async function handleGalileoHotel(
   wa: WorkArea,
   ctx: HandlerContext,
 ): Promise<string> {
-  if (entry.action === 'direct_sell') return handleGalileoHotelDirectSell(entry, wa);
+  if (entry.action === 'direct_sell') return handleGalileoHotelDirectSell(entry, wa, ctx);
   if (entry.action === 'availability' || entry.action === 'index') {
     const isIndex = entry.action === 'index';
     const checkIn = entry.checkIn ?? '15JUL';
@@ -3696,11 +3696,18 @@ function ddmonToIso(ddmon: string): string {
  * segment (MK passive / HK active). Price is not part of the entry, so
  * it stays unpriced. Response wording reconstructed.
  */
-function handleGalileoHotelDirectSell(
+async function handleGalileoHotelDirectSell(
   entry: import('../../protocol/entry.js').HotelEntry,
   wa: WorkArea,
-): string {
+  ctx: HandlerContext,
+): Promise<string> {
   if (wa.pnr.locator) return retrievedBfLiveModifyRefusal(wa.pnr.locator);
+  // LIVE passive sell (status MK) records an external booking via the Stays
+  // passive endpoint. Active direct-sell (HK) has no catalog offer to book
+  // live, so it stays local even on a live backend (as it always has).
+  if (ctx.backend instanceof LiveTravelportBackend && entry.status === 'MK') {
+    return sellGalileoHotelPassiveLive(entry, wa, ctx);
+  }
   const nights = galileoNights(entry.checkIn!, entry.checkOut!);
   const seg: import('../../models/hotel.js').HotelSegment = {
     segmentNumber: nextSegmentNumber(wa),
@@ -3712,6 +3719,53 @@ function handleGalileoHotelDirectSell(
   sellTransition(wa, `HOTEL DIRECT ${entry.chain} ${entry.status} ${entry.city}`);
   wa.pnr.hotelSegments.push(seg);
   return `HOTEL SOLD ${seg.segmentNumber}. HHL ${entry.chain} ${entry.status}${entry.rooms ?? 1} ${entry.city} ${entry.checkIn}-${entry.checkOut}${entry.hotelName ? ' ' + entry.hotelName : ''}`;
+}
+
+/**
+ * Live passive sell (0HTL…MK) — record an external booking via the Stays
+ * passive endpoint. The host needs the external supplier confirmation
+ * (cryptic `/CF-<conf>`) + a guest name; it returns status MK + a host PNR
+ * locator. The segment is built from the cryptic entry (chain/city/dates),
+ * since the passive response carries no GDS PropertyKey.
+ */
+async function sellGalileoHotelPassiveLive(
+  entry: import('../../protocol/entry.js').HotelEntry,
+  wa: WorkArea,
+  ctx: HandlerContext,
+): Promise<string> {
+  if (!entry.confirmation) return 'NEED CONFIRMATION - USE /CF-'; // reconstructed (live API requires it)
+  const name = wa.pnr.names[0];
+  if (!name) return 'NEED NAME - USE N.'; // reconstructed (passive body needs a Traveler)
+  try {
+    const resp = await (ctx.backend as LiveTravelportBackend).bookHotelPassive({
+      chain: entry.chain!,
+      propertyName: entry.hotelName ?? entry.chain!,
+      city: entry.city!,
+      checkIn: ddmonToIso(entry.checkIn!),
+      checkOut: ddmonToIso(entry.checkOut!),
+      rooms: entry.rooms,
+      rateCode: entry.rateCode,
+      confirmation: entry.confirmation,
+      traveler: { surname: name.surname, given: name.passengers[0]?.firstName, prefix: name.passengers[0]?.title },
+    });
+    const { locator } = mapHotelReservation(resp); // host PNR locator (chain/city come from the entry)
+    const nights = galileoNights(entry.checkIn!, entry.checkOut!);
+    const seg: import('../../models/hotel.js').HotelSegment = {
+      segmentNumber: nextSegmentNumber(wa),
+      chain: entry.chain!, property: entry.propertyId ?? '', name: entry.hotelName ?? '',
+      city: entry.city!, checkIn: entry.checkIn!, checkOut: entry.checkOut!,
+      nights, rateCode: entry.rateCode ?? '', ratePerNight: 0, currency: '',
+      rooms: entry.rooms ?? 1, status: 'MK', confirmationNumber: entry.confirmation,
+    };
+    sellTransition(wa, `HOTEL PASSIVE ${entry.chain} ${entry.city}`);
+    wa.pnr.hotelSegments.push(seg);
+    const sold =
+      `HOTEL SOLD ${seg.segmentNumber}. HHL ${entry.chain} MK${seg.rooms} ${entry.city} ` +
+      `${entry.checkIn}-${entry.checkOut}${entry.hotelName ? ' ' + entry.hotelName : ''} ${entry.confirmation}`;
+    return locator ? `${sold}\nHOTEL CONFIRMED - LOCATOR ${locator}` : sold;
+  } catch (err) {
+    return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+  }
 }
 
 /**

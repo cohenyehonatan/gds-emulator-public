@@ -815,6 +815,86 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Passive hotel sell — record a booking made OUTSIDE the GDS (the cryptic
+   * 0HTL…MK). POST /hotel/book/reservations/passive. Returns a confirmed
+   * passive segment (status MK). Request shape VERIFIED live 2026-06-14
+   * (HTTP 200, PNR GZWS4M, cancelled):
+   *  - Offer @type "Offer" + ProductHospitality with a FREE-FORM
+   *    PropertyAddress (NOT a GDS PropertyKey — a real key makes the host try
+   *    to reach the supplier → 500 COMMUNICATION ERROR; passive is external).
+   *  - The supplier confirmation rides Receipt(@type ReceiptConfirmation) →
+   *    Confirmation(@type ConfirmationHold) → Locator (the CONCRETE @types are
+   *    required; the abstract ones earn "CONFIRMATION NUMBER IS INVALID").
+   */
+  async bookHotelPassive(req: {
+    chain: string;
+    propertyName: string;
+    city: string;
+    address?: { line: string; city: string; stateProv?: string; country?: string; postalCode?: string };
+    checkIn: string;
+    checkOut: string;
+    rooms?: number;
+    rateCode?: string;
+    confirmation: string;
+    traveler: { prefix?: string; given?: string; surname: string };
+  }): Promise<unknown> {
+    const url = `${this.opts.apiBase}/hotel/book/reservations/passive`;
+    const t = req.traveler;
+    const a = req.address;
+    const body = {
+      ReservationDetail: {
+        '@type': 'ReservationDetail',
+        Offer: [
+          {
+            '@type': 'Offer',
+            Price: { '@type': 'PriceDetail', CurrencyCode: { value: 'USD' }, Base: 0, TotalPrice: 0 },
+            Product: [
+              {
+                '@type': 'ProductHospitality',
+                bookingCode: req.rateCode || 'PASSIVE',
+                Quantity: req.rooms ?? 1,
+                passiveBookingReasonCode: 'G',
+                propertyName: req.propertyName,
+                associatedCityCode: req.city,
+                PropertyAddress: {
+                  AddressLine: [a?.line ?? req.propertyName],
+                  City: a?.city ?? req.city,
+                  ...(a?.stateProv ? { StateProv: { value: a.stateProv } } : {}),
+                  Country: { value: a?.country ?? 'US' },
+                  ...(a?.postalCode ? { PostalCode: a.postalCode } : {}),
+                },
+                DateRange: { start: req.checkIn, end: req.checkOut },
+                GuestCounts: { '@type': 'GuestCounts', GuestCount: [{ '@type': 'GuestCount', count: 1, ageQualifyingCode: '10' }] },
+              },
+            ],
+          },
+        ],
+        Receipt: [
+          {
+            '@type': 'ReceiptConfirmation',
+            Confirmation: {
+              '@type': 'ConfirmationHold',
+              Locator: { value: req.confirmation, locatorType: 'Confirmation Number', sourceContext: 'Supplier' },
+            },
+          },
+        ],
+        Traveler: [
+          {
+            '@type': 'Traveler',
+            PersonName: {
+              '@type': 'PersonName',
+              ...(t.prefix ? { Prefix: t.prefix } : {}),
+              ...(t.given ? { Given: t.given } : {}),
+              Surname: t.surname,
+            },
+          },
+        ],
+      },
+    };
+    return this.postJsonRaw(url, body, 'bookHotelPassive');
+  }
+
+  /**
    * Search seat availability for a previously-searched offer +
    * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
    * (SA* / SM*) and Sabre 4G display verbs.

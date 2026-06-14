@@ -489,6 +489,9 @@ function parseHotelDirectSell(raw: string, upper: string): HotelEntry | null {
     hotelName: /\/H-([^/]+)/.exec(quals)?.[1]?.trim(),
     propertyId: /\/P-([^/]+)/.exec(quals)?.[1],
     rateCode: /\/R-([^/]+)/.exec(quals)?.[1],
+    // /CF-<conf> — the external supplier confirmation number. Required by the
+    // live Stays passive endpoint (it records a booking made outside the GDS).
+    confirmation: /\/CF-([^/]+)/.exec(quals)?.[1]?.trim(),
   };
 }
 

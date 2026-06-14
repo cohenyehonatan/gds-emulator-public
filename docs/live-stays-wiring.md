@@ -25,7 +25,7 @@ doc scopes that integration. (Cars are different — see *Out of scope*.)
 | `HOI` index | `POST /hotel/search/properties` / `GET /hotel/search/properties/{identifier}` |
 | `HOC` rate detail | `POST /hotel/availability/catalogofferingshospitality` ✅ wired (`/rules/…buildfromcatalogoffering` is the deeper cancel-policy call, not used yet) |
 | `N<rooms>A<rate>` active sell | `POST /hotel/book/reservations/build` ✅ wired — **one-shot CONFIRMED booking, not a workbench** |
-| `0HTL…MK` passive sell | `POST /hotel/book/reservations/passive` (+ `/passiveupdate`) — open, body unverified |
+| `0HTL…MK/CF-` passive sell | `POST /hotel/book/reservations/passive` ✅ wired — free-form `PropertyAddress`, confirmation via `ReceiptConfirmation/ConfirmationHold` |
 | `*<locator>` retrieve | `GET /hotel/book/reservations/{Identifier}` — already mapped via `mapReservation` (`ProductHospitality`) |
 | cancel | `PUT /hotel/book/reservations/{id}/canceloffer` |
 
@@ -180,9 +180,26 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
    - Real-behaviour note: live `N.` still spins up an (unused) air workbench even
      in a hotel-only flow. Harmless; not worth special-casing.
 
-   **Still open: passive book** (`0HTL…MK` → `/hotel/book/reservations/passive`).
-   Its request body shape is unverified (would need another live probe), so it
-   stays emulated for now.
+   **Passive book DONE + VERIFIED 2026-06-14.** `0HTL…MK/CF-<conf>` →
+   `LiveTravelportBackend.bookHotelPassive()` → `POST /hotel/book/reservations/
+   passive` (status MK, PNR `GZWS4M`, cancelled). The body was nailed live,
+   field-by-field — non-obvious bits:
+   - Offer `@type: "Offer"` (NOT `OfferHospitality`); Product `ProductHospitality`.
+   - The property is a **free-form `PropertyAddress`, NOT a GDS `PropertyKey`** —
+     a real key makes the host try to reach the supplier → `500 COMMUNICATION
+     ERROR` (passive is an *external* booking).
+   - The supplier confirmation rides `Receipt(@type ReceiptConfirmation) →
+     Confirmation(@type ConfirmationHold) → Locator` — the **concrete** `@type`s
+     are required; the abstract `Receipt`/`Confirmation` earn `CONFIRMATION
+     NUMBER IS INVALID`.
+   - `bookingCode`, `Quantity`, `GuestCounts` (with `ageQualifyingCode`), and a
+     `Traveler` are all required (each surfaced as its own 400 while probing).
+   New cryptic qualifier **`/CF-<conf>`** carries the external confirmation (the
+   live API requires it; the cryptic had no field for it). Faithful rejections:
+   `NEED CONFIRMATION - USE /CF-`, `NEED NAME - USE N.`. Active direct-sell
+   (`0HTL…HK`) has no catalog offer, so it stays local even on live. Tests mocked
+   from the real capture; the probe gained a self-cancelling passive mode
+   (`TVP_STAYS_PASSIVE=1`).
 4. **Cancel** — `X`-family hotel segment → `…/canceloffer` (the endpoint is proven
    — used to clean up the probe's PNR; not yet wired to the cryptic `X` family).
    Retrieve is already done.

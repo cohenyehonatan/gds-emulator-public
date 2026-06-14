@@ -522,11 +522,134 @@ async function hotelBuildProbe(
   console.log('═══════════════════════════════════════════════════════════════════════');
 }
 
+/**
+ * PASSIVE-SELL PROBE (opt-in via TVP_STAYS_PASSIVE=1) — a live WRITE.
+ * POST /hotel/book/reservations/passive records a hotel booked OUTSIDE the
+ * GDS (the cryptic 0HTL…MK). It's free-form (no search/offer), so the body
+ * is a full ReservationDetail with a passive Offer (passiveOfferInd:true)
+ * carrying a ProductHospitality the agent fills in. Body shape from the
+ * Stays v11.34 spec (ReservationDetailWrapper → ReservationDetail →
+ * Offer[OfferHospitality] → Product[ProductHospitality{PropertyKey,DateRange}]).
+ * Self-cancels any PNR it creates (unless TVP_STAYS_NO_CANCEL=1).
+ */
+async function hotelPassiveProbe(token: string): Promise<void> {
+  const path = process.env.TVP_STAYS_PASSIVE_PATH ?? '/hotel/book/reservations/passive';
+  const url = API_BASE + path;
+  console.log(`\n[PASSIVE] Stays passive sell (records an external booking)  →  POST ${url}`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Cache-Control': 'no-cache',
+    'Accept-Version': ACCEPT_VERSION,
+    'Content-Version': ACCEPT_VERSION,
+  };
+  if (ACCESS_GROUP) headers['XAUTH_TRAVELPORT_ACCESSGROUP'] = ACCESS_GROUP;
+  else headers['TVP-PCC-CORE'] = `${PCC}_${GDS}`;
+
+  const chain = process.env.TVP_STAYS_PASSIVE_CHAIN ?? 'HH';
+  const prop = process.env.TVP_STAYS_PASSIVE_PROP ?? 'DEN001';
+  const city = process.env.TVP_STAYS_PASSIVE_CITY ?? 'DEN';
+  const conf = process.env.TVP_STAYS_PASSIVE_CONF ?? 'PASSIVE123';
+  const payload = {
+    ReservationDetail: {
+      '@type': 'ReservationDetail',
+      Offer: [
+        {
+          // @type "Offer" + ProductHospitality, per the Hotel v11 Create
+          // Passive Reservation reference (verbatim). No passiveOfferInd —
+          // the /passive endpoint already implies it.
+          '@type': 'Offer',
+          Price: { '@type': 'PriceDetail', CurrencyCode: { value: 'USD' }, Base: 0, TotalPrice: 0 },
+          Product: [
+            {
+              '@type': 'ProductHospitality',
+              bookingCode: process.env.TVP_STAYS_PASSIVE_BOOKINGCODE ?? 'RAC1234567',
+              Quantity: 1,
+              passiveBookingReasonCode: 'G',
+              propertyName: process.env.TVP_STAYS_PASSIVE_NAME ?? 'TEST PASSIVE HOTEL',
+              associatedCityCode: city,
+              // Passive = an EXTERNAL hotel: free-form PropertyAddress, NOT a
+              // GDS PropertyKey (a real key makes the host try to reach the
+              // supplier → 500 COMMUNICATION ERROR). Verbatim doc shape.
+              PropertyAddress: {
+                AddressLine: ['1001 A HAVANA STREET'],
+                City: city === 'DEN' ? 'DENVER' : city,
+                StateProv: { value: 'CO' },
+                Country: { value: 'US' },
+                PostalCode: '80249',
+              },
+              DateRange: { start: CHECKIN, end: CHECKOUT },
+              GuestCounts: { '@type': 'GuestCounts', GuestCount: [{ '@type': 'GuestCount', count: 1, ageQualifyingCode: '10' }] },
+            },
+          ],
+        },
+      ],
+      // External supplier confirmation: Receipt(@type ReceiptConfirmation) →
+      // Confirmation(@type ConfirmationHold) → Locator (verbatim from the Hotel
+      // v11 Create Passive Reservation reference — the CONCRETE @types are what
+      // the host parses; the abstract Receipt/Confirmation earn "INVALID").
+      Receipt: [
+        {
+          '@type': 'ReceiptConfirmation',
+          Confirmation: {
+            '@type': 'ConfirmationHold',
+            Locator: { value: conf, locatorType: 'Confirmation Number', sourceContext: 'Supplier' },
+          },
+        },
+      ],
+      Traveler: [
+        { '@type': 'Traveler', PersonName: { '@type': 'PersonName', Prefix: 'MR', Given: 'TEST', Surname: 'PROBE' } },
+      ],
+    },
+  };
+  console.log(`      ↳ ${chain}-${prop} ${city}  ${CHECKIN} → ${CHECKOUT}  (passiveOfferInd, status MK)`);
+
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const text = await res.text();
+  let parsed: unknown; try { parsed = JSON.parse(text); } catch { parsed = text; }
+  console.log(`      ↳ HTTP ${res.status} ${res.statusText}`);
+  for (const m of extractMessages(parsed)) console.log(`        • ${m}`);
+
+  console.log('\n══════════════════ PASSIVE VERDICT ══════════════════');
+  if (res.status === 200 || res.status === 201) {
+    const r = summarizeReceipts(parsed);
+    console.log('✓ PASSIVE SELL WORKS — the host recorded the external booking.');
+    console.log(`  PNR locator:  ${r.pnr ?? '(none)'}   status: ${JSON.stringify(passiveStatuses(parsed))}`);
+    const out = process.env.TVP_STAYS_PASSIVE_OUT;
+    if (out) { const fs = await import('node:fs/promises'); await fs.writeFile(out, JSON.stringify(parsed, null, 2), 'utf8'); console.log(`  → response written to ${out}.`); }
+    if (process.env.TVP_STAYS_NO_CANCEL) console.log('  ⚠️  TVP_STAYS_NO_CANCEL set — leaving the passive PNR. Cancel it manually.');
+    else await cancelHotel(token, r);
+  } else if (res.status === 400) {
+    console.log('△ 400 — entitled + reachable, but the passive BODY shape needs adjustment (see message).');
+  } else if (res.status === 401 || res.status === 403) {
+    console.log('✗ NOT ENTITLED for passive sell.');
+  } else {
+    console.log(`△ ${res.status} — inconclusive. Body:\n${text.slice(0, 700)}`);
+  }
+  console.log('═══════════════════════════════════════════════════════');
+}
+
+/** Collect OfferStatus codes/labels from a reservation response (for passive MK/HK check). */
+function passiveStatuses(parsed: unknown): string[] {
+  const out: string[] = [];
+  JSON.stringify(parsed, (k, v) => { if ((k === 'code' || k === 'Status') && typeof v === 'string') out.push(v); return v; });
+  return [...new Set(out)];
+}
+
 async function main(): Promise<void> {
   console.log('Travelport Stays API v11 — entitlement probe (pre-prod)');
   console.log(`PCC=${PCC}  GDS=${GDS}  API_BASE=${API_BASE}  ${ACCESS_GROUP ? 'ACCESS_GROUP set' : 'TVP-PCC-CORE'}`);
   requireCreds();
   const token = await getToken();
+  // Passive sell is free-form (no search/offer) — run it on its own.
+  if (process.env.TVP_STAYS_PASSIVE) {
+    await hotelPassiveProbe(token);
+    console.log('\nDone. (Live calls only — re-running hits the API again.)');
+    return;
+  }
   const searchResponse = await hotelSearch(token);
   // Opt-in third call: rate detail (HOC) for the first bookable property.
   if ((process.env.TVP_STAYS_AVAIL || process.env.TVP_STAYS_BUILD) && searchResponse) {
