@@ -633,6 +633,50 @@ export class LiveTravelportBackend implements Backend {
   }
 
   /**
+   * Hotel property search — Stays API v11 (`POST /11/hotel/search/
+   * properties/search`). The HOA equivalent: returns properties near an
+   * airport for the stay dates, each with a `LowestAvailableRate`.
+   *
+   * Body VERIFIED against the Stays v11.34 OpenAPI spec AND against
+   * pre-prod 2026-06-14 (validate-stays-creds.ts): 7K9S accepts this shape
+   * — it passed field validation. The search itself 500s on the trial
+   * tenant (no hotel content provisioning), so the RESPONSE mapping
+   * (mapHotelSearch) is spec-derived pending a capture on an entitled
+   * tenant. Dates are ISO `YYYY-MM-DD`.
+   */
+  async hotelSearch(req: {
+    airport: string;
+    checkIn: string;
+    checkOut: string;
+    adults?: number;
+    radiusMiles?: number;
+  }): Promise<unknown> {
+    const url = `${this.opts.apiBase}/hotel/search/properties/search`;
+    const body = {
+      PropertiesQuerySearch: {
+        '@type': 'PropertiesQuerySearch',
+        CheckInDate: req.checkIn,
+        CheckOutDate: req.checkOut,
+        SearchBy: {
+          '@type': 'SearchByAirport',
+          SearchAirport: req.airport,
+          SearchRadius: { value: req.radiusMiles ?? 25, unitOfDistance: 'Miles' },
+        },
+        RoomStayCandidate: [
+          {
+            GuestCounts: {
+              '@type': 'GuestCounts',
+              GuestCount: [{ '@type': 'GuestCount', count: req.adults ?? 1 }],
+            },
+          },
+        ],
+        returnOnlyAvailablePropertiesInd: true,
+      },
+    };
+    return this.postJson(url, body, 'hotelSearch');
+  }
+
+  /**
    * Search seat availability for a previously-searched offer +
    * product. Live counterpart for Galileo SA-asterisk / SM-asterisk
    * (SA* / SM*) and Sabre 4G display verbs.

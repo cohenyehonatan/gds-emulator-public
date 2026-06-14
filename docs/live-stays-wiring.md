@@ -123,9 +123,16 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
 1. ~~**Probe + entitlement check**~~ **DONE** — `validate-stays-creds.ts`
    (`npm run validate:stays-creds`) confirmed 7K9S is entitled (400 VALIDATION, not
    403) and that the search wrapper is `PropertiesQuerySearch`. Gate passed.
-2. **Read path (`HOA`/`HOC`)** — lowest risk, read-only: live hotel search +
-   availability → `lastHotelAvail`. Operators get real hotels; the existing
-   reference-sell then books locally (or live in chunk 3).
+2. **Read path (`HOA`)** — **DONE (search half).** `LiveTravelportBackend.hotelSearch()`
+   (verified `PropertiesQuerySearch` body) + `mapHotelSearch` (PropertiesResponse →
+   `HotelProperty[]`, spec-derived) + an `instanceof` branch in `handleGalileoHotel`
+   so live `HOA` lists real properties (with `LowestAvailableRate`) and caches
+   `lastHotelAvail` for sell, exactly like emulated. DDMON→ISO date conversion;
+   empty-rate properties render `RQ`. Mocked tests:
+   `test/dialects/galileo-live-hotel.test.ts`. Open: `HOC` rate detail via
+   `/hotel/availability/catalogofferingshospitality` (the availability call), and
+   re-verifying `mapHotelSearch` against a real response (capture on an entitled
+   tenant). `HOI` stays emulated.
 3. **Sell path** — active book (`N<rooms>A<line>` → `/hotel/book/reservations`) and
    passive book (`0HTL…MK` → `/hotel/book/reservations/passive`).
 4. **Cancel** — `X`-family hotel segment → `…/canceloffer`. Retrieve is already done.

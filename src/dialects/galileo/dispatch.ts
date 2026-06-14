@@ -59,6 +59,7 @@ import {
   extractSegmentOfferIds,
   mapQueueList,
   mapFareDisplay,
+  mapHotelSearch,
 } from '../../backends/travelport-mapper.js';
 import { isRecordLocator } from '../../models/record-locator.js';
 import type { WorkArea } from '../../session/work-area.js';
@@ -3376,17 +3377,34 @@ function renderSeatCharacteristics(label: string, space: import('../../models/se
  * Response wording reconstructed (the guide documents entries, not
  * screens).
  */
-function handleGalileoHotel(
+async function handleGalileoHotel(
   entry: import('../../protocol/entry.js').HotelEntry,
   wa: WorkArea,
   ctx: HandlerContext,
-): string {
+): Promise<string> {
   if (entry.action === 'direct_sell') return handleGalileoHotelDirectSell(entry, wa);
   if (entry.action === 'availability' || entry.action === 'index') {
-    const props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
-    if (props.length === 0) return 'NO HOTELS';
     const checkIn = entry.checkIn ?? '15JUL';
     const checkOut = entry.checkOut ?? checkIn;
+    // Live HOA: the Stays API hotel search (read-only — no workbench, so
+    // a committed BF on screen doesn't block it). HOI/HOC stay emulated.
+    let props: import('../../models/hotel.js').HotelProperty[];
+    if (ctx.backend instanceof LiveTravelportBackend && entry.action === 'availability') {
+      try {
+        const resp = await ctx.backend.hotelSearch({
+          airport: entry.city!,
+          checkIn: ddmonToIso(checkIn),
+          checkOut: ddmonToIso(checkOut),
+          adults: entry.adults,
+        });
+        props = mapHotelSearch(resp, entry.city!);
+      } catch (err) {
+        return `LIVE BACKEND ERROR: ${err instanceof Error ? err.message : String(err)}`; // reconstructed
+      }
+    } else {
+      props = ctx.backend.inventory.hotelsIn(entry.city!, entry.chain);
+    }
+    if (props.length === 0) return 'NO HOTELS';
     const nights = entry.checkIn && entry.checkOut ? galileoNights(entry.checkIn, entry.checkOut) : 1;
     wa.lastHotelAvail = { city: entry.city!, checkIn, checkOut, nights, properties: props };
     wa.lastCarAvail = undefined; // hotel display replaces a car display
@@ -3395,7 +3413,10 @@ function handleGalileoHotel(
     props.forEach((p, i) => {
       const lo = p.rates.reduce((min, r) => Math.min(min, r.amount), Infinity);
       const cur = p.rates[0]?.currency ?? '';
-      lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property} ${p.name.padEnd(38, ' ')} ${lo.toFixed(0)}${cur}`);
+      // No rate (live search returned a property without a LowestAvailableRate)
+      // → rate-on-request rather than "Infinity".
+      const rate = Number.isFinite(lo) ? `${lo.toFixed(0)}${cur}` : 'RQ';
+      lines.push(`${(i + 1).toString().padStart(2, ' ')} ${p.chain}${p.property} ${p.name.padEnd(38, ' ')} ${rate}`);
     });
     return lines.join('\n');
   }
@@ -3505,6 +3526,26 @@ function handleGalileoAuxSell(
 function nextSegmentNumber(wa: WorkArea): number {
   return wa.pnr.segments.length + wa.pnr.hotelSegments.length +
     wa.pnr.carSegments.length + wa.pnr.railSegments.length + 1;
+}
+
+/**
+ * Cryptic DDMON (`06FEB`) → ISO `YYYY-MM-DD` for the live Stays API,
+ * which wants ISO dates. The cryptic token carries no year, so resolve
+ * to the NEXT occurrence (today or later) — matching how an agent reads
+ * a bare DDMON as "the coming 6 Feb".
+ */
+function ddmonToIso(ddmon: string): string {
+  const m = /^(\d{1,2})([A-Z]{3})$/.exec(ddmon.toUpperCase());
+  if (!m) return ddmon; // already ISO or unparseable — pass through
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const mon = months.indexOf(m[2]);
+  if (mon < 0) return ddmon;
+  const day = parseInt(m[1], 10);
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  let year = now.getUTCFullYear();
+  if (Date.UTC(year, mon, day) < todayUtc) year += 1;
+  return `${year}-${String(mon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /**

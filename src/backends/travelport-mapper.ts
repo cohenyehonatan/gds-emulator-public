@@ -47,7 +47,7 @@
 import type { AvailabilityLine, VendorRef } from '../models/availability-result.js';
 import { Pnr } from '../models/pnr.js';
 import type { AirSegment } from '../models/segment.js';
-import type { HotelSegment } from '../models/hotel.js';
+import type { HotelSegment, HotelProperty } from '../models/hotel.js';
 import type { CarSegment } from '../models/car.js';
 import type { NameItem } from '../models/name-element.js';
 import type { PhoneElement } from '../models/phone-element.js';
@@ -720,6 +720,51 @@ function applyDisplaySequence(pnr: Pnr, root: any, hotels: HotelRef[], cars: Car
     const n = byKey.get(`${str(c.offerId)}|${str(c.productId)}`);
     if (n != null) c.seg.segmentNumber = n;
   }
+}
+
+// --- Live hotel (Stays API v11) ---------------------------------------
+/**
+ * Map a Stays `POST /hotel/search/properties/search` response onto the
+ * emulator's `HotelProperty[]` (the same shape `Inventory.hotelsIn`
+ * returns), so a live HOA renders + caches for sell exactly like the
+ * emulated path.
+ *
+ * SPEC-DERIVED (Stays v11.34 OpenAPI, `references/galileo/Travelport-
+ * Stays-v11.34-OpenAPI.json`), NOT capture-verified — the 7K9S trial
+ * tenant 500s on hotel content, so there's no real response to pin
+ * against yet. Field paths: `PropertiesResponse.Properties.PropertyInfo[]`,
+ * each `.Property` is a `PropertyDetail` (= `Property` ⊕ address) carrying
+ * `PropertyKey.{chainCode,propertyCode}` + `name` + `Address.City`, and
+ * `.LowestAvailableRate` (a `CurrencyAmount` {value, code}) gives the
+ * representative HOA rate. Re-verify against a real response (TVP_CAPTURE
+ * on an entitled tenant) before trusting in production — the same
+ * capture-first bar the multi-content retrieve mapper met.
+ */
+export function mapHotelSearch(response: unknown, fallbackCity: string): HotelProperty[] {
+  const r = response as any;
+  const root = r?.PropertiesResponse ?? r?.PropertiesResponseWrapper?.PropertiesResponse ?? r;
+  const out: HotelProperty[] = [];
+  for (const info of arrayish(root?.Properties?.PropertyInfo)) {
+    const p = (info as any)?.Property;
+    const key = p?.PropertyKey;
+    const chain = str(key?.chainCode);
+    const name = str(p?.name);
+    if (!chain && !name) continue;
+    const lar = (info as any)?.LowestAvailableRate;
+    const rates =
+      lar?.value != null
+        ? [{ code: 'LAR', amount: num(lar.value), currency: str(lar.code), available: 1 }]
+        : [];
+    out.push({
+      chain,
+      property: str(key?.propertyCode),
+      name,
+      city: str(p?.Address?.City) || fallbackCity,
+      address: str(arrayish(p?.Address?.AddressLine)[0] ?? p?.Address?.Street),
+      rates,
+    });
+  }
+  return out;
 }
 
 function flightToSegment(flight: any, segmentNumber: number): AirSegment | null {
