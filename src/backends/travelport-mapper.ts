@@ -353,11 +353,28 @@ function arrayish<T>(x: T | T[] | null | undefined): T[] {
  * input takes precedence over whatever the response carries (the
  * caller knows what it asked for).
  *
- * What's mapped today: locator, names, segments, phones. Ticketing
- * field / received-from / SSRs / OSIs / remarks / frequent flyers /
- * tickets / pricing all stay default — they have natural REST
+ * What's mapped today: locator, names, segments (AIR only), phones.
+ * Ticketing field / received-from / SSRs / OSIs / remarks / frequent
+ * flyers / tickets / pricing all stay default — they have natural REST
  * equivalents (`/accountings`, `/specialservices`, `/receipts`) that
  * a follow-up commit can wire in.
+ *
+ * **Multi-content** (Travelport Multi-Content Booking Guide): a BF can
+ * also carry hotel/car segments, returned as separate Offer instances
+ * with Product type `ProductHospitality` / `ProductVehicle` (vs
+ * `ProductAir`), plus Receipt `OfferStatusHospitality`/`OfferStatusVehicle`
+ * and a `ReservationDisplaySequence` giving true itinerary order (the
+ * response is always air→hotel→car otherwise). We map air only and
+ * IGNORE the hotel/car offers — they have no `FlightSegment`, so
+ * `mapReservationSegments` skips them and travelers (read from the
+ * reservation-root `Traveler[]`, not per-offer) don't duplicate. This is
+ * robust, not complete: the emulated `*I`/`*R` interleaves all segment
+ * types, so a live multi-content retrieve is lossy vs emulated. A
+ * verified hotel/car mapper (→ `pnr.hotelSegments`/`carSegments`,
+ * ordered by DisplaySequence, active HK / passive BK·MK) is CAPTURE-FIRST
+ * — it needs a real pre-prod multi-content payload to pin exact field
+ * paths, the same bar every mapper here meets. See
+ * `test/backends/multi-content-retrieve.test.ts` for the locked behavior.
  */
 export function mapReservation(response: unknown, locator: string): Pnr {
   const pnr = new Pnr();
