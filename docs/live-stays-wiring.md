@@ -248,6 +248,25 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
   Car APIs** ship (or we take on a uAPI backend). Unlike Stays — which turned out
   to be a real, GA, dismissed-by-mistake JSON API — the car JSON *booking* gap is
   genuine. See [[dig-before-declaring-platform-gaps]].
+
+**v11 JSON ⟷ uAPI capability boundary (gateway-probed 2026-06-16).** uAPI's
+bookable content is Air / Hotel / **Vehicle** / **Rail** (Content Providers
+page); v11 JSON exposes only Flights / Stays (+ Pay). Probing the pre-prod v11
+gateway (empty-body POST, status only):
+| namespace | result |
+|---|---|
+| `/hotel/…` | `400` JSON error → **deployed** |
+| `/air/…` | app-level HTML 404 (wrong sub-path, namespace routes) → **deployed** |
+| `/car` `/vehicle` `/rail` `/cruise` `/insurance` `/tour` | bare `404 page not found` → **NOT deployed** |
+So the uAPI-only capabilities vs v11-today are the **non-air/non-hotel content
+domains — Car/Vehicle and Rail** (both present in uAPI, both 404 on v11). Cruise/
+insurance/tour 404 on v11 too but aren't in uAPI's current content set either, so
+they're platform-wide gaps, not "uAPI can / TripServices can't." Cross-cutting
+service families (ticketing/EMD, queues, exchanges, retrieve, queues) exist on
+BOTH for their supported domains — we've wired many via v11 — so they're not
+uAPI-only. The 404-flavor tell: **bare gateway 404 = namespace absent; app HTML
+404 = deployed-but-wrong-resource.** Cars + rail are emulated in-tree
+(`car.ts`/`rail.ts`); neither is live-wireable on v11 today.
 - **Live multi-content *retrieve*** — already wired (`mapReservation` maps
   air+hotel+car; `test/backends/multi-content-retrieve.test.ts`).
 - **v12 `SearchComplete`** — defer; v11's separate search/availability is enough.
