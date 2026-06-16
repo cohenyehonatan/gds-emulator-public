@@ -219,9 +219,27 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
 
 ## Out of scope
 
-- **Car** — genuinely no published v11 REST surface (developer-docs nav has
-  Flights / Stays / Pay only; the Multi-Content guide's "(full release pending)"
-  applies here). `CAL`/car-sell stay emulated until a Cars API ships.
+- **Car** — genuinely no published v11 REST *booking* surface. Dug 2026-06-16
+  (per user request, starting from the uAPI vehicle page):
+  - **v11 JSON REST (our backend's protocol):** the JSON APIs home lists only
+    **Flights / Stays / Pay** — no Cars product. The Car booking API is marked
+    "**(full release pending)**" everywhere (Multi-Content guide); there's no
+    Cars API-reference section, no endpoints list, no schemas. So active/passive
+    car *booking* via JSON is NOT wireable today.
+  - **Retrieve already covers the READ side:** multi-content Reservation Retrieve
+    returns `ProductVehicle` (ECAR/ACRISS) for active+passive cars — which
+    `mapReservationCars` already maps. So a retrieved BF's cars show; only
+    creating them via JSON is blocked.
+  - **uAPI (XML/SOAP)** HAS full vehicle booking (`VehicleCreateReservationReq`:
+    search → rules → create → modify/cancel/retrieve), but it's a different API
+    generation — XML not JSON, different endpoint + branch-based auth. Wiring it
+    means a whole separate `uAPI` backend, not an extension of `LiveTravelport-
+    Backend`. Out of scope unless we add a uAPI transport.
+
+  Net: `CAL` / `0CCR` car-sell stay emulated until the v11 JSON **TripServices
+  Car APIs** ship (or we take on a uAPI backend). Unlike Stays — which turned out
+  to be a real, GA, dismissed-by-mistake JSON API — the car JSON *booking* gap is
+  genuine. See [[dig-before-declaring-platform-gaps]].
 - **Live multi-content *retrieve*** — already wired (`mapReservation` maps
   air+hotel+car; `test/backends/multi-content-retrieve.test.ts`).
 - **v12 `SearchComplete`** — defer; v11's separate search/availability is enough.
