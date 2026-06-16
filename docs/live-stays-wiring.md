@@ -267,6 +267,19 @@ BOTH for their supported domains — we've wired many via v11 — so they're not
 uAPI-only. The 404-flavor tell: **bare gateway 404 = namespace absent; app HTML
 404 = deployed-but-wrong-resource.** Cars + rail are emulated in-tree
 (`car.ts`/`rail.ts`); neither is live-wireable on v11 today.
+
+**Two portals = two generations (the gap, restated).** `legacy.developer.
+travelport.com` fronts **Universal API (uAPI)** — SOAP/XML, HTTP Basic +
+Target Branch, Universal Record, and the BROADER content set (Air + Hotel +
+**Car + Rail** + merchandising). `developer.travelport.com` fronts **Travelport
+TripServices** — JSON/REST, OAuth, "AI-native" product naming, but only
+**Flights / Stays / Pay**. The new portal links to the old as the "Legacy
+Developer Portal." Key takeaway: the migration modernized the naming + protocol
+faster than it migrated content breadth, so the *new* portal is the *narrower*
+one — car/rail still live only on the legacy XML side. That's why `/car` and
+`/rail` 404 on the JSON gateway. Booking either live = the uAPI (Basic-auth,
+SOAP) path; OAuth does NOT bridge to uAPI (the v11 OAuth "migration" note is
+JSON-endpoint-internal, not a uAPI auth bridge).
 - **Live multi-content *retrieve*** — already wired (`mapReservation` maps
   air+hotel+car; `test/backends/multi-content-retrieve.test.ts`).
 - **v12 `SearchComplete`** — defer; v11's separate search/availability is enough.
