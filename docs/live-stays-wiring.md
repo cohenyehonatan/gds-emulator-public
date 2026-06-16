@@ -226,6 +226,14 @@ The seam already exists; this reuses every piece of the live-Travelport machiner
     "**(full release pending)**" everywhere (Multi-Content guide); there's no
     Cars API-reference section, no endpoints list, no schemas. So active/passive
     car *booking* via JSON is NOT wireable today.
+  - **Live gateway probe (2026-06-16) confirms it's not just undocumented —
+    the route isn't deployed.** POSTing empty bodies to six structurally-likely
+    mirrors (`/car|/vehicle|/cars` × `book/reservations`, `search/…`,
+    `availability/…`) all returned bare **`404 page not found`**. Contrast: the
+    hotel paths return `200`/`400` (routed) with identical headers — so the
+    gateway DOES route deployed namespaces; car simply isn't one. (This is the
+    "maybe the path's up but the docs aren't" test that *confirmed* Stays; for
+    cars it confirms the gap.)
   - **Retrieve already covers the READ side:** multi-content Reservation Retrieve
     returns `ProductVehicle` (ECAR/ACRISS) for active+passive cars — which
     `mapReservationCars` already maps. So a retrieved BF's cars show; only
