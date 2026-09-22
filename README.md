@@ -2,15 +2,18 @@
 
 A multi-dialect **GDS host emulator** — cryptic-entry parsing, an AAA
 work-area session FSM, the core PNR lifecycle, and four implemented
-dialects (Sabre, Galileo 1G, Apollo 1V, Amadeus). Built as a sibling to
-[`pectab-printer-emulator`](../pectab-printer-emulator): same
-TypeScript/ESM stack, table-driven state machine, pluggable TCP
-transport, command-handler registry, declarative scenarios, and a
-reference counterparty.
+dialects (Sabre, Galileo 1G, Apollo 1V, Amadeus). Same
+TypeScript/ESM stack as a companion printer emulator: table-driven
+state machine, pluggable TCP transport, command-handler registry,
+declarative scenarios, and a reference counterparty.
 
-Where the printer emulator emulates a **device** (the ATBPR) driven by a
+Where a printer emulator emulates a **device** (an ATB printer) driven by a
 host, this emulates the **host** (the GDS) driven by an **agent
 terminal**.
+
+> **Educational project.** A learning-focused emulator of GDS host
+> behavior. It generates responses locally and is not affiliated with,
+> and does not redistribute the documentation of, any GDS vendor.
 
 ## Run
 
@@ -103,20 +106,11 @@ Multi-GDS (Dialect ⊥ Backend) all landed. Amadeus is at v4 chunk 18.
 
 ## Fidelity
 
-Each dialect grounded in first-party references in `references/<dialect>/`:
+Each dialect's cryptic grammar and screen formats were developed against
+first-party vendor documentation (Sabre, Travelport for Galileo/Apollo,
+Amadeus, and Worldspan). **Those third-party reference documents are not
+included in this public repository.**
 
-- **Sabre** — `references/Sabre-Basic-Reservation-Course.pdf` (Ed. 2.7)
-  + the Issue-Tickets / Ticket-Display / Accounting / Pricing QRs.
-- **Galileo (1G)** — Travelport+ Mini Format Guide v2, Smartpoint Module
-  2, Pocket Guide, GDS Format Comparison Guide, Kuwait 2021 mirror.
-- **Apollo (1V)** — same Comparison Guide; verb-by-verb Rosetta to
-  Galileo.
-- **Amadeus** — Cryptic Entries Reference Guide Ed. 9.2 (2012) plus
-  the official Predefined Host Messages dump in
-  `references/amadeus/errors/`.
-
-Reconstructed-not-verified strings (where the source doesn't publish
-the exact wording) are flagged inline in code with `// reconstructed`
-or similar comments. Live responses + the GDS reference-payload devkit
-Postman collection are the ground truth for Galileo when they're
-available.
+Reconstructed-not-verified strings (where a source doesn't publish the
+exact wording) are flagged inline in code with `// reconstructed` or
+similar comments.
